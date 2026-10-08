@@ -26,6 +26,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run build:demo
+      # Pack, install the tarball into an empty project, use it from there.
+      - run: npm run pack:check
 
   # Re-proves the headline claim on a clean machine: replaying a real testnet
   # transaction in ckb-debugger, group by group, adds up to exactly the cycles

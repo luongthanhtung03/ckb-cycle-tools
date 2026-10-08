@@ -2,9 +2,19 @@
   "name": "ckb-cycle-tools",
   "version": "0.0.1",
   "description": "Cycle measurement for CKB on-chain scripts",
+  "keywords": [
+    "ckb",
+    "nervos",
+    "cycles",
+    "ckb-debugger",
+    "profiler",
+    "ckb-js-vm"
+  ],
   "license": "MIT",
   "author": "Luong Thanh Tung (https://github.com/luongthanhtung03)",
   "repository": "github:luongthanhtung03/ckb-cycle-tools",
+  "homepage": "https://github.com/luongthanhtung03/ckb-cycle-tools#readme",
+  "bugs": "https://github.com/luongthanhtung03/ckb-cycle-tools/issues",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,7 +33,9 @@
     "analyze:testnet": "npm run build && node scripts/analyze-testnet.mjs",
     "cycles": "npm run build && node dist/cli.js",
     "bench:build": "npm run build && node benchmarks/session-lock/build-js.mjs",
-    "bench:session-lock": "npm run bench:build && node benchmarks/session-lock/compare.mjs"
+    "bench:session-lock": "npm run bench:build && node benchmarks/session-lock/compare.mjs",
+    "prepack": "npm run build",
+    "pack:check": "node scripts/pack-check.mjs"
   },
   "devDependencies": {
     "@ckb-js-std/bindings": "^1.0.0",
