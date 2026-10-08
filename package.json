@@ -17,11 +17,24 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "demo": "npm run build && npm run dev -w demo",
+    "build:demo": "npm run build && npm run build -w demo",
+    "analyze:testnet": "npm run build && node scripts/analyze-testnet.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "typescript": "~5.8.2",
     "vitest": "^3.2.7"
-  }
+  },
+  "dependencies": {
+    "@ckb-ccc/core": "^1.23.0"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./analyze": "./dist/analyze.js"
+  },
+  "workspaces": [
+    "demo"
+  ]
 }
