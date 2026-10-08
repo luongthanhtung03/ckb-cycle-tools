@@ -192,6 +192,10 @@ secp256k1 lock costs about 1.6M cycles per transaction.
 writeFileSync(join(here, "RESULTS.md"), report);
 console.log(report);
 if (failures) {
+  // On GitHub Actions, name each disagreement in the run's annotations.
+  if (process.env.GITHUB_ACTIONS)
+    for (const r of rows.filter((r) => !r.ok))
+      console.log(`::error title=${r.name}::expected ${r.expected}, Rust returned ${r.rust.code}, ckb-js-vm returned ${r.js.code}`);
   console.error(`${failures} scenario(s) did not return the expected code from both implementations`);
   process.exit(1);
 }

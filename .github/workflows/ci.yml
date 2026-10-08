@@ -83,10 +83,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Run the benchmark
+      - name: Build the ckb-js-vm session lock
+        run: npm run bench:build
+      - name: Run both implementations through the 20 scenarios
         env:
           SESSION_LOCK_BIN: ${{ github.workspace }}/ckb-session-kit/contracts/session-lock/target/riscv64imac-unknown-none-elf/release/session-lock
-        run: npm run bench:session-lock
+        run: node benchmarks/session-lock/compare.mjs
       - name: Publish the results table
         if: always()
         run: cat benchmarks/session-lock/RESULTS.md >> "$GITHUB_STEP_SUMMARY"
