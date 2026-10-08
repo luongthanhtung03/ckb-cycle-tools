@@ -2,10 +2,15 @@
 
 Cycle measurement for CKB on-chain scripts.
 
-**Status: not started.** This repository exists so the work has somewhere to land.
-There is no implementation here yet — the first real commit is due in Week 4 of my
-CKBuilder programme (w/c 5 October 2026), when the measurement harness this is built
-from gets written.
+**Status: early development.** Built in the open during my CKBuilder programme.
+
+| When | Milestone |
+|---|---|
+| w/c 5 Oct 2026 | Scaffold, CI, the Windows `ckb-debugger` shim fix |
+| w/c 12 Oct | CLI: per-script cycle table for a transaction |
+| w/c 19 Oct | Failure-path profiling; CI on Linux and Windows |
+| w/c 26 Oct | ckb-js-vm vs Rust comparison harness |
+| w/c 2 Nov | v1.0 on npm |
 
 ## The problem
 
