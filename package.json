@@ -1,0 +1,27 @@
+{
+  "name": "ckb-cycle-tools",
+  "version": "0.0.1",
+  "description": "Cycle measurement for CKB on-chain scripts",
+  "license": "MIT",
+  "author": "Luong Thanh Tung (https://github.com/luongthanhtung03)",
+  "repository": "github:luongthanhtung03/ckb-cycle-tools",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.8.2",
+    "vitest": "^3.2.7"
+  }
+}
