@@ -98,6 +98,30 @@ live testnet transactions on a clean machine. `--json` for machine output,
 `--mainnet` or `--rpc <url>` for another node. ckb-debugger is found the same way
 as everywhere else in this repo (see the Windows fix above).
 
+## ckb-js-vm vs Rust: one lock, two implementations
+
+`benchmarks/session-lock` holds a TypeScript port of the
+[ckb-session-kit](https://github.com/luongthanhtung03/ckb-session-kit) session lock
+for ckb-js-vm. It runs the same 20 scenarios as the Rust original in the real
+CKB-VM and fails unless both implementations make every accept/reject decision
+correctly.
+
+| | Rust | ckb-js-vm |
+|---|---:|---:|
+| Mean cycles, accepted spends | 12,263 | 14,573,318 |
+| Cheapest run (start-up cost) | 2,318 | 13,916,789 |
+
+About 95% of the ckb-js-vm cost is starting the VM; the lock's own logic runs at
+roughly 66× the Rust logic. Full table: [RESULTS.md](benchmarks/session-lock/RESULTS.md).
+
+```bash
+npm run bench:session-lock   # needs the Rust lock built in ../ckb-session-kit, or SESSION_LOCK_BIN
+```
+
+CI rebuilds both implementations from source — the Rust lock from a pinned
+ckb-session-kit commit — reruns the 20 scenarios, and publishes the table in the
+job summary.
+
 ## Why it is a separate repository
 
 It started as measurement scaffolding inside a learning exercise. That is a bad place

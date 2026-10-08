@@ -52,3 +52,41 @@ jobs:
         run: node dist/cli.js 0x64f695a23416d9a7b2d34bb7025140c90991b82e9f1dea98e103bc13a72b77ac
       - name: Script deployment (lock + built-in Type ID)
         run: node dist/cli.js 0xa21da18ff3f142127cf63d6e705d64c14577fb99a9a0cbf74f47fb70b6ad66cf
+
+  # The Rust vs ckb-js-vm benchmark, rebuilt from source on a clean machine.
+  # The Rust lock comes from ckb-session-kit at a pinned commit, so the numbers
+  # here always refer to a known version of it. compare.mjs exits non-zero unless
+  # both implementations return the expected code in all 20 scenarios.
+  bench-session-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: luongthanhtung03/ckb-session-kit
+          ref: 3745aa06fcd0a831d2a73a9fef2d488b84e02d3f
+          path: ckb-session-kit
+      - run: rustup target add riscv64imac-unknown-none-elf
+      - name: Build the Rust session lock
+        working-directory: ckb-session-kit/contracts/session-lock
+        run: cargo build --release
+      - name: Install ckb-debugger
+        run: |
+          version=v1.1.1
+          url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${version}/ckb-debugger_${version}_x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL "$url" -o /tmp/ckb-debugger.tar.gz
+          mkdir -p "$HOME/.ckb-tools"
+          tar -xzf /tmp/ckb-debugger.tar.gz -C "$HOME/.ckb-tools"
+          echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run the benchmark
+        env:
+          SESSION_LOCK_BIN: ${{ github.workspace }}/ckb-session-kit/contracts/session-lock/target/riscv64imac-unknown-none-elf/release/session-lock
+        run: npm run bench:session-lock
+      - name: Publish the results table
+        if: always()
+        run: cat benchmarks/session-lock/RESULTS.md >> "$GITHUB_STEP_SUMMARY"
