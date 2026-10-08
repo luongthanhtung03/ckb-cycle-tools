@@ -21,10 +21,17 @@
     "demo": "npm run build && npm run dev -w demo",
     "build:demo": "npm run build && npm run build -w demo",
     "analyze:testnet": "npm run build && node scripts/analyze-testnet.mjs",
-    "cycles": "npm run build && node dist/cli.js"
+    "cycles": "npm run build && node dist/cli.js",
+    "bench:build": "npm run build && node benchmarks/session-lock/build-js.mjs",
+    "bench:session-lock": "npm run bench:build && node benchmarks/session-lock/compare.mjs"
   },
   "devDependencies": {
+    "@ckb-js-std/bindings": "^1.0.0",
+    "@ckb-js-std/core": "^1.0.1",
     "@types/node": "^22.20.5",
+    "ckb-testtool": "^1.0.5",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.23.15",
     "typescript": "~5.8.2",
     "vitest": "^3.2.7"
   },
