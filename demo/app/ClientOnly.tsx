@@ -6,7 +6,11 @@ import dynamic from "next/dynamic";
 // on the server.
 const Analyzer = dynamic(() => import("./Analyzer"), {
   ssr: false,
-  loading: () => <main className="wrap">Loading…</main>,
+  loading: () => (
+    <main className="wrap">
+      <span className="cursor" />
+    </main>
+  ),
 });
 
 export default function ClientOnly() {
