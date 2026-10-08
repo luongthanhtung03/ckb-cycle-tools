@@ -23,17 +23,17 @@ const js = join(dist, "session-lock.js");
 const bc = join(dist, "session-lock.bc");
 mkdirSync(dist, { recursive: true });
 
-const esbuild = join(dirname(require.resolve("esbuild/package.json")), "bin", "esbuild");
-execFileSync(process.execPath, [
-  esbuild,
-  "--platform=neutral",
-  "--bundle",
-  "--external:@ckb-js-std/bindings",
-  "--target=es2022",
-  "--minify",
-  join(here, "js", "index.ts"),
-  `--outfile=${js}`,
-]);
+// esbuild's JS API, not its bin: on Linux the install step swaps bin/esbuild for
+// the native executable, which `node` cannot run.
+require("esbuild").buildSync({
+  entryPoints: [join(here, "js", "index.ts")],
+  outfile: js,
+  platform: "neutral",
+  bundle: true,
+  external: ["@ckb-js-std/bindings"],
+  target: "es2022",
+  minify: true,
+});
 
 // The same Windows-safe resolver this repo ships: no .cmd shim, no shell.
 execFileSync(resolveDebugger(), ["--read-file", js, "--bin", DEFAULT_SCRIPT_CKB_JS_VM, "--", "-c", bc]);
