@@ -8,10 +8,10 @@ Cycle measurement for CKB on-chain scripts.
 
 | When | Milestone |
 |---|---|
-| w/c 5 Oct 2026 | Scaffold, CI, the Windows `ckb-debugger` shim fix |
-| w/c 12 Oct | CLI: per-script cycle table for a transaction |
-| w/c 19 Oct | Failure-path profiling; CI on Linux and Windows |
-| w/c 26 Oct | ckb-js-vm vs Rust comparison harness |
+| w/c 5 Oct 2026 | ✅ Scaffold, CI, the Windows `ckb-debugger` shim fix |
+| w/c 12 Oct | ✅ CLI: per-script cycle table for a transaction |
+| w/c 19 Oct | ✅ Failure-path profiling; ✅ CI on Linux and Windows |
+| w/c 26 Oct | ✅ ckb-js-vm vs Rust comparison harness |
 | w/c 2 Nov | v1.0 on npm |
 
 ## The problem
@@ -97,6 +97,33 @@ The CLI exits non-zero on a mismatch or a rejecting script, and CI runs it again
 live testnet transactions on a clean machine. `--json` for machine output,
 `--mainnet` or `--rpc <url>` for another node. ckb-debugger is found the same way
 as everywhere else in this repo (see the Windows fix above).
+
+### Before you send: the failure path
+
+`--file` profiles a transaction that is not on chain — one you are about to send,
+or one the node rejected — and shows which script refuses it, with its exit code
+and what it cost to get there. It reads the node's RPC JSON, a `get_transaction`
+result, or a CCC transaction saved with `ccc.stringify(tx)`.
+
+Here a real [session-lock spend](https://testnet.explorer.nervos.org/transaction/0x48b3bde2a50bb8ba3aff0800e850b2aa521793b35628d165eab7f22f984be828)
+of exactly its 100 CKB limit, edited to pay one shannon more
+([`test/fixtures/session-lock-overspend.json`](test/fixtures/session-lock-overspend.json)):
+
+```
+$ npx ckb-cycles --file session-lock-overspend.json
+tx not on chain
+
+GROUP  SCRIPT             RUN AT        RESULT       CYCLES  SHARE
+lock   0x1ae8b8…26bc20    input.0.lock  exit 12      12,893   0.8%
+lock   Secp256k1Blake160  input.1.lock  exit -31  1,642,194  99.2%
+```
+
+The session lock refuses with its code 12 (outflow over `max_per_tx`) after
+12,893 cycles; the secp256k1 lock fails too, because the edit invalidated the
+signature. CI replays this file and requires exactly that refusal.
+
+In code: `profileTransaction(readTransactionJson(json))`, or pass an RPC-shaped
+transaction object directly.
 
 ## ckb-js-vm vs Rust: one lock, two implementations
 

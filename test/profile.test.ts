@@ -1,6 +1,9 @@
+import { ccc } from "@ckb-ccc/core";
+import { cccA } from "@ckb-ccc/core/advanced";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseOutPointVec } from "../src/mock.js";
-import { parseDebuggerOutput, selectorFor } from "../src/profile.js";
+import { parseDebuggerOutput, readTransactionJson, selectorFor } from "../src/profile.js";
 
 describe("parseDebuggerOutput", () => {
   it("reads the result, cycles and script logs", () => {
@@ -51,5 +54,29 @@ describe("parseOutPointVec", () => {
 
   it("rejects data whose length does not match its count", () => {
     expect(() => parseOutPointVec("0x02000000" + "00".repeat(36))).toThrow(/wrong length/);
+  });
+});
+
+describe("readTransactionJson", () => {
+  const rpcTx = JSON.parse(readFileSync("test/fixtures/session-lock-overspend.json", "utf8"));
+
+  it("takes the node's RPC shape as it is", () => {
+    expect(readTransactionJson(JSON.stringify(rpcTx))).toEqual(rpcTx);
+  });
+
+  it("unwraps a get_transaction result", () => {
+    expect(readTransactionJson(JSON.stringify({ transaction: rpcTx, tx_status: {} }))).toEqual(rpcTx);
+  });
+
+  it("converts a CCC transaction saved with ccc.stringify to the same RPC shape", () => {
+    const cccTx = cccA.JsonRpcTransformers.transactionTo(rpcTx);
+    const back = readTransactionJson(ccc.stringify(cccTx));
+    expect(back.outputs).toEqual(rpcTx.outputs);
+    expect(back.inputs).toEqual(rpcTx.inputs);
+    expect(back.witnesses).toEqual(rpcTx.witnesses);
+  });
+
+  it("refuses JSON that is not a transaction", () => {
+    expect(() => readTransactionJson('{"hello":1}')).toThrow(/not a CKB transaction/);
   });
 });

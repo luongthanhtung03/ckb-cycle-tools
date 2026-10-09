@@ -1,5 +1,5 @@
 /**
- * Builds a ckb-debugger "mock transaction" for any committed transaction, by
+ * Builds a ckb-debugger "mock transaction" for any transaction, by
  * fetching every cell it touches from a node: input cells, cell deps (with
  * dep groups expanded into the cells they point to), and header deps.
  *
@@ -89,10 +89,25 @@ export function parseOutPointVec(data: Hex): RpcOutPoint[] {
 
 const key = (o: RpcOutPoint) => `${o.tx_hash}:${Number(o.index)}`;
 
+/** A committed (or pending) transaction, fetched by hash. */
 export async function buildMockTransaction(
   rpc: Rpc,
   txHash: Hex,
 ): Promise<{ mock: MockTransaction; cycles?: bigint; status: string }> {
+  const root = await rpc<TxWithStatus | null>("get_transaction", [txHash]);
+  if (!root?.transaction) throw new Error(`transaction not found: ${txHash}`);
+  return {
+    mock: await mockFromTransaction(rpc, root.transaction),
+    ...(root.cycles && { cycles: BigInt(root.cycles) }),
+    status: root.tx_status.status,
+  };
+}
+
+/**
+ * Any transaction in RPC shape — including one that was never sent, or that
+ * the node would reject — as long as the cells it spends and depends on exist.
+ */
+export async function mockFromTransaction(rpc: Rpc, tx: RpcTransaction): Promise<MockTransaction> {
   const txs = new Map<string, Promise<TxWithStatus>>();
   const getTx = (hash: Hex) => {
     let p = txs.get(hash);
@@ -109,10 +124,6 @@ export async function buildMockTransaction(
     if (!output) throw new Error(`cell not found: ${key(o)}`);
     return { output, data: res.transaction!.outputs_data[i] };
   };
-
-  const root = await getTx(txHash);
-  if (!root?.transaction) throw new Error(`transaction not found: ${txHash}`);
-  const tx = root.transaction;
 
   const inputs = await Promise.all(
     tx.inputs.map(async (input) => ({ input, ...(await getCell(input.previous_output)), header: null })),
@@ -136,9 +147,5 @@ export async function buildMockTransaction(
 
   // ckb-debugger reads the RPC transaction shape without the hash field.
   const { hash: _hash, ...plainTx } = tx;
-  return {
-    mock: { mock_info: { inputs, cell_deps: deps, header_deps }, tx: plainTx },
-    ...(root.cycles && { cycles: BigInt(root.cycles) }),
-    status: root.tx_status.status,
-  };
+  return { mock_info: { inputs, cell_deps: deps, header_deps }, tx: plainTx };
 }

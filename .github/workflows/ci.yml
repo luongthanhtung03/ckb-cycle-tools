@@ -54,6 +54,16 @@ jobs:
         run: node dist/cli.js 0x64f695a23416d9a7b2d34bb7025140c90991b82e9f1dea98e103bc13a72b77ac
       - name: Script deployment (lock + built-in Type ID)
         run: node dist/cli.js 0xa21da18ff3f142127cf63d6e705d64c14577fb99a9a0cbf74f47fb70b6ad66cf
+      # A real session-lock spend, edited to pay one shannon over its limit. It was
+      # never sent; the CLI must show the session lock refusing it with code 12.
+      - name: Failure path (transaction not on chain)
+        run: |
+          set +e
+          node dist/cli.js --file test/fixtures/session-lock-overspend.json | tee out.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          test "$code" = 1
+          grep -E "input.0.lock +exit 12 " out.txt
 
   # The Rust vs ckb-js-vm benchmark, rebuilt from source on a clean machine.
   # The Rust lock comes from ckb-session-kit at a pinned commit, so the numbers

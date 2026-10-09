@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { ccc } from "@ckb-ccc/core";
+import { cccA } from "@ckb-ccc/core/advanced";
 import { groupScripts, knownScriptNames, type ScriptGroup } from "./analyze.js";
 import { resolveDebugger } from "./debugger.js";
-import { buildMockTransaction, httpRpc, type RpcScript } from "./mock.js";
+import { buildMockTransaction, httpRpc, mockFromTransaction, type RpcScript, type RpcTransaction } from "./mock.js";
 
 const run = promisify(execFile);
 
@@ -23,6 +24,7 @@ export interface GroupRun {
 export type ProfiledGroup = ScriptGroup & GroupRun;
 
 export interface Profile {
+  /** The transaction hash, or "(not on chain)" for a transaction passed in directly. */
   hash: string;
   status: string;
   /** Total cycles as reported by the node. */
@@ -64,12 +66,25 @@ export function parseDebuggerOutput(out: string): Omit<GroupRun, "selector"> {
   return { result: Number(result[1]), cycles: BigInt(cycles[1]), logs };
 }
 
-export async function profileTransaction(hash: string, options: ProfileOptions = {}): Promise<Profile> {
+/**
+ * Profiles a transaction per script group: a committed one by hash (and checks
+ * the node's total), or any transaction in RPC shape — e.g. one about to be sent,
+ * or one the node rejected — to see which script refuses it, with what exit code,
+ * and what it cost to get there.
+ */
+export async function profileTransaction(
+  target: string | RpcTransaction,
+  options: ProfileOptions = {},
+): Promise<Profile> {
   const network = options.network ?? "testnet";
   const rpc = httpRpc(options.rpcUrl ?? RPC[network]);
   const debuggerPath = options.debuggerPath ?? resolveDebugger();
 
-  const { mock, cycles, status } = await buildMockTransaction(rpc, hash);
+  const { mock, cycles, status } =
+    typeof target === "string"
+      ? await buildMockTransaction(rpc, target)
+      : { mock: await mockFromTransaction(rpc, target), cycles: undefined, status: "not on chain" };
+  const hash = typeof target === "string" ? target : "(not on chain)";
   const groups = groupScripts(
     mock.mock_info.inputs.map((c) => ({ lock: toScript(c.output.lock), type: c.output.type && toScript(c.output.type) })),
     mock.tx.outputs.map((o) => ({ lock: toScript(o.lock), type: o.type && toScript(o.type) })),
@@ -108,4 +123,23 @@ export async function profileTransaction(hash: string, options: ProfileOptions =
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Reads a transaction from JSON in any of the shapes people have at hand: the
+ * node's RPC shape, a `get_transaction` result (`{ transaction }`), or a CCC
+ * transaction saved with `ccc.stringify`.
+ */
+export function readTransactionJson(json: string): RpcTransaction {
+  let value = JSON.parse(json);
+  if (value && typeof value === "object" && "transaction" in value) value = value.transaction;
+  if (value && typeof value === "object" && "cellDeps" in value) {
+    const tx = cccA.JsonRpcTransformers.transactionFrom(ccc.Transaction.from(value)) as unknown as RpcTransaction;
+    // CCC leaves out an absent type; the node writes it as null.
+    return { ...tx, outputs: tx.outputs.map((o) => ({ ...o, type: o.type ?? null })) };
+  }
+  if (!value || typeof value !== "object" || !Array.isArray(value.cell_deps) || !Array.isArray(value.inputs)) {
+    throw new Error("not a CKB transaction: expected RPC fields (cell_deps, inputs, …) or a CCC transaction");
+  }
+  return value as RpcTransaction;
 }

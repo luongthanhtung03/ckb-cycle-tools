@@ -1,11 +1,20 @@
 #!/usr/bin/env node
+import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { profileTransaction, type Profile } from "./profile.js";
+import { profileTransaction, readTransactionJson, type Profile } from "./profile.js";
 
 const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--debugger <path>] [--json]
+       ckb-cycles --file <tx.json> [same options]
 
-Replays a committed CKB transaction in ckb-debugger, one run per script group,
-and prints the cycles each group cost. The sum is checked against the node.`;
+Replays a CKB transaction in ckb-debugger, one run per script group, and prints
+the cycles each group cost.
+
+  <tx-hash>    a committed transaction; the sum is checked against the node
+  --file       a transaction that is not on chain: one about to be sent, or one
+               the node rejected. Shows which script refuses it and why. JSON in
+               the node's RPC shape, a get_transaction result, or ccc.stringify(tx)
+
+Exits 1 if any script rejects, or if the sum differs from the node's.`;
 
 const fmt = (n: bigint) => n.toLocaleString("en-US");
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -25,7 +34,8 @@ function table(p: Profile): string {
   const line = (cells: string[]) =>
     cells.map((c, i) => (i >= 4 ? c.padStart(widths[i]) : c.padEnd(widths[i]))).join("  ");
 
-  const out = [`tx ${p.hash}  (${p.status})`, "", line(head), ...rows.map(line), ""];
+  const title = p.nodeCycles === undefined && p.status === "not on chain" ? "tx not on chain" : `tx ${p.hash}  (${p.status})`;
+  const out = [title, "", line(head), ...rows.map(line), ""];
   out.push(`measured (sum of groups)  ${fmt(p.measuredCycles)}`);
   if (p.nodeCycles !== undefined) {
     const match = p.nodeCycles === p.measuredCycles;
@@ -45,20 +55,22 @@ async function main(): Promise<number> {
       rpc: { type: "string" },
       debugger: { type: "string" },
       json: { type: "boolean" },
+      file: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
   const [hash] = positionals;
-  if (values.help || !hash) {
+  if (values.help || (!hash && !values.file) || (hash && values.file)) {
     console.log(USAGE);
     return values.help ? 0 : 2;
   }
-  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) {
+  if (hash && !/^0x[0-9a-fA-F]{64}$/.test(hash)) {
     console.error("error: expected a transaction hash: 0x followed by 64 hex characters");
     return 2;
   }
+  const target = values.file ? readTransactionJson(await readFile(values.file, "utf8")) : hash;
 
-  const p = await profileTransaction(hash, {
+  const p = await profileTransaction(target, {
     network: values.mainnet ? "mainnet" : "testnet",
     ...(values.rpc && { rpcUrl: values.rpc }),
     ...(values.debugger && { debuggerPath: values.debugger }),
