@@ -2,7 +2,7 @@ import { ccc } from "@ckb-ccc/core";
 import { cccA } from "@ckb-ccc/core/advanced";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseOutPointVec } from "../src/mock.js";
+import { mockFromTransaction, parseOutPointVec, type Rpc } from "../src/mock.js";
 import { parseDebuggerOutput, readTransactionJson, selectorFor } from "../src/profile.js";
 
 describe("parseDebuggerOutput", () => {
@@ -78,5 +78,42 @@ describe("readTransactionJson", () => {
 
   it("refuses JSON that is not a transaction", () => {
     expect(() => readTransactionJson('{"hello":1}')).toThrow(/not a CKB transaction/);
+  });
+});
+
+describe("mockFromTransaction", () => {
+  const H = (c: string) => "0x" + c.repeat(64);
+  const cellTx = (block: string | null) => ({
+    transaction: {
+      outputs: [{ capacity: "0x0", lock: { code_hash: H("1"), hash_type: "type", args: "0x" }, type: null }],
+      outputs_data: ["0x"],
+    },
+    cycles: null,
+    tx_status: { status: block ? "committed" : "pending", block_hash: block },
+  });
+  const rpc: Rpc = async <T>(method: string, params: unknown[]) => {
+    if (method === "get_header") return { hash: params[0] } as T;
+    return cellTx(params[0] === H("a") ? H("b") : null) as T;
+  };
+  const tx = (prev: string) => ({
+    version: "0x0",
+    cell_deps: [{ out_point: { tx_hash: H("a"), index: "0x0" }, dep_type: "code" as const }],
+    header_deps: [H("b")],
+    inputs: [{ since: "0x0", previous_output: { tx_hash: prev, index: "0x0" } }],
+    outputs: [],
+    outputs_data: [],
+    witnesses: [],
+  });
+
+  it("gives each input and dep the block it was created in, so load_header(Input) works", async () => {
+    const mock = await mockFromTransaction(rpc, tx(H("a")));
+    expect(mock.mock_info.inputs[0].header).toBe(H("b"));
+    expect(mock.mock_info.cell_deps[0].header).toBe(H("b"));
+    expect(mock.mock_info.header_deps).toEqual([{ hash: H("b") }]);
+  });
+
+  it("leaves the header empty for a cell not yet in a block", async () => {
+    const mock = await mockFromTransaction(rpc, tx(H("c")));
+    expect(mock.mock_info.inputs[0].header).toBeNull();
   });
 });

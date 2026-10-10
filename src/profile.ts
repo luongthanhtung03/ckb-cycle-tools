@@ -32,12 +32,20 @@ export interface Profile {
   /** Sum of the per-group cycles measured by ckb-debugger. */
   measuredCycles: bigint;
   groups: ProfiledGroup[];
+  /** Where the numbers came from, so a result can be reproduced. */
+  env: { debugger: string; network: string; rpcUrl: string };
 }
 
 export interface ProfileOptions {
   network?: "testnet" | "mainnet";
+  /** A node to fetch from instead of the public one for `network`. */
   rpcUrl?: string;
   debuggerPath?: string;
+  /**
+   * Names for scripts this tool cannot know, e.g. on a devnet: `codeHash:hashType`
+   * (lowercase hex) → name. They take precedence over the known scripts.
+   */
+  scriptNames?: Record<string, string>;
 }
 
 /**
@@ -77,7 +85,8 @@ export async function profileTransaction(
   options: ProfileOptions = {},
 ): Promise<Profile> {
   const network = options.network ?? "testnet";
-  const rpc = httpRpc(options.rpcUrl ?? RPC[network]);
+  const rpcUrl = options.rpcUrl ?? RPC[network];
+  const rpc = httpRpc(rpcUrl);
   const debuggerPath = options.debuggerPath ?? resolveDebugger();
 
   const { mock, cycles, status } =
@@ -90,8 +99,16 @@ export async function profileTransaction(
     mock.tx.outputs.map((o) => ({ lock: toScript(o.lock), type: o.type && toScript(o.type) })),
   );
 
-  const client = network === "mainnet" ? new ccc.ClientPublicMainnet() : new ccc.ClientPublicTestnet();
+  // Known-script names are CCC's table for `network`, through the same node;
+  // a network CCC does not know (a devnet) names its scripts with `scriptNames`.
+  const client =
+    network === "mainnet" ? new ccc.ClientPublicMainnet({ url: rpcUrl }) : new ccc.ClientPublicTestnet({ url: rpcUrl });
   const names = await knownScriptNames(client);
+  for (const [k, name] of Object.entries(options.scriptNames ?? {})) names.set(k.toLowerCase(), name);
+  const debuggerVersion = await run(debuggerPath, ["--version"]).then(
+    (r) => r.stdout.trim(),
+    () => "unknown",
+  );
 
   const dir = await mkdtemp(join(tmpdir(), "ckb-cycles-"));
   try {
@@ -119,6 +136,7 @@ export async function profileTransaction(
       ...(cycles !== undefined && { nodeCycles: cycles }),
       measuredCycles: profiled.reduce((sum, g) => sum + g.cycles, 0n),
       groups: profiled,
+      env: { debugger: debuggerVersion, network, rpcUrl },
     };
   } finally {
     await rm(dir, { recursive: true, force: true });

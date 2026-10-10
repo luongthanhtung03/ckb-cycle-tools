@@ -67,7 +67,7 @@ export function httpRpc(url: string): Rpc {
 interface TxWithStatus {
   transaction: RpcTransaction | null;
   cycles: Hex | null;
-  tx_status: { status: string };
+  tx_status: { status: string; block_hash?: Hex | null };
 }
 
 /** Parses a molecule OutPointVec: u32 LE count, then 36-byte out points. */
@@ -122,11 +122,14 @@ export async function mockFromTransaction(rpc: Rpc, tx: RpcTransaction): Promise
     const i = Number(o.index);
     const output = res?.transaction?.outputs[i];
     if (!output) throw new Error(`cell not found: ${key(o)}`);
-    return { output, data: res.transaction!.outputs_data[i] };
+    // The block the cell was created in. A script reading this cell's header
+    // (load_header with Source::Input, e.g. a Nervos DAO withdrawal) gets that
+    // block, provided the transaction lists it in header_deps — as on the node.
+    return { output, data: res.transaction!.outputs_data[i], header: res.tx_status.block_hash ?? null };
   };
 
   const inputs = await Promise.all(
-    tx.inputs.map(async (input) => ({ input, ...(await getCell(input.previous_output)), header: null })),
+    tx.inputs.map(async (input) => ({ input, ...(await getCell(input.previous_output)) })),
   );
 
   // Declared deps first, then the cells each dep group points to, de-duplicated.
@@ -136,7 +139,7 @@ export async function mockFromTransaction(rpc: Rpc, tx: RpcTransaction): Promise
     if (seen.has(key(cell_dep.out_point))) return;
     seen.add(key(cell_dep.out_point));
     const cell = await getCell(cell_dep.out_point);
-    deps.push({ cell_dep, ...cell, header: null });
+    deps.push({ cell_dep, ...cell });
     if (cell_dep.dep_type === "dep_group") {
       for (const out_point of parseOutPointVec(cell.data)) await addDep({ out_point, dep_type: "code" });
     }

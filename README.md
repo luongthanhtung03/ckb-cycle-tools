@@ -82,6 +82,7 @@ type   0x3e9b6b…18bed7    input.0.type  ok      14,022,840  89.5%
 
 measured (sum of groups)  15,675,038
 reported by node          15,675,038  ✓ match
+ckb-debugger 1.1.1 · testnet · https://testnet.ckb.dev/
 
 input.0.type logged:
   [DEBUG] counter: 1 input(s) -> 1 output(s)
@@ -93,9 +94,22 @@ ckb-js-vm**. Type ID is verified natively by the node and cannot run in
 ckb-debugger; the CLI charges it the node's fixed `TYPE_ID_CYCLES` (1,000,000), and
 the totals still match exactly.
 
+**Header-reading scripts replay too.** Each input cell carries the block it was
+created in, so a script that reads its input's header (as a Nervos DAO withdrawal
+does) sees what it saw on the node, as long as the transaction lists that block in
+`header_deps`, which the node requires as well. Before this, a
+[DAO withdrawal](https://testnet.explorer.nervos.org/transaction/0xe8776bb8eb039365be9679cd61870cdc7ea3c24e4f2164fdd5d5f103bdfa2cc5)
+replayed with NervosDao exiting 2 (header missing) and a total 8,058 cycles short;
+it now matches the node's 1,776,369 exactly, and CI checks it.
+
+The replay is exact for what a script can observe through syscalls: cells, data,
+witnesses, headers. The output ends with the ckb-debugger version, network and
+node used, so a result can be reproduced.
+
 The CLI exits non-zero on a mismatch or a rejecting script, and CI runs it against
 live testnet transactions on a clean machine. `--json` for machine output,
-`--mainnet` or `--rpc <url>` for another node. ckb-debugger is found the same way
+`--mainnet` or `--rpc <url>` for another node; on a network CCC does not know, name
+your scripts with `profileTransaction(tx, { scriptNames })`. ckb-debugger is found the same way
 as everywhere else in this repo (see the Windows fix above).
 
 ### Before you send: the failure path

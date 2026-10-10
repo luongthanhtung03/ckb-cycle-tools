@@ -41,6 +41,7 @@ function table(p: Profile): string {
     const match = p.nodeCycles === p.measuredCycles;
     out.push(`reported by node          ${fmt(p.nodeCycles)}  ${match ? "✓ match" : "✗ MISMATCH"}`);
   }
+  out.push(`${p.env.debugger} · ${p.env.network} · ${p.env.rpcUrl}`);
   for (const g of p.groups.filter((g) => g.logs.length)) {
     out.push("", `${g.selector} logged:`, ...g.logs.map((l) => `  ${l}`));
   }
