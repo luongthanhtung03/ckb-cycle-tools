@@ -1,0 +1,164 @@
+name: CKB cycle report
+description: >
+  Replays the scenarios in a cycles.json with the binaries built from a pull
+  request and from its base, and posts one sticky comment with the per-script
+  cycle diff and any accept/reject change.
+author: Luong Thanh Tung
+
+inputs:
+  config:
+    description: Path to the cycles.json, relative to the repository root.
+    default: cycles.json
+  build:
+    description: >
+      Shell command that builds the binaries the config names. Runs twice: in the
+      PR checkout and in a checkout of the base commit. Empty: nothing to build.
+    default: ""
+  base-ref:
+    description: The commit to compare against. Empty on a push, which reports the head alone.
+    default: ${{ github.event.pull_request.base.sha }}
+  fail-above:
+    description: Fail when a script group grows by more than this percentage. Empty never fails on growth.
+    default: ""
+  fail-on-result-change:
+    description: Fail when a script group's result changed (ok to exit N, or back).
+    default: "false"
+  comment:
+    description: Post (or update) the sticky PR comment. The table also goes to the job summary either way.
+    default: "true"
+  title:
+    description: Heading of the comment.
+    default: Cycle report
+  github-token:
+    description: Token for the comment. Needs pull-requests write.
+    default: ${{ github.token }}
+  ckb-debugger-version:
+    description: ckb-standalone-debugger release to install when ckb-debugger is not on PATH.
+    default: v1.1.1
+
+outputs:
+  report:
+    description: Path to the head report (JSON).
+    value: ${{ steps.diff.outputs.report }}
+  markdown:
+    description: Path to the markdown diff.
+    value: ${{ steps.diff.outputs.markdown }}
+  failed:
+    description: '"true" when the diff failed the thresholds or a head scenario could not run.'
+    value: ${{ steps.diff.outputs.failed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ckb-debugger
+      shell: bash
+      env:
+        VERSION: ${{ inputs.ckb-debugger-version }}
+      run: |
+        if command -v ckb-debugger >/dev/null; then ckb-debugger --version; exit 0; fi
+        if [ "$RUNNER_OS" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
+          echo "::error::install ckb-debugger yourself on $RUNNER_OS/$(uname -m), or use ubuntu-latest"
+          exit 1
+        fi
+        url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${VERSION}/ckb-debugger_${VERSION}_x86_64-unknown-linux-gnu.tar.gz"
+        curl -fsSL "$url" -o "$RUNNER_TEMP/ckb-debugger.tar.gz"
+        mkdir -p "$HOME/.ckb-tools"
+        tar -xzf "$RUNNER_TEMP/ckb-debugger.tar.gz" -C "$HOME/.ckb-tools"
+        echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
+        "$HOME/.ckb-tools/ckb-debugger" --version
+
+    - name: Build ckb-cycles
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+      run: |
+        node -e 'if (+process.versions.node.split(".")[0] < 20) { console.error("::error::ckb-cycles needs Node 20 or later"); process.exit(1) }'
+        npm ci --workspaces=false --no-audit --no-fund
+        npm run build
+        echo "CKB_CYCLES=$PWD/dist/cli.js" >> "$GITHUB_ENV"
+        mkdir -p "$RUNNER_TEMP/ckb-cycles"
+
+    - name: Report the head
+      shell: bash
+      env:
+        BUILD: ${{ inputs.build }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        if [ -n "$BUILD" ]; then bash -euo pipefail -c "$BUILD"; fi
+        # A scenario that cannot run is in the report as an error row; the diff fails on it.
+        node "$CKB_CYCLES" report "$CONFIG" --json "$RUNNER_TEMP/ckb-cycles/head.json" || true
+
+    - name: Report the base
+      shell: bash
+      env:
+        BUILD: ${{ inputs.build }}
+        CONFIG: ${{ inputs.config }}
+        BASE: ${{ inputs.base-ref }}
+      run: |
+        out="$RUNNER_TEMP/ckb-cycles"
+        if [ -z "$BASE" ]; then
+          echo '{"tool":"ckb-cycles","version":1,"scenarios":[]}' > "$out/base.json"
+          exit 0
+        fi
+        git fetch --no-tags --depth=1 origin "$BASE"
+        git worktree add --detach "$out/base" "$BASE"
+        # The base's build may fail (or not exist yet): its scenarios then count as new.
+        if [ -n "$BUILD" ]; then (cd "$out/base" && bash -euo pipefail -c "$BUILD") || echo "::warning::the build failed on the base commit"; fi
+        # The head's scenarios, with the base's binaries: only the code differs.
+        # Binary paths are relative to the config's directory, in the base checkout too.
+        node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base/$(dirname "$CONFIG")" --json "$out/base.json" || true
+        git worktree remove --force "$out/base"
+
+    - name: Diff
+      id: diff
+      shell: bash
+      env:
+        BASE: ${{ inputs.base-ref }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        FAIL_ABOVE: ${{ inputs.fail-above }}
+        FAIL_ON_RESULT_CHANGE: ${{ inputs.fail-on-result-change }}
+        TITLE: ${{ inputs.title }}
+      run: |
+        out="$RUNNER_TEMP/ckb-cycles"
+        args=(--markdown --title "$TITLE" --head-label "${HEAD_SHA:0:7}")
+        if [ -n "$BASE" ]; then args+=(--base-label "${BASE:0:7}"); else args+=(--base-label "none"); fi
+        if [ -n "$FAIL_ABOVE" ]; then args+=(--fail-above "$FAIL_ABOVE"); fi
+        if [ "$FAIL_ON_RESULT_CHANGE" = true ]; then args+=(--fail-on-result-change); fi
+        set +e
+        node "$CKB_CYCLES" diff "$out/base.json" "$out/head.json" "${args[@]}" > "$out/comment.md"
+        code=$?
+        set -e
+        # 0 and 1 are verdicts; anything else, or no output, is the diff itself failing.
+        if [ "$code" -gt 1 ] || [ ! -s "$out/comment.md" ]; then cat "$out/comment.md"; exit 2; fi
+        cat "$out/comment.md" >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "report=$out/head.json"
+          echo "markdown=$out/comment.md"
+          echo "failed=$([ "$code" = 1 ] && echo true || echo false)"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Post the sticky comment
+      if: inputs.comment == 'true' && github.event.pull_request.number
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        BODY: ${{ steps.diff.outputs.markdown }}
+      run: |
+        marker='<!-- ckb-cycles-report -->'
+        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1) || id=""
+        # A pull request from a fork gets a read-only token: the summary still has the table.
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$BODY" >/dev/null \
+            || echo "::warning::could not update the cycle report comment (read-only token?)"
+        else
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
+            || echo "::warning::could not post the cycle report comment (read-only token?)"
+        fi
+
+    - name: Fail on the thresholds
+      if: steps.diff.outputs.failed == 'true'
+      shell: bash
+      run: |
+        echo "::error::cycle report: a threshold was crossed or a scenario could not run (see the job summary)"
+        exit 1

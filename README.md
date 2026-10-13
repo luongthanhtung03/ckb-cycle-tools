@@ -154,6 +154,41 @@ signature. CI replays this file and requires exactly that refusal.
 In code: `profileTransaction(readTransactionJson(json))`, or pass an RPC-shaped
 transaction object directly.
 
+## Cycle reports on pull requests
+
+A change to a script should say what it did to that script's cycles, and above
+all whether any accept turned into a reject. `ckb-cycles report` replays every
+scenario in a [`cycles.json`](cycles.json) and records each script group's result
+and cycles; `ckb-cycles diff` compares two such reports; the
+[GitHub Action](action/README.md) runs both on a PR (the PR's build against its
+base's) and keeps one comment up to date.
+
+Scenarios are best kept as ckb-debugger mock transactions, so CI needs no node:
+this repo's five are written by `benchmarks/session-lock/mocks.mjs`, and
+`ckb-cycles mock <tx-hash> -o file.json` saves any transaction that way.
+`binaries` swaps the deployed code for the one just built (the rules for
+`type` vs `data*` hash types are in the [Action's README](action/README.md#cyclesjson)).
+
+Here the ckb-js-vm session lock was changed to allow one shannon more than its
+limit and to do extra work per recipient check:
+
+```
+$ npx ckb-cycles report cycles.json --json base.json
+$ npx ckb-cycles report cycles.json --binaries-from ../pr --json head.json
+$ npx ckb-cycles diff base.json head.json --fail-above 1
+1 result change, 1 over the 1% threshold, 5 of 10 script groups changed
+```
+
+| Scenario | Group | Script | Base | Head | Δ | Δ% | |
+|---|---|---|---:|---:|---:|---:|---|
+| one shannon over max\_per\_tx | `input.0.lock` | session-lock (ckb-js-vm) | 14,544,014 (exit 12) | 14,557,318 | +13,304 | +0.09% | **RESULT CHANGED: exit 12 → ok** |
+| pays the allowed recipient | `input.0.lock` | session-lock (ckb-js-vm) | 14,768,645 | 15,465,881 | +697,236 | +4.72% | **over 1%** |
+| spend exactly max\_per\_tx | `input.0.lock` | session-lock (ckb-js-vm) | 14,544,018 | 14,557,320 | +13,302 | +0.09% | |
+
+That table (with `--markdown`) is what the PR comment shows; unchanged groups
+fold away below it. This repo runs the Action on its own pull requests
+([`.github/workflows/cycle-report.yml`](.github/workflows/cycle-report.yml)).
+
 ## ckb-js-vm vs Rust: one lock, two implementations
 
 `benchmarks/session-lock` holds a TypeScript port of the

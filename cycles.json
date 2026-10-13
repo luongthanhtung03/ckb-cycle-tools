@@ -1,0 +1,24 @@
+{
+  "network": "testnet",
+  "names": {
+    "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5:data2": "always-success",
+    "0xb95123c71a870e3f0f74a7ee1dab8268dbfbc1407b46733ebd1b41f854b4324a:type": "session-lock (ckb-js-vm)"
+  },
+  "binaries": {
+    "session-lock-js": {
+      "path": "benchmarks/session-lock/dist/session-lock.bc",
+      "codeHash": "0x3dc9cdb5b2dcff8d4999004406558d4456ecf0f14c757ca353684c0bd4d3b50d"
+    },
+    "ckb-js-vm": {
+      "path": "node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm",
+      "codeHash": "0xb95123c71a870e3f0f74a7ee1dab8268dbfbc1407b46733ebd1b41f854b4324a"
+    }
+  },
+  "scenarios": [
+    { "name": "session lock (js): spend exactly max_per_tx", "mock": "benchmarks/session-lock/mocks/spend-exactly-max-per-tx.json" },
+    { "name": "session lock (js): one shannon over max_per_tx", "mock": "benchmarks/session-lock/mocks/one-shannon-over-max-per-tx.json" },
+    { "name": "session lock (js): pays the allowed recipient", "mock": "benchmarks/session-lock/mocks/pays-the-allowed-recipient.json" },
+    { "name": "session lock (js): aged input passes the rate limit", "mock": "benchmarks/session-lock/mocks/aged-input-passes-the-rate-limit.json" },
+    { "name": "session lock (js): args too short", "mock": "benchmarks/session-lock/mocks/args-too-short.json" }
+  ]
+}

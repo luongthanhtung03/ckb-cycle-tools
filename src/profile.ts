@@ -13,6 +13,7 @@ import {
   isCellbase,
   mockFromTransaction,
   scriptVersionAt,
+  type MockTransaction,
   type RpcScript,
   type RpcTransaction,
 } from "./mock.js";
@@ -56,6 +57,11 @@ export interface ProfileOptions {
    * (lowercase hex) → name. They take precedence over the known scripts.
    */
   scriptNames?: Record<string, string>;
+  /**
+   * The CKB-VM version for `hash_type: "type"` scripts. By default, that of the
+   * transaction's block, or the current one (2) for a transaction not on chain.
+   */
+  scriptVersion?: 0 | 1 | 2;
 }
 
 /**
@@ -125,10 +131,11 @@ export function checkTypeId(g: ScriptGroup, tx: RpcTransaction): string | undefi
  * Profiles a transaction per script group: a committed one by hash (and checks
  * the node's total), or any transaction in RPC shape — e.g. one about to be sent,
  * or one the node rejected — to see which script refuses it, with what exit code,
- * and what it cost to get there.
+ * and what it cost to get there. A ready ckb-debugger mock transaction (every
+ * cell already in it) needs no node at all.
  */
 export async function profileTransaction(
-  target: string | RpcTransaction,
+  target: string | RpcTransaction | MockTransaction,
   options: ProfileOptions = {},
 ): Promise<Profile> {
   const network = options.network ?? "testnet";
@@ -139,11 +146,13 @@ export async function profileTransaction(
   const { mock, cycles, status, epoch } =
     typeof target === "string"
       ? await buildMockTransaction(rpc, target)
-      : { mock: await mockFromTransaction(rpc, target), cycles: undefined, status: "not on chain", epoch: undefined };
+      : "mock_info" in target
+        ? { mock: target, cycles: undefined, status: "not on chain", epoch: undefined }
+        : { mock: await mockFromTransaction(rpc, target), cycles: undefined, status: "not on chain", epoch: undefined };
   const hash = typeof target === "string" ? target : "(not on chain)";
   // `hash_type: "type"` scripts run on the VM of their block's epoch; a
   // transaction not yet in a block would run on the current one.
-  const scriptVersion = epoch === undefined ? 2 : scriptVersionAt(network, epoch);
+  const scriptVersion = options.scriptVersion ?? (epoch === undefined ? 2 : scriptVersionAt(network, epoch));
   // A cellbase runs no scripts at all.
   const groups = isCellbase(mock.tx as RpcTransaction)
     ? []

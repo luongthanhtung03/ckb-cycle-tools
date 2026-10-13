@@ -1,11 +1,19 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { diffFailed, diffReports, formatMarkdown, formatText, type CycleReport } from "./diff.js";
+import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
+import { formatReport, runReport } from "./report.js";
 
 const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--debugger <path>] [--json]
                   [--name <code-hash>[:<hash-type>]=<label> ...]
        ckb-cycles --file <tx.json> [same options]
+       ckb-cycles report <cycles.json> [--json <out.json>] [--binaries-from <dir>]
+                  [--rpc <url>] [--debugger <path>]
+       ckb-cycles diff <base.json> <head.json> [--markdown] [--fail-above <percent>]
+                  [--fail-on-result-change] [--title <s>] [--base-label <s>] [--head-label <s>]
+       ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
 
 Replays a CKB transaction in ckb-debugger, one run per script group, and prints
 the cycles each group cost.
@@ -17,7 +25,20 @@ the cycles each group cost.
   --name       a label for your own script, shown instead of its code hash;
                repeat for several. Without :<hash-type> it applies to all of them
 
-Exits 1 if any script rejects, or if the sum differs from the node's.`;
+Exits 1 if any script rejects, or if the sum differs from the node's.
+
+  report       runs every scenario in a cycles.json (see README) and records each
+               script group's result and cycles; --json writes them for diff.
+               --binaries-from <dir> reads the binaries from another checkout
+               (the PR's base). Exits 1 only if a scenario could not run: a
+               rejection is a result, not an error
+  diff         compares two reports group by group: Δ cycles, Δ%, and any group
+               whose result changed (ok → exit 12, or back). --fail-above exits 1
+               when a group grows by more than that percentage,
+               --fail-on-result-change when a result changed; a scenario the
+               head could not run always exits 1
+  mock         saves a transaction as a ckb-debugger mock transaction, every cell
+               it touches included, so a scenario can replay it with no node`;
 
 const fmt = (n: bigint) => n.toLocaleString("en-US");
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -54,7 +75,109 @@ function table(p: Profile): string {
   return out.join("\n");
 }
 
+const toJson = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x), 2);
+
+async function reportCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      json: { type: "string" },
+      rpc: { type: "string" },
+      debugger: { type: "string" },
+      "binaries-from": { type: "string" },
+    },
+  });
+  if (positionals.length !== 1) {
+    console.log(USAGE);
+    return 2;
+  }
+  const report = await runReport(positionals[0], {
+    ...(values.rpc && { rpcUrl: values.rpc }),
+    ...(values.debugger && { debuggerPath: values.debugger }),
+    ...(values["binaries-from"] && { binariesRoot: values["binaries-from"] }),
+    onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${s.name}`),
+  });
+  const { errors, ...data } = report;
+  if (values.json) await writeFile(values.json, toJson(data) + "\n");
+  console.log(formatReport(data));
+  for (const e of errors) console.error(`error: ${e}`);
+  return errors.length ? 1 : 0;
+}
+
+async function readReport(path: string): Promise<CycleReport> {
+  const r = JSON.parse(await readFile(path, "utf8"));
+  if (r?.tool !== "ckb-cycles" || !Array.isArray(r.scenarios)) throw new Error(`${path} is not a ckb-cycles report`);
+  return r;
+}
+
+async function diffCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      markdown: { type: "boolean" },
+      "fail-above": { type: "string" },
+      "fail-on-result-change": { type: "boolean" },
+      "base-label": { type: "string" },
+      "head-label": { type: "string" },
+      title: { type: "string" },
+    },
+  });
+  if (positionals.length !== 2) {
+    console.log(USAGE);
+    return 2;
+  }
+  const failAbove = values["fail-above"] === undefined ? undefined : Number(values["fail-above"]);
+  if (failAbove !== undefined && !(failAbove >= 0)) {
+    console.error("error: --fail-above expects a percentage, e.g. 5");
+    return 2;
+  }
+  const options = { ...(failAbove !== undefined && { failAbove }), failOnResultChange: values["fail-on-result-change"] };
+  const diff = diffReports(await readReport(positionals[0]), await readReport(positionals[1]), options);
+  console.log(
+    values.markdown
+      ? formatMarkdown(diff, {
+          ...(values.title && { title: values.title }),
+          ...(values["base-label"] && { baseLabel: values["base-label"] }),
+          ...(values["head-label"] && { headLabel: values["head-label"] }),
+        })
+      : formatText(diff),
+  );
+  return diffFailed(diff, options) ? 1 : 0;
+}
+
+async function mockCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      file: { type: "string" },
+      out: { type: "string", short: "o" },
+      mainnet: { type: "boolean" },
+      rpc: { type: "string" },
+    },
+  });
+  const [hash] = positionals;
+  if (positionals.length > 1 || !hash === !values.file || (hash && !/^0x[0-9a-fA-F]{64}$/.test(hash))) {
+    console.log(USAGE);
+    return 2;
+  }
+  const rpc = httpRpc(values.rpc ?? (values.mainnet ? "https://mainnet.ckb.dev/" : "https://testnet.ckb.dev/"));
+  const mock = values.file
+    ? await mockFromTransaction(rpc, readTransactionJson(await readFile(values.file, "utf8")))
+    : (await buildMockTransaction(rpc, hash)).mock;
+  if (values.out) await writeFile(values.out, toJson(mock) + "\n");
+  else console.log(toJson(mock));
+  return 0;
+}
+
 async function main(): Promise<number> {
+  const [command, ...rest] = process.argv.slice(2);
+  if (command === "report") return reportCommand(rest);
+  if (command === "diff") return diffCommand(rest);
+  if (command === "mock") return mockCommand(rest);
+
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
