@@ -127,6 +127,19 @@ The web page does the same: click a script for its full code hash and a name box
 with those names filled in. ckb-debugger is found the same way
 as everywhere else in this repo (see the Windows fix above).
 
+### In the browser: per-group cycles on the web page
+
+The page's **per-group cycles** button runs the same replay without installing
+anything: ckb-debugger's WebAssembly build (0.200.1, shipped in `ckb-testtool`)
+runs in a Web Worker through a WASI shim, with the mock transaction as an
+in-memory file. It downloads ~4 MB (about 1.1 MB compressed) only when pressed,
+then shows each group's result, cycles, share and logs, and whether the total
+matches the node. It gives the same numbers as the native ckb-debugger 1.1.1:
+15,675,038 (counter), 2,607,561 (Type ID deploy) and 1,787,335 (a 2023, VM v1
+transaction), and `test/wasm.test.ts` checks that offline on recorded transactions.
+From code: `wasmRunner(module, tx)` from `ckb-cycle-tools/wasm` plugs into
+`replayGroups` from `ckb-cycle-tools/replay`, neither of which uses Node built-ins.
+
 ### Before you send: the failure path
 
 `--file` profiles a transaction that is not on chain — one you are about to send,

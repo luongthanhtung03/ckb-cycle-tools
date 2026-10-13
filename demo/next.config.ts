@@ -7,7 +7,14 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 
 const config: NextConfig = {
-  turbopack: { root, resolveAlias: { "ckb-cycle-tools/analyze": "../dist/analyze.js" } },
+  turbopack: {
+    root,
+    resolveAlias: {
+      "ckb-cycle-tools/analyze": "../dist/analyze.js",
+      "ckb-cycle-tools/replay": "../dist/replay.js",
+      "ckb-cycle-tools/wasm": "../dist/wasm.js",
+    },
+  },
   outputFileTracingRoot: root,
   experimental: { externalDir: true },
 };

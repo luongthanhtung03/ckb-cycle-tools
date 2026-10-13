@@ -25,6 +25,12 @@
     "paths": {
       "ckb-cycle-tools/analyze": [
         "../dist/analyze.d.ts"
+      ],
+      "ckb-cycle-tools/replay": [
+        "../dist/replay.d.ts"
+      ],
+      "ckb-cycle-tools/wasm": [
+        "../dist/wasm.d.ts"
       ]
     }
   },

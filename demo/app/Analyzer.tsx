@@ -2,7 +2,9 @@
 
 import { ccc } from "@ckb-ccc/core";
 import { analyzeTransaction, type ScriptGroup, type TxAnalysis } from "ckb-cycle-tools/analyze";
+import type { Profile, ProfiledGroup } from "ckb-cycle-tools/replay";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { loadDebugger } from "./debugger";
 import { Prompt, Terminal } from "./Terminal";
 
 const explorerTx = (h: string) => `https://testnet.explorer.nervos.org/transaction/${h}`;
@@ -277,13 +279,229 @@ function Result({ a }: { a: TxAnalysis }) {
           </table>
         </div>
       )}
+      {a.groups.length > 0 && <Cycles key={a.hash} hash={a.hash} label={label} />}
       {a.groups.length > 0 && (
         <p className="hint mono">
-          # which group costs what: replay it in ckb-debugger with the CLI (from a clone of the repo)
+          # the same replay with the native ckb-debugger: the CLI (from a clone of the repo)
           <br />
           npm run cycles -- {a.hash}
           {nameFlags}
         </p>
+      )}
+    </>
+  );
+}
+
+// Some public nodes report 0x0 cycles for older blocks (before Meepo); this one
+// keeps them, so the page can still compare.
+const SECOND_NODE = "https://testnet.ckbapp.dev/";
+
+async function nodeCyclesAt(url: string, hash: string): Promise<bigint | undefined> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "get_transaction", params: [hash] }),
+  });
+  const cycles = (await res.json())?.result?.cycles;
+  return cycles && BigInt(cycles) > 0n ? BigInt(cycles) : undefined;
+}
+
+type Verdict = ReturnType<typeof import("ckb-cycle-tools/replay").nodeVerdict>;
+
+const mb = (n: number) => (n / 1e6).toFixed(1);
+
+/**
+ * Per-group cycles in the page: ckb-debugger's WebAssembly build replays every
+ * group of the transaction, the same way the CLI does with the native binary.
+ * Nothing is downloaded until the button is pressed.
+ */
+function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => string }) {
+  const [busy, setBusy] = useState(false);
+  const [lines, setLines] = useState<string[]>([]);
+  const [download, setDownload] = useState<string>();
+  const [profile, setProfile] = useState<Profile>();
+  const [verdict, setVerdict] = useState<Verdict>();
+  const [nodeFrom, setNodeFrom] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [openLogs, setOpenLogs] = useState<string>();
+  const say = (line: string) => setLines((l) => [...l, line]);
+
+  const go = async () => {
+    setBusy(true);
+    setLines([]);
+    setDownload(undefined);
+    setProfile(undefined);
+    setNodeFrom(undefined);
+    setError(undefined);
+    try {
+      say("loading ckb-debugger (WebAssembly)…");
+      // The shim and the debugger stay in the worker; the page only loads the replay logic.
+      const [dbg, replay] = await Promise.all([
+        loadDebugger((loaded, total) => setDownload(total ? `${mb(loaded)} / ${mb(total)} MB` : `${mb(loaded)} MB`)),
+        import("ckb-cycle-tools/replay"),
+      ]);
+      setDownload(undefined);
+      say(`${dbg.version} ready`);
+      say("fetching the transaction, its input cells and cell deps…");
+      const plan = await replay.planReplay(hash);
+      if (plan.nodeCycles === undefined && plan.status === "committed") {
+        const cycles = await nodeCyclesAt(SECOND_NODE, hash).catch(() => undefined);
+        if (cycles !== undefined) {
+          plan.nodeCycles = cycles;
+          setNodeFrom(SECOND_NODE);
+        }
+      }
+      const n = plan.groups.length;
+      say(`${n} group${n === 1 ? "" : "s"} to run on CKB-VM v${plan.scriptVersion}`);
+      const tx = new TextEncoder().encode(JSON.stringify(plan.mock));
+      const p = await replay.replayGroups(plan, dbg.runner(tx), {
+        txFile: dbg.txFile,
+        debugger: `${dbg.version} (wasm)`,
+        onGroup: (i, selector) => say(`[${i + 1}/${n}] ${selector}`),
+      });
+      say("done");
+      setProfile(p);
+      setVerdict(replay.nodeVerdict(p));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="block">
+      <Prompt path="~">cycles profile {short(hash)}</Prompt>
+      <div className="row">
+        <button type="button" onClick={go} disabled={busy}>
+          {busy ? "running…" : profile ? "run again" : "per-group cycles"}
+        </button>
+        {!profile && !busy && (
+          <span className="hint">replays each group in ckb-debugger, in this browser (downloads ~4 MB once)</span>
+        )}
+      </div>
+
+      {(lines.length > 0 || download) && (
+        <ul className="log">
+          {lines.map((l, i) => (
+            <li key={i}>
+              <span className="dim">&gt;</span> {l}
+            </li>
+          ))}
+          {download && (
+            <li>
+              <span className="dim">&gt;</span> ckb-debugger.wasm {download}
+            </li>
+          )}
+          {busy && (
+            <li>
+              <span className="cursor" />
+            </li>
+          )}
+        </ul>
+      )}
+      {error && <p className="bad">error: {error}</p>}
+
+      {profile && (
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>role</th>
+                  <th>script</th>
+                  <th>result</th>
+                  <th>cycles</th>
+                  <th>share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profile.groups.map((g) => (
+                  <GroupRow
+                    key={g.selector}
+                    g={g}
+                    total={profile.measuredCycles}
+                    label={label(g)}
+                    open={openLogs === g.selector}
+                    toggle={() => setOpenLogs(openLogs === g.selector ? undefined : g.selector)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <dl className="block">
+            <dt>measured</dt>
+            <dd>{fmt(profile.measuredCycles)}</dd>
+            <dt>node</dt>
+            <dd>
+              {profile.nodeCycles === undefined ? "—" : fmt(profile.nodeCycles)}
+              {nodeFrom && <span className="dim"> (from {nodeFrom})</span>}
+            </dd>
+            <dt>vs node</dt>
+            <dd>
+              {verdict === "match" && <span className="ok">✓ match</span>}
+              {verdict === "mismatch" && <span className="bad">✗ mismatch</span>}
+              {verdict === "not recorded" && <span className="warn">not recorded by the node</span>}
+              {verdict === undefined && <span className="dim">no node total yet ({profile.status})</span>}
+            </dd>
+            <dt>debugger</dt>
+            <dd>
+              {profile.env.debugger}, CKB-VM v{profile.env.scriptVersion}
+            </dd>
+          </dl>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GroupRow({
+  g,
+  total,
+  label,
+  open,
+  toggle,
+}: {
+  g: ProfiledGroup;
+  total: bigint;
+  label: string;
+  open: boolean;
+  toggle: () => void;
+}) {
+  const pct = total > 0n ? (Number(g.cycles) / Number(total)) * 100 : 0;
+  return (
+    <>
+      <tr>
+        <td className={`tag-${g.role}`}>{g.role}</td>
+        <td title={`${g.selector} · ${g.codeHash}`}>{label}</td>
+        <td className={g.result === 0 ? "ok" : "bad"} title={g.error}>
+          {g.result === 0 ? "ok" : g.error ? "vm error" : `exit ${g.result}`}
+          {g.logs.length > 0 && (
+            <>
+              {" "}
+              <button type="button" className="link" onClick={toggle}>
+                logs ({g.logs.length})
+              </button>
+            </>
+          )}
+        </td>
+        <td>{fmt(g.cycles)}</td>
+        <td>
+          <Bar value={g.cycles} max={total > 0n ? total : 1n} /> <span className="dim">{pct.toFixed(1)}%</span>
+        </td>
+      </tr>
+      {(open || g.error) && (
+        <tr className="detail">
+          <td colSpan={5}>
+            {g.error && <div className="mono bad">{g.error}</div>}
+            {open &&
+              g.logs.map((l, i) => (
+                <div key={i} className="mono">
+                  <span className="dim">log</span> {l}
+                </div>
+              ))}
+          </td>
+        </tr>
       )}
     </>
   );
