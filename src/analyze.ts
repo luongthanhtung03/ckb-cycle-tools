@@ -133,7 +133,10 @@ export async function analyzeTransaction(client: ccc.Client, hash: ccc.HexLike):
   return {
     hash: txHash,
     status: res.status,
-    ...(res.cycles !== undefined && res.cycles !== null && { cycles: ccc.numFrom(res.cycles) }),
+    // Some public nodes report 0x0 for older blocks: unknown, not zero (only a cellbase costs 0).
+    ...(res.cycles !== undefined &&
+      res.cycles !== null &&
+      (ccc.numFrom(res.cycles) > 0n || cellbase) && { cycles: ccc.numFrom(res.cycles) }),
     ...(res.blockNumber !== undefined && res.blockNumber !== null && { blockNumber: ccc.numFrom(res.blockNumber) }),
     inputCount: tx.inputs.length,
     outputCount: tx.outputs.length,
