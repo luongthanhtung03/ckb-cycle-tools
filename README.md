@@ -103,8 +103,19 @@ replayed with NervosDao exiting 2 (header missing) and a total 8,058 cycles shor
 it now matches the node's 1,776,369 exactly, and CI checks it.
 
 The replay is exact for what a script can observe through syscalls: cells, data,
-witnesses, headers. The output ends with the ckb-debugger version, network and
-node used, so a result can be reproduced.
+witnesses, headers. **Older transactions replay on the VM they ran on:** a
+`hash_type: "type"` script runs on the CKB-VM version of its block's epoch (v0
+before Mirana, v1 before Meepo, v2 since), so a 2023 testnet transaction matches
+the node only on v1, and the CLI picks it from the block. The output ends with the
+ckb-debugger version, that VM version, the network and the node used, so a result
+can be reproduced.
+
+Some public nodes report `0x0` cycles for older blocks; the CLI then says the node
+did not record them instead of claiming a mismatch (`--rpc` another node to
+compare). A script that faults in the VM (invalid instruction, cycle limit) shows
+as a rejection with the VM's message, Type ID is checked as the node checks it,
+and a script's logs can neither fake its result nor send control characters to
+your terminal.
 
 The CLI exits non-zero on a mismatch or a rejecting script, and CI runs it against
 live testnet transactions on a clean machine. `--json` for machine output,

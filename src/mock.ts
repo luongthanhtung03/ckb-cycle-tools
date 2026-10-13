@@ -70,6 +70,24 @@ interface TxWithStatus {
   tx_status: { status: string; block_hash?: Hex | null };
 }
 
+/** A cellbase (block reward) transaction: one input, the null out point. No scripts run. */
+export function isCellbase(tx: RpcTransaction): boolean {
+  const o = tx.inputs.length === 1 ? tx.inputs[0].previous_output : undefined;
+  return o !== undefined && /^0x0{64}$/.test(o.tx_hash) && Number(o.index) === 0xffffffff;
+}
+
+/**
+ * The epoch each CKB-VM version took effect (Mirana: v1, Meepo: v2), per network.
+ * A `hash_type: "type"` script runs on the version current at its block; data,
+ * data1 and data2 name their version themselves.
+ */
+const VM_VERSION_EPOCHS = { mainnet: [5414, 12293], testnet: [3113, 9690] } as const;
+
+export function scriptVersionAt(network: "mainnet" | "testnet", epoch: number): 0 | 1 | 2 {
+  const [mirana, meepo] = VM_VERSION_EPOCHS[network];
+  return epoch >= meepo ? 2 : epoch >= mirana ? 1 : 0;
+}
+
 /** Parses a molecule OutPointVec: u32 LE count, then 36-byte out points. */
 export function parseOutPointVec(data: Hex): RpcOutPoint[] {
   const bytes = Buffer.from(data.replace(/^0x/, ""), "hex");
@@ -89,17 +107,27 @@ export function parseOutPointVec(data: Hex): RpcOutPoint[] {
 
 const key = (o: RpcOutPoint) => `${o.tx_hash}:${Number(o.index)}`;
 
-/** A committed (or pending) transaction, fetched by hash. */
+/**
+ * A committed (or pending) transaction, fetched by hash, with the epoch of the
+ * block that committed it (absent while pending).
+ */
 export async function buildMockTransaction(
   rpc: Rpc,
   txHash: Hex,
-): Promise<{ mock: MockTransaction; cycles?: bigint; status: string }> {
+): Promise<{ mock: MockTransaction; cycles?: bigint; status: string; epoch?: number }> {
   const root = await rpc<TxWithStatus | null>("get_transaction", [txHash]);
   if (!root?.transaction) throw new Error(`transaction not found: ${txHash}`);
+  const blockHash = root.tx_status.block_hash;
+  const header = blockHash ? await rpc<{ epoch: Hex } | null>("get_header", [blockHash]) : null;
   return {
     mock: await mockFromTransaction(rpc, root.transaction),
-    ...(root.cycles && { cycles: BigInt(root.cycles) }),
+    // Some public nodes report 0x0 for older blocks: unknown, not zero, since an
+    // input lock always runs. Only a cellbase really costs 0.
+    ...(root.cycles &&
+      (BigInt(root.cycles) > 0n || isCellbase(root.transaction)) && { cycles: BigInt(root.cycles) }),
     status: root.tx_status.status,
+    // The epoch number is the low 24 bits of the packed epoch.
+    ...(header && { epoch: Number(BigInt(header.epoch) & 0xffffffn) }),
   };
 }
 
@@ -128,16 +156,23 @@ export async function mockFromTransaction(rpc: Rpc, tx: RpcTransaction): Promise
     return { output, data: res.transaction!.outputs_data[i], header: res.tx_status.block_hash ?? null };
   };
 
+  if (isCellbase(tx)) {
+    const { hash: _hash, ...plainTx } = tx;
+    return { mock_info: { inputs: [], cell_deps: [], header_deps: [] }, tx: plainTx };
+  }
+
   const inputs = await Promise.all(
     tx.inputs.map(async (input) => ({ input, ...(await getCell(input.previous_output)) })),
   );
 
   // Declared deps first, then the cells each dep group points to, de-duplicated.
+  // A cell may appear as code and as a dep group; each needs its own entry.
   const deps: MockTransaction["mock_info"]["cell_deps"] = [];
   const seen = new Set<string>();
   const addDep = async (cell_dep: { out_point: RpcOutPoint; dep_type: "code" | "dep_group" }) => {
-    if (seen.has(key(cell_dep.out_point))) return;
-    seen.add(key(cell_dep.out_point));
+    const id = `${key(cell_dep.out_point)}:${cell_dep.dep_type}`;
+    if (seen.has(id)) return;
+    seen.add(id);
     const cell = await getCell(cell_dep.out_point);
     deps.push({ cell_dep, ...cell });
     if (cell_dep.dep_type === "dep_group") {

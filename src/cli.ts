@@ -28,7 +28,7 @@ function table(p: Profile): string {
     g.role,
     g.name ?? short(g.codeHash),
     g.selector,
-    g.result === 0 ? "ok" : `exit ${g.result}`,
+    g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`,
     fmt(g.cycles),
     `${((Number(g.cycles) / Number(total)) * 100).toFixed(1)}%`,
   ]);
@@ -43,8 +43,11 @@ function table(p: Profile): string {
   if (p.nodeCycles !== undefined) {
     const match = p.nodeCycles === p.measuredCycles;
     out.push(`reported by node          ${fmt(p.nodeCycles)}  ${match ? "✓ match" : "✗ MISMATCH"}`);
+  } else if (p.status === "committed") {
+    out.push("reported by node          not recorded by this node (try another with --rpc)");
   }
-  out.push(`${p.env.debugger} · ${p.env.network} · ${p.env.rpcUrl}`);
+  out.push(`${p.env.debugger} · CKB-VM v${p.env.scriptVersion} for type scripts · ${p.env.network} · ${p.env.rpcUrl}`);
+  for (const g of p.groups.filter((g) => g.error)) out.push("", `${g.selector} stopped: ${g.error}`);
   for (const g of p.groups.filter((g) => g.logs.length)) {
     out.push("", `${g.selector} logged:`, ...g.logs.map((l) => `  ${l}`));
   }

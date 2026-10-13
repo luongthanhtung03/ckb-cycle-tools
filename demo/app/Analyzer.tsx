@@ -162,9 +162,11 @@ function Result({ a }: { a: TxAnalysis }) {
   const [names, setNames] = useState<Record<string, string>>({});
   const [open, setOpen] = useState<string>();
   useEffect(() => setNames(loadNames()), []);
-  const rename = (codeHash: string, name: string) => {
+  const rename = (codeHash: string, raw: string) => {
+    // Letters, digits, . _ - only: the name goes into a command people paste into a shell.
+    const name = raw.trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
     const next = { ...names };
-    if (name.trim()) next[codeHash] = name.trim();
+    if (name) next[codeHash] = name;
     else delete next[codeHash];
     setNames(next);
     saveNames(next);
@@ -172,8 +174,8 @@ function Result({ a }: { a: TxAnalysis }) {
   const label = (g: ScriptGroup) => names[g.codeHash] ?? g.name ?? short(g.codeHash, 6);
   // Same names in the CLI, for the scripts in this transaction.
   const nameFlags = [...new Set(a.groups.map((g) => g.codeHash))]
-    .filter((h) => names[h])
-    .map((h) => ` --name ${h}=${/^[\w.-]+$/.test(names[h]) ? names[h] : JSON.stringify(names[h])}`)
+    .filter((h) => names[h] && /^[\w.-]+$/.test(names[h]))
+    .map((h) => ` --name ${h}=${names[h]}`)
     .join("");
   const ratio = a.cycles === undefined ? undefined : Number(a.cycles) / Number(BASELINE);
   return (
