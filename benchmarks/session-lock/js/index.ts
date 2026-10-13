@@ -76,7 +76,10 @@ function main(): number {
       change += HighLevel.loadCellCapacity(i, bindings.SOURCE_OUTPUT);
       if (change > U64_MAX) return Error.CapacityOverflow;
     } else if (recipientLockHash) {
-      const allowed = equal(l, recipientLockHash) || equal(l, sessionLockHash) || equal(l, ownerLockHash);
+      // DEMO ONLY (do not merge): compare as hex strings, a slower way, so the
+      // cycle report on this pull request has something to show.
+      const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+      const allowed = [recipientLockHash, sessionLockHash, ownerLockHash].some((h) => hex(h) === hex(l));
       if (!allowed) return Error.RecipientNotAllowed;
     }
     i++;
