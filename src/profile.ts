@@ -161,3 +161,18 @@ export function readTransactionJson(json: string): RpcTransaction {
   }
   return value as RpcTransaction;
 }
+
+const HASH_TYPES = ["type", "data", "data1", "data2"];
+
+/** `--name 0xabc…=campaign-lock` (or `0xabc…:type=…`) → profileTransaction's scriptNames. */
+export function parseNames(flags: string[]): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const flag of flags) {
+    const m = /^(0x[0-9a-fA-F]{64})(?::(\w+))?=(.+)$/.exec(flag);
+    if (!m || (m[2] && !HASH_TYPES.includes(m[2]))) {
+      throw new Error(`--name expects <code-hash>[:<hash-type>]=<label>, got "${flag}"`);
+    }
+    for (const t of m[2] ? [m[2]] : HASH_TYPES) names[`${m[1].toLowerCase()}:${t}`] = m[3];
+  }
+  return names;
+}

@@ -3,7 +3,7 @@ import { cccA } from "@ckb-ccc/core/advanced";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { mockFromTransaction, parseOutPointVec, type Rpc } from "../src/mock.js";
-import { parseDebuggerOutput, readTransactionJson, selectorFor } from "../src/profile.js";
+import { parseDebuggerOutput, parseNames, readTransactionJson, selectorFor } from "../src/profile.js";
 
 describe("parseDebuggerOutput", () => {
   it("reads the result, cycles and script logs", () => {
@@ -115,5 +115,27 @@ describe("mockFromTransaction", () => {
   it("leaves the header empty for a cell not yet in a block", async () => {
     const mock = await mockFromTransaction(rpc, tx(H("c")));
     expect(mock.mock_info.inputs[0].header).toBeNull();
+  });
+});
+
+describe("parseNames (--name)", () => {
+  const h = "0x" + "AB".repeat(32);
+  const lower = h.toLowerCase();
+
+  it("names one hash type when given", () => {
+    expect(parseNames([`${h}:type=campaign-lock`])).toEqual({ [`${lower}:type`]: "campaign-lock" });
+  });
+
+  it("names every hash type when none is given", () => {
+    const names = parseNames([`${h}=campaign-lock`]);
+    expect(Object.keys(names).sort()).toEqual(["data", "data1", "data2", "type"].map((t) => `${lower}:${t}`));
+  });
+
+  it("keeps an = inside the label", () => {
+    expect(parseNames([`${h}:data2=a=b`])).toEqual({ [`${lower}:data2`]: "a=b" });
+  });
+
+  it.each(["campaign-lock", `${h}`, `${h}:weird=x`, `0x12=x`])("rejects %s", (flag) => {
+    expect(() => parseNames([flag])).toThrow(/--name expects/);
   });
 });

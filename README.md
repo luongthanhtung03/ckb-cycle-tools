@@ -64,7 +64,7 @@ Real testnet transactions from my CKBuilder work:
 
 The counter's type script, running on ckb-js-vm, costs roughly ten times a standard
 lock. Which part of that is the JavaScript VM and which is the script itself is what
-the per-group breakdown (CLI, next) and the ckb-js-vm vs Rust harness are for.
+the per-group breakdown (the CLI, below) and the ckb-js-vm vs Rust harness are for.
 
 ## Per-script cycles: the `ckb-cycles` CLI
 
@@ -108,8 +108,12 @@ node used, so a result can be reproduced.
 
 The CLI exits non-zero on a mismatch or a rejecting script, and CI runs it against
 live testnet transactions on a clean machine. `--json` for machine output,
-`--mainnet` or `--rpc <url>` for another node; on a network CCC does not know, name
-your scripts with `profileTransaction(tx, { scriptNames })`. ckb-debugger is found the same way
+`--mainnet` or `--rpc <url>` for another node. Your own scripts show as a short code
+hash; name them with `--name <code-hash>=<label>` (repeatable, optionally
+`<code-hash>:<hash-type>=…`), or `profileTransaction(tx, { scriptNames })` from code.
+The web page does the same: click a script for its full code hash and a name box
+(saved in that browser), and it prints the CLI command for the per-group breakdown
+with those names filled in. ckb-debugger is found the same way
 as everywhere else in this repo (see the Windows fix above).
 
 ### Before you send: the failure path

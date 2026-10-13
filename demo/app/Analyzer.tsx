@@ -1,8 +1,8 @@
 "use client";
 
 import { ccc } from "@ckb-ccc/core";
-import { analyzeTransaction, type TxAnalysis } from "ckb-cycle-tools/analyze";
-import { useEffect, useMemo, useState } from "react";
+import { analyzeTransaction, type ScriptGroup, type TxAnalysis } from "ckb-cycle-tools/analyze";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Prompt, Terminal } from "./Terminal";
 
 const explorerTx = (h: string) => `https://testnet.explorer.nervos.org/transaction/${h}`;
@@ -22,6 +22,24 @@ const EXAMPLES = [
 ];
 
 const isHash = (s: string) => /^0x[0-9a-fA-F]{64}$/.test(s);
+
+// Names people give their own scripts, kept in this browser only. Keyed by
+// code hash alone: one name follows a script whichever hash_type points at it.
+const NAMES_KEY = "ckb-cycle-tools:names";
+function loadNames(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(NAMES_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+function saveNames(names: Record<string, string>) {
+  try {
+    localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+  } catch {
+    // Storage blocked: names last until the page closes.
+  }
+}
 
 export default function Analyzer() {
   const client = useMemo(() => new ccc.ClientPublicTestnet(), []);
@@ -70,8 +88,9 @@ export default function Analyzer() {
         </p>
         <p className="note">
           # CKB runs each script once per script group: input locks grouped by lock, type scripts
-          grouped across inputs and outputs. Output locks never run. Per-group cycles need
-          ckb-debugger: that is the CLI, next milestone. ·{" "}
+          grouped across inputs and outputs. Output locks never run. The node reports one total;
+          the cycles of each group come from replaying it in ckb-debugger, which is the CLI. Click
+          a script for its full code hash, or to name it. ·{" "}
           <a href="https://github.com/luongthanhtung03/ckb-cycle-tools">source</a>
         </p>
 
@@ -140,6 +159,22 @@ function Bar({ value, max }: { value: bigint; max: bigint }) {
 }
 
 function Result({ a }: { a: TxAnalysis }) {
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState<string>();
+  useEffect(() => setNames(loadNames()), []);
+  const rename = (codeHash: string, name: string) => {
+    const next = { ...names };
+    if (name.trim()) next[codeHash] = name.trim();
+    else delete next[codeHash];
+    setNames(next);
+    saveNames(next);
+  };
+  const label = (g: ScriptGroup) => names[g.codeHash] ?? g.name ?? short(g.codeHash, 6);
+  // Same names in the CLI, for the scripts in this transaction.
+  const nameFlags = [...new Set(a.groups.map((g) => g.codeHash))]
+    .filter((h) => names[h])
+    .map((h) => ` --name ${h}=${/^[\w.-]+$/.test(names[h]) ? names[h] : JSON.stringify(names[h])}`)
+    .join("");
   const ratio = a.cycles === undefined ? undefined : Number(a.cycles) / Number(BASELINE);
   return (
     <>
@@ -196,19 +231,57 @@ function Result({ a }: { a: TxAnalysis }) {
               </tr>
             </thead>
             <tbody>
-              {a.groups.map((g) => (
-                <tr key={`${g.role}:${g.scriptHash}`}>
-                  <td className={`tag-${g.role}`}>{g.role}</td>
-                  <td title={g.codeHash}>{g.name ?? short(g.codeHash, 6)}</td>
-                  <td className="dim">{g.hashType}</td>
-                  <td title={g.args}>{g.args === "0x" ? "-" : short(g.args, 6)}</td>
-                  <td>{g.inputs.length ? g.inputs.join(",") : "-"}</td>
-                  <td>{g.outputs.length ? g.outputs.join(",") : "-"}</td>
-                </tr>
-              ))}
+              {a.groups.map((g) => {
+                const key = `${g.role}:${g.scriptHash}`;
+                return (
+                  <Fragment key={key}>
+                    <tr>
+                      <td className={`tag-${g.role}`}>{g.role}</td>
+                      <td title={g.codeHash}>
+                        <button type="button" className="link" onClick={() => setOpen(open === key ? undefined : key)}>
+                          {label(g)}
+                        </button>
+                      </td>
+                      <td className="dim">{g.hashType}</td>
+                      <td title={g.args}>{g.args === "0x" ? "-" : short(g.args, 6)}</td>
+                      <td>{g.inputs.length ? g.inputs.join(",") : "-"}</td>
+                      <td>{g.outputs.length ? g.outputs.join(",") : "-"}</td>
+                    </tr>
+                    {open === key && (
+                      <tr className="detail">
+                        <td colSpan={6}>
+                          <div className="mono">code_hash <span className="sel">{g.codeHash}</span></div>
+                          {g.args !== "0x" && <div className="mono dim">args <span className="sel">{g.args}</span></div>}
+                          <label className="row">
+                            name
+                            <span className="field">
+                              <input
+                                defaultValue={names[g.codeHash] ?? ""}
+                                placeholder={g.name ?? "e.g. campaign-lock"}
+                                onBlur={(e) => rename(g.codeHash, e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                                spellCheck={false}
+                              />
+                            </span>
+                          </label>
+                          <span className="hint">saved in this browser, for every transaction</span>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
+      )}
+      {a.groups.length > 0 && (
+        <p className="hint mono">
+          # which group costs what: replay it in ckb-debugger with the CLI (from a clone of the repo)
+          <br />
+          npm run cycles -- {a.hash}
+          {nameFlags}
+        </p>
       )}
     </>
   );

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { profileTransaction, readTransactionJson, type Profile } from "./profile.js";
+import { parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
 
 const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--debugger <path>] [--json]
+                  [--name <code-hash>[:<hash-type>]=<label> ...]
        ckb-cycles --file <tx.json> [same options]
 
 Replays a CKB transaction in ckb-debugger, one run per script group, and prints
@@ -13,6 +14,8 @@ the cycles each group cost.
   --file       a transaction that is not on chain: one about to be sent, or one
                the node rejected. Shows which script refuses it and why. JSON in
                the node's RPC shape, a get_transaction result, or ccc.stringify(tx)
+  --name       a label for your own script, shown instead of its code hash;
+               repeat for several. Without :<hash-type> it applies to all of them
 
 Exits 1 if any script rejects, or if the sum differs from the node's.`;
 
@@ -57,6 +60,7 @@ async function main(): Promise<number> {
       debugger: { type: "string" },
       json: { type: "boolean" },
       file: { type: "string" },
+      name: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -75,6 +79,7 @@ async function main(): Promise<number> {
     network: values.mainnet ? "mainnet" : "testnet",
     ...(values.rpc && { rpcUrl: values.rpc }),
     ...(values.debugger && { debuggerPath: values.debugger }),
+    scriptNames: parseNames(values.name ?? []),
   });
 
   if (values.json) {

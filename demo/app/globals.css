@@ -111,6 +111,10 @@ th { color: var(--dim); font-weight: 400; text-transform: uppercase; font-size: 
 .tag-lock { color: var(--cyan); }
 .tag-type { color: var(--amber); }
 .sub { color: var(--dim); font-size: 11px; }
+.detail td { white-space: normal; padding: 4px 0 10px 12px; border-left: 1px dashed var(--line-strong); }
+.detail .mono { overflow-wrap: anywhere; }
+.detail .sel { user-select: all; }
+.detail .field { flex: 1; max-width: 32ch; }
 
 /* big number */
 .stat { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }
