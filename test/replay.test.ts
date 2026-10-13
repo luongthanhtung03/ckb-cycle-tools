@@ -116,7 +116,7 @@ describe("nodeVerdict", () => {
 
 // The browser imports these; a Node built-in or Buffer anywhere in them breaks the page.
 describe("browser-safe modules", () => {
-  const safe = ["analyze", "mock", "replay"];
+  const safe = ["analyze", "mock", "replay", "wasm"];
   it.each(safe)("src/%s.ts uses no Node built-ins and imports only browser-safe modules", (name) => {
     // Code only: comments may mention what the module avoids.
     const src = readFileSync(`src/${name}.ts`, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");

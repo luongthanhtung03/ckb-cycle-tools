@@ -48,12 +48,14 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.2",
     "@ckb-ccc/core": "^1.23.0"
   },
   "exports": {
     ".": "./dist/index.js",
     "./analyze": "./dist/analyze.js",
-    "./replay": "./dist/replay.js"
+    "./replay": "./dist/replay.js",
+    "./wasm": "./dist/wasm.js"
   },
   "workspaces": [
     "demo"

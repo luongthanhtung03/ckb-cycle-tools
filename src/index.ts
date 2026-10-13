@@ -25,3 +25,5 @@ export {
 export type { GroupRun, Profile, ProfiledGroup, ReplayOptions, ReplayPlan, RunDebugger } from "./replay.js";
 export { profileTransaction } from "./profile.js";
 export type { ProfileOptions } from "./profile.js";
+export { runWasmDebugger, wasmDebuggerVersion, wasmRunner, WASM_TX_FILE } from "./wasm.js";
+export type { WasmRun } from "./wasm.js";
