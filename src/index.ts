@@ -11,5 +11,17 @@ export {
   scriptVersionAt,
 } from "./mock.js";
 export type { MockTransaction, Rpc, RpcTransaction } from "./mock.js";
-export { checkTypeId, parseDebuggerOutput, profileTransaction, readTransactionJson, selectorFor } from "./profile.js";
-export type { GroupRun, Profile, ProfiledGroup, ProfileOptions } from "./profile.js";
+export {
+  checkTypeId,
+  debuggerArgs,
+  groupsOf,
+  nodeVerdict,
+  parseDebuggerOutput,
+  planReplay,
+  readTransactionJson,
+  replayGroups,
+  selectorFor,
+} from "./replay.js";
+export type { GroupRun, Profile, ProfiledGroup, ReplayOptions, ReplayPlan, RunDebugger } from "./replay.js";
+export { profileTransaction } from "./profile.js";
+export type { ProfileOptions } from "./profile.js";

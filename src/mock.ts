@@ -7,6 +7,8 @@
  * reads, so nothing is converted and nothing can drift in conversion.
  */
 
+import { ccc } from "@ckb-ccc/core";
+
 type Hex = string;
 export interface RpcOutPoint {
   tx_hash: Hex;
@@ -90,16 +92,18 @@ export function scriptVersionAt(network: "mainnet" | "testnet", epoch: number): 
 
 /** Parses a molecule OutPointVec: u32 LE count, then 36-byte out points. */
 export function parseOutPointVec(data: Hex): RpcOutPoint[] {
-  const bytes = Buffer.from(data.replace(/^0x/, ""), "hex");
+  // No Buffer: this module also runs in the browser.
+  const bytes = ccc.bytesFrom(data);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 4) throw new Error("dep group data too short");
-  const count = bytes.readUInt32LE(0);
+  const count = view.getUint32(0, true);
   if (bytes.length !== 4 + count * 36) throw new Error("dep group data has the wrong length");
   const out: RpcOutPoint[] = [];
   for (let i = 0; i < count; i++) {
     const at = 4 + i * 36;
     out.push({
-      tx_hash: "0x" + bytes.subarray(at, at + 32).toString("hex"),
-      index: "0x" + bytes.readUInt32LE(at + 32).toString(16),
+      tx_hash: ccc.hexFrom(bytes.subarray(at, at + 32)),
+      index: "0x" + view.getUint32(at + 32, true).toString(16),
     });
   }
   return out;
