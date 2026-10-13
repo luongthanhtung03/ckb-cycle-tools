@@ -1,0 +1,34 @@
+name: Cycle report
+
+# This repository's own Action, on its own pull requests: the five session-lock
+# scenarios in cycles.json replayed with the ckb-js-vm bytecode built from the
+# PR and from its base, posted as one comment that each push updates.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: cycle-report-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cycles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: ./action
+        with:
+          # The base checkout has no node_modules yet; the head shares the
+          # Action's own install (this repo is the Action).
+          build: |
+            [ -d node_modules ] || npm ci --workspaces=false --no-audit --no-fund
+            npm run bench:build
+          fail-above: 5
+          fail-on-result-change: true
