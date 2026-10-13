@@ -10,6 +10,12 @@ export {
   parseOutPointVec,
   scriptVersionAt,
 } from "./mock.js";
-export type { MockTransaction, Rpc, RpcTransaction } from "./mock.js";
+export type { MockTransaction, Rpc, RpcOutPoint, RpcTransaction } from "./mock.js";
 export { checkTypeId, parseDebuggerOutput, profileTransaction, readTransactionJson, selectorFor } from "./profile.js";
 export type { GroupRun, Profile, ProfiledGroup, ProfileOptions } from "./profile.js";
+export { substituteBinaries } from "./substitute.js";
+export type { AppliedSubstitution, BinarySubstitution } from "./substitute.js";
+export { COMMENT_MARKER, diffFailed, diffReports, formatMarkdown, formatText, resultLabel, summarize } from "./diff.js";
+export type { CycleDiff, CycleReport, DiffOptions, DiffRow, GroupResult, MarkdownOptions, ScenarioResult } from "./diff.js";
+export { formatReport, groupResults, parseCyclesConfig, runReport } from "./report.js";
+export type { BinaryConfig, CyclesConfig, ReportOptions, ScenarioConfig } from "./report.js";
