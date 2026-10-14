@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DebuggerNotFoundError, resolveDebugger } from "../src/debugger.js";
+import { checkDebuggerPath, DebuggerNotFoundError, resolveDebugger } from "../src/debugger.js";
 
 const only = (...paths: string[]) => (p: string) => paths.includes(p);
 
@@ -24,6 +24,14 @@ describe("resolveDebugger", () => {
         exists: only(join("/usr/bin", "ckb-debugger")),
       }),
     ).toThrow(DebuggerNotFoundError);
+  });
+
+  it("refuses a .cmd shim given explicitly, and says where the real binary is", () => {
+    expect(() =>
+      resolveDebugger({ env: { CKB_DEBUGGER_PATH: "C:\\npm\\ckb-debugger.cmd" }, platform: "win32", exists: () => true }),
+    ).toThrow(/Windows shim.*offckb-nodejs/);
+    expect(() => checkDebuggerPath("C:\\tools\\ckb-debugger.BAT", () => true)).toThrow(/Windows shim/);
+    expect(() => checkDebuggerPath("/nope/ckb-debugger", () => false)).toThrow(DebuggerNotFoundError);
   });
 
   it("finds the binary on PATH", () => {

@@ -39,7 +39,8 @@ export async function runWasmDebugger(
   try {
     exitCode = wasi.start(instance);
   } catch (e) {
-    // A trap inside the debugger (e.g. out of memory): report it like a crashed process.
+    // A trap inside the debugger (e.g. out of memory): report it like a crashed
+    // process. Exit code -1 tells parseDebuggerRun not to trust the stdout so far.
     text[1] += `\n${e instanceof Error ? e.message : String(e)}`;
     exitCode = -1;
   }
@@ -51,7 +52,7 @@ export async function wasmDebuggerVersion(module: WebAssembly.Module): Promise<s
   return (await runWasmDebugger(module, ["--version"])).stdout.trim() || "unknown";
 }
 
-/** The text the debugger printed, stdout then stderr, as replayGroups reads it. */
+/** The text the debugger printed, stdout then stderr. */
 export const wasmOutput = (r: WasmRun) => r.stdout + r.stderr;
 
 /** Where wasmRunner puts the mock transaction. */
@@ -62,5 +63,6 @@ export const WASM_TX_FILE = "/tx.json";
  * WASM_TX_FILE: `replayGroups(plan, wasmRunner(module, tx), { txFile: WASM_TX_FILE, … })`.
  */
 export function wasmRunner(module: WebAssembly.Module, tx: Uint8Array): RunDebugger {
-  return async (args) => wasmOutput(await runWasmDebugger(module, args, { "tx.json": tx }));
+  // The whole run, exit code included: replayGroups checks the result lines against it.
+  return (args) => runWasmDebugger(module, args, { "tx.json": tx });
 }

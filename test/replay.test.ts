@@ -87,6 +87,22 @@ describe("replayGroups", () => {
     expect(nodeVerdict(p)).toBe("match");
   });
 
+  it("checks each run's result lines against its exit code", async () => {
+    const runs = [
+      { stdout: "Script log: x\nRun result: 0\nAll cycles: 1(1)\n", stderr: "", exitCode: 254 },
+      { stdout: "Run result: 0\nAll cycles: 20(20)\n", stderr: "", exitCode: 0 },
+    ];
+    let i = 0;
+    const p = await replayGroups(plan(mockOf([cell(counter)], [cell(counter)])), async () => runs[i++], {
+      txFile: "/tx.json",
+      debugger: "x",
+    });
+    expect(p.groups.map((g) => [g.result, g.error === undefined])).toEqual([
+      [-1, false],
+      [0, true],
+    ]);
+  });
+
   it("charges Type ID its fixed cost and checks it, without running the debugger", async () => {
     const typeId = { code_hash: TYPE_ID_CODE_HASH, hash_type: "type", args: H("9") };
     const mock = mockOf([cell()], [{ capacity: "0x0", lock, type: typeId }]);

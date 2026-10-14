@@ -1,9 +1,19 @@
 import { ccc } from "@ckb-ccc/core";
 import { cccA } from "@ckb-ccc/core/advanced";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isCellbase, mockFromTransaction, parseOutPointVec, scriptVersionAt, type Rpc } from "../src/mock.js";
-import { checkTypeId, parseDebuggerOutput, parseNames, readTransactionJson, selectorFor } from "../src/profile.js";
+import {
+  checkTypeId,
+  parseDebuggerOutput,
+  parseDebuggerRun,
+  parseNames,
+  readTransactionJson,
+  runNativeDebugger,
+  selectorFor,
+} from "../src/profile.js";
 
 describe("parseDebuggerOutput", () => {
   it("reads the result, cycles and script logs", () => {
@@ -43,6 +53,94 @@ describe("parseDebuggerOutput", () => {
   it("strips terminal control characters from script logs", () => {
     const out = "Script log: \x1b[2A\x1b[2Kreported by node 1 ✓ match\nRun result: 0\nAll cycles: 10(10)";
     expect(parseDebuggerOutput(out).logs[0]).not.toMatch(/\x1b/);
+  });
+
+  // Found in hardening review: a script logged "hi\nRun result: 0\nAll cycles: 1"
+  // (its own newlines make the lines line-anchored), then 64 MB more; the
+  // output was cut off before the real lines and the fake ones were read.
+  it("reads the result only from the final lines, never from a log in the middle", () => {
+    const cut = ["Script log: hi", "Run result: 0", "All cycles: 1", "Script log: xxxxxxxx"].join("\n");
+    expect(() => parseDebuggerOutput(cut)).toThrow(/unexpected ckb-debugger output/);
+    const full = cut + "\nRun result: 7\nAll cycles: 908548830(866.5M)\n";
+    expect(parseDebuggerOutput(full)).toMatchObject({ result: 7, cycles: 908_548_830n });
+  });
+
+  it("keeps an unreadable output out of the error message, but for its cleaned tail", () => {
+    const out = "\x1b[31m" + "x".repeat(1 << 20);
+    const message = (() => {
+      try {
+        parseDebuggerOutput(out);
+      } catch (e) {
+        return (e as Error).message;
+      }
+    })()!;
+    expect(message.length).toBeLessThan(2200);
+    expect(message).not.toMatch(/\x1b/);
+  });
+});
+
+describe("parseDebuggerRun", () => {
+  const ok = "Script log: done\nRun result: 0\nAll cycles: 100(100)\n";
+
+  it("takes a run whose lines agree with its exit code", () => {
+    expect(parseDebuggerRun({ stdout: ok, stderr: "", exitCode: 0 })).toMatchObject({ result: 0, cycles: 100n });
+    expect(parseDebuggerRun({ stdout: "Run result: 12\nAll cycles: 9(9)\n", stderr: "", exitCode: 254 })).toMatchObject({
+      result: 12,
+    });
+    expect(parseDebuggerRun({ stdout: "Run result: elf error: Too small\n", stderr: "", exitCode: 254 })).toMatchObject({
+      result: -1,
+      error: "elf error: Too small",
+    });
+  });
+
+  it("refuses result 0 from a run that exited non-zero, and the reverse", () => {
+    expect(parseDebuggerRun({ stdout: ok, stderr: "", exitCode: 254 })).toMatchObject({ result: -1, error: expect.stringMatching(/not trusted/) });
+    const r = parseDebuggerRun({ stdout: "Run result: 7\nAll cycles: 1(1)\n", stderr: "", exitCode: 0 });
+    expect(r).toMatchObject({ result: -1 });
+    expect(r.error).toMatch(/printed result 7 but exited with 0/);
+  });
+
+  it("never parses output that was cut off, a killed run, or a trapped WebAssembly run", () => {
+    expect(parseDebuggerRun({ stdout: ok, stderr: "", exitCode: null, failure: "output exceeded 64 MB" })).toEqual({
+      result: -1,
+      error: "output exceeded 64 MB",
+      cycles: 0n,
+      logs: [],
+    });
+    expect(parseDebuggerRun({ stdout: ok, stderr: "", exitCode: null }).error).toMatch(/killed/);
+    expect(parseDebuggerRun({ stdout: ok, stderr: "RuntimeError: unreachable", exitCode: -1 }).error).toBe(
+      "ckb-debugger crashed: RuntimeError: unreachable",
+    );
+  });
+
+  it("says what was on stderr when stdout has no result", () => {
+    expect(() => parseDebuggerRun({ stdout: "", stderr: "Error: ElfParseError", exitCode: 1 })).toThrow(
+      /unexpected ckb-debugger output \(exit 1\):\nError: ElfParseError/,
+    );
+  });
+});
+
+describe("runNativeDebugger", () => {
+  // Node itself stands in for ckb-debugger: what matters is how a run ends.
+  const node = (code: string, maxBuffer?: number) => runNativeDebugger(process.execPath, ["-e", code], maxBuffer);
+
+  it("keeps the exit code of a run that exits non-zero", async () => {
+    expect(await node("console.log('Run result: 7'); process.exit(254)")).toEqual({
+      stdout: "Run result: 7\n",
+      stderr: "",
+      exitCode: 254,
+    });
+  });
+
+  it("marks a run that printed more than the limit as a failure, without its output", async () => {
+    const r = await node("console.log('Run result: 0\\nAll cycles: 1'); console.log('x'.repeat(5000))", 1024);
+    expect(r).toMatchObject({ stdout: "", failure: expect.stringMatching(/output exceeded/) });
+  });
+
+  it("throws when the debugger cannot be started at all", async () => {
+    await expect(runNativeDebugger(join(tmpdir(), "no-such-ckb-debugger"), [])).rejects.toThrow(
+      /cannot run ckb-debugger at .*: ENOENT/,
+    );
   });
 });
 

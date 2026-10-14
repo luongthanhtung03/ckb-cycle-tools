@@ -22,12 +22,30 @@ export interface ResolveOptions {
 export class DebuggerNotFoundError extends Error {
   constructor(public readonly searched: string[]) {
     super(
-      `ckb-debugger not found. Set CKB_DEBUGGER_PATH, or install it with ` +
+      `ckb-debugger not found. Set CKB_DEBUGGER_PATH (or pass --debugger), or install it with ` +
         `\`offckb debugger\` or from the ckb-standalone-debugger releases. ` +
         `Searched:\n  ${searched.join("\n  ")}`,
     );
     this.name = "DebuggerNotFoundError";
   }
+}
+
+/**
+ * Checks a path given explicitly (`CKB_DEBUGGER_PATH`, `--debugger`): it must
+ * exist, and must not be a `.cmd`/`.bat` shim, which Node cannot spawn without
+ * a shell (it fails with a bare `spawn EINVAL`).
+ */
+export function checkDebuggerPath(path: string, exists: (path: string) => boolean = existsSync): string {
+  if (/\.(cmd|bat)$/i.test(path)) {
+    throw new Error(
+      `${path} is a Windows shim, which cannot be run without a shell. Point to the real ckb-debugger.exe ` +
+        `instead: offckb installs it in %LOCALAPPDATA%\\offckb-nodejs\\Data\\tools\\ckb-debugger.exe`,
+    );
+  }
+  // An explicit path that does not exist is a configuration error, not
+  // something to silently fall past.
+  if (!exists(path)) throw new DebuggerNotFoundError([path]);
+  return path;
 }
 
 export function resolveDebugger(options: ResolveOptions = {}): string {
@@ -39,13 +57,7 @@ export function resolveDebugger(options: ResolveOptions = {}): string {
   const searched: string[] = [];
 
   const explicit = env.CKB_DEBUGGER_PATH;
-  if (explicit) {
-    searched.push(explicit);
-    if (exists(explicit)) return explicit;
-    // An explicit path that does not exist is a configuration error, not
-    // something to silently fall past.
-    throw new DebuggerNotFoundError(searched);
-  }
+  if (explicit) return checkDebuggerPath(explicit, exists);
 
   const pathVar = env.PATH ?? env.Path ?? "";
   // On Windows, path.delimiter is ";" — but resolve with the target platform's

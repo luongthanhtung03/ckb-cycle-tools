@@ -13,8 +13,11 @@ import {
   httpRpc,
   isCellbase,
   mockFromTransaction,
+  nodeConsensus,
   scriptVersionAt,
   type MockTransaction,
+  type NodeConsensus,
+  type Rpc,
   type RpcScript,
   type RpcTransaction,
 } from "./mock.js";
@@ -47,9 +50,15 @@ export interface Profile {
 }
 
 export interface ReplayOptions {
+  /**
+   * The public node to use when there is no `rpcUrl`. When set, the node's own
+   * chain (from `get_consensus`) must agree with it, or the replay stops.
+   */
   network?: "testnet" | "mainnet";
   /** A node to fetch from instead of the public one for `network`. */
   rpcUrl?: string;
+  /** Per RPC request, in milliseconds. Default 30 s. */
+  timeoutMs?: number;
   /**
    * Names for scripts this tool cannot know, e.g. on a devnet: `codeHash:hashType`
    * (lowercase hex) → name. They take precedence over the known scripts.
@@ -88,20 +97,68 @@ export function debuggerArgs(txFile: string, selector: string, scriptVersion: nu
 /** Control characters a script could print to move the cursor or recolour the terminal. */
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 
+/** The tail of some output, cleaned for a terminal: enough to see what went wrong, never megabytes. */
+export function outputTail(out: string, max = 2048): string {
+  const tail = out.length > max ? `…${out.slice(-max)}` : out;
+  return tail.trim().replace(CONTROL, "�");
+}
+
 /**
- * ckb-debugger's own result lines come last and start the line; a script's logs
- * come before them, each after "Script log: ". Reading the last line-anchored
- * match means a script cannot fake its result by logging "Run result: 0".
+ * ckb-debugger's own result lines are the last lines it prints: `Run result:`
+ * then `All cycles:` (or `Run result:` alone when the VM stopped the script).
+ * A script's logs come before them. Only those final lines are read, so a
+ * script that logs "Run result: 0" (even after a newline of its own) cannot
+ * fake its result, as long as the output is complete: a run whose output was
+ * cut off must never get here (see parseDebuggerRun).
  */
 export function parseDebuggerOutput(out: string): Omit<GroupRun, "selector"> {
-  const last = (re: RegExp) => [...out.matchAll(re)].at(-1)?.[1];
-  const result = last(/^Run result: (.*?)\s*$/gm);
-  const cycles = last(/^All cycles: (\d+)/gm);
-  if (result === undefined) throw new Error(`unexpected ckb-debugger output:\n${out}`);
+  const lines = out.trimEnd().split(/\r?\n/);
+  const cyclesLine = /^All cycles: (\d+)/.exec(lines.at(-1) ?? "");
+  const resultLine = /^Run result: (.*?)\s*$/.exec(lines.at(cyclesLine ? -2 : -1) ?? "");
+  if (!resultLine) throw new Error(`unexpected ckb-debugger output:\n${outputTail(out)}`);
+  const result = resultLine[1];
+  const cycles = cyclesLine?.[1];
   const logs = [...out.matchAll(/^Script log: (.*)$/gm)].map((m) => m[1].trim().replace(CONTROL, "�"));
   if (/^-?\d+$/.test(result) && cycles !== undefined) return { result: Number(result), cycles: BigInt(cycles), logs };
   // The VM stopped the script (invalid instruction, cycle limit, bad ELF…): a rejection, not a crash.
   return { result: -1, error: result.replace(CONTROL, "�"), cycles: cycles === undefined ? 0n : BigInt(cycles), logs };
+}
+
+/** One ckb-debugger run, as a RunDebugger returns it. */
+export interface DebuggerOutput {
+  stdout: string;
+  stderr: string;
+  /** The exit code; null when the process was killed, -1 when the WebAssembly build trapped. */
+  exitCode: number | null;
+  /** Set when the output cannot be trusted, e.g. it was cut off at the buffer limit. */
+  failure?: string;
+}
+
+/**
+ * Reads one run: its final result lines (parseDebuggerOutput), checked against
+ * its exit code. ckb-debugger exits 0 only when the script returned 0, so lines
+ * that say 0 with a non-zero exit code (or the reverse) were faked or cut
+ * short, and make an error rather than a result. Output that was cut off is
+ * never parsed at all.
+ */
+export function parseDebuggerRun(run: DebuggerOutput): Omit<GroupRun, "selector"> {
+  const stopped = (error: string) => ({ result: -1, error, cycles: 0n, logs: [] });
+  if (run.failure) return stopped(run.failure);
+  if (run.exitCode === null) return stopped("ckb-debugger was killed before it finished");
+  // The WebAssembly build trapped (e.g. out of memory): whatever stdout it left is incomplete.
+  if (run.exitCode === -1) return stopped(`ckb-debugger crashed: ${outputTail(run.stderr, 500) || "no message"}`);
+  let parsed: Omit<GroupRun, "selector">;
+  try {
+    parsed = parseDebuggerOutput(run.stdout);
+  } catch {
+    // Nothing usable on stdout: what it said on stderr is the reason.
+    throw new Error(`unexpected ckb-debugger output (exit ${run.exitCode}):\n${outputTail(run.stdout + run.stderr)}`);
+  }
+  if ((parsed.result === 0 && !parsed.error) !== (run.exitCode === 0)) {
+    const said = parsed.error ? "an error" : `result ${parsed.result}`;
+    return { ...parsed, result: -1, error: `ckb-debugger printed ${said} but exited with ${run.exitCode}: output not trusted` };
+  }
+  return parsed;
 }
 
 /**
@@ -136,7 +193,8 @@ export interface ReplayPlan {
   groups: ScriptGroup[];
   /** CKB-VM version for `hash_type: "type"` scripts: the one of the block's epoch. */
   scriptVersion: 0 | 1 | 2;
-  network: "testnet" | "mainnet";
+  /** "testnet", "mainnet", or a devnet's chain id: what the node says it serves, when it was asked. */
+  network: string;
   rpcUrl: string;
 }
 
@@ -157,19 +215,28 @@ export async function planReplay(
   target: string | RpcTransaction | MockTransaction,
   options: ReplayOptions = {},
 ): Promise<ReplayPlan> {
-  const network = options.network ?? "testnet";
-  const rpcUrl = options.rpcUrl ?? PUBLIC_RPC[network];
-  const rpc = httpRpc(rpcUrl);
+  const rpcUrl = options.rpcUrl ?? PUBLIC_RPC[options.network ?? "testnet"];
+  const rpc = httpRpc(rpcUrl, { ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }) });
+  const isMock = typeof target === "object" && "mock_info" in target;
 
-  const { mock, cycles, status, epoch } =
+  // The node's chain and hardfork epochs are asked alongside the transaction:
+  // a flag can name the wrong network, the node cannot.
+  const [fetched, consensus] = await Promise.all([
     typeof target === "string"
-      ? await buildMockTransaction(rpc, target)
+      ? buildMockTransaction(rpc, target).catch((e: Error) => {
+          throw new Error(/^transaction not found/.test(e.message) ? `${e.message} on ${rpcUrl}` : e.message);
+        })
       : "mock_info" in target
         ? { mock: target, cycles: undefined, status: "not on chain", epoch: undefined }
-        : { mock: await mockFromTransaction(rpc, target), cycles: undefined, status: "not on chain", epoch: undefined };
+        : mockFromTransaction(rpc, target).then((mock) => ({ mock, cycles: undefined, status: "not on chain", epoch: undefined })),
+    // A ready mock transaction needs no node, and is not sent to one.
+    isMock ? undefined : consensusOf(rpc, rpcUrl, options),
+  ]);
+  const { mock, cycles, status, epoch } = fetched;
+  const network = consensus?.network ?? options.network ?? "testnet";
   const groups = groupsOf(mock);
 
-  // Known-script names are CCC's table for `network`, through the same node;
+  // Known-script names are CCC's table for the network, through the same node;
   // a network CCC does not know (a devnet) names its scripts with `scriptNames`.
   const client =
     network === "mainnet" ? new ccc.ClientPublicMainnet({ url: rpcUrl }) : new ccc.ClientPublicTestnet({ url: rpcUrl });
@@ -186,19 +253,44 @@ export async function planReplay(
     ...(cycles !== undefined && { nodeCycles: cycles }),
     mock,
     groups,
-    // `hash_type: "type"` scripts run on the VM of their block's epoch; a
-    // transaction not yet in a block would run on the current one.
-    scriptVersion: options.scriptVersion ?? (epoch === undefined ? 2 : scriptVersionAt(network, epoch)),
+    // `hash_type: "type"` scripts run on the VM of their block's epoch, on the
+    // node's own hardfork schedule; a transaction not yet in a block would run
+    // on the current one.
+    scriptVersion:
+      options.scriptVersion ??
+      (epoch === undefined ? 2 : scriptVersionAt(consensus?.vmEpochs ?? (network === "mainnet" ? "mainnet" : "testnet"), epoch)),
     network,
     rpcUrl,
   };
 }
 
 /**
- * Runs one group in a ckb-debugger with `args` (from `debuggerArgs`) and
- * returns what it printed, stdout and stderr together.
+ * The node's chain and CKB-VM epochs, from `get_consensus`. Stops when the node
+ * serves another chain than `options.network` names. If the node cannot say,
+ * the built-in table stands in only for the public node of `network`; for a
+ * node given by URL the chain is unknown, so the replay stops.
  */
-export type RunDebugger = (args: string[]) => Promise<string>;
+export async function consensusOf(rpc: Rpc, rpcUrl: string, options: ReplayOptions = {}): Promise<NodeConsensus | undefined> {
+  let consensus: NodeConsensus;
+  try {
+    consensus = await nodeConsensus(rpc);
+  } catch (e) {
+    if (options.rpcUrl === undefined) return undefined;
+    const why = e instanceof Error ? e.message : String(e);
+    throw new Error(`cannot read the hardfork epochs from ${rpcUrl}, so the CKB-VM version is unknown: ${why}`);
+  }
+  if (options.network !== undefined && consensus.network !== options.network) {
+    throw new Error(`${rpcUrl} serves ${consensus.network} (chain id "${consensus.chain}"), not ${options.network}`);
+  }
+  return consensus;
+}
+
+/**
+ * Runs one group in a ckb-debugger with `args` (from `debuggerArgs`) and
+ * returns the run: its output and exit code, read with parseDebuggerRun. A
+ * plain string (stdout and stderr together) is read without the exit-code check.
+ */
+export type RunDebugger = (args: string[]) => Promise<DebuggerOutput | string>;
 
 /**
  * Replays every group of a plan, one after another, through `run`. The mock
@@ -222,7 +314,7 @@ export async function replayGroups(
       continue;
     }
     const out = await run(debuggerArgs(options.txFile, selector, plan.scriptVersion));
-    profiled.push({ ...g, selector, ...parseDebuggerOutput(out) });
+    profiled.push({ ...g, selector, ...(typeof out === "string" ? parseDebuggerOutput(out) : parseDebuggerRun(out)) });
   }
   return {
     hash: plan.hash,
