@@ -4,16 +4,18 @@ import { parseArgs } from "node:util";
 import { diffFailed, diffReports, formatMarkdown, formatText, type CycleReport } from "./diff.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
+import { PUBLIC_RPC } from "./replay.js";
 import { formatReport, runReport } from "./report.js";
 
-const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--debugger <path>] [--json]
-                  [--name <code-hash>[:<hash-type>]=<label> ...]
+const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout <s>] [--debugger <path>]
+                  [--json] [--name <code-hash>[:<hash-type>]=<label> ...]
        ckb-cycles --file <tx.json> [same options]
        ckb-cycles report <cycles.json> [--json <out.json>] [--binaries-from <dir>]
-                  [--rpc <url>] [--debugger <path>]
+                  [--rpc <url>] [--timeout <s>] [--debugger <path>]
        ckb-cycles diff <base.json> <head.json> [--markdown] [--fail-above <percent>]
                   [--fail-on-result-change] [--title <s>] [--base-label <s>] [--head-label <s>]
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
+                  [--timeout <s>]
 
 Replays a CKB transaction in ckb-debugger, one run per script group, and prints
 the cycles each group cost.
@@ -22,21 +24,31 @@ the cycles each group cost.
   --file       a transaction that is not on chain: one about to be sent, or one
                the node rejected. Shows which script refuses it and why. JSON in
                the node's RPC shape, a get_transaction result, or ccc.stringify(tx)
+  --rpc        the node to ask. Its chain and hardfork epochs (get_consensus)
+               decide the CKB-VM version, whatever the flags say; --mainnet with
+               a node that serves another chain stops with an error
+  --timeout    seconds to wait for each RPC answer (default 30)
   --name       a label for your own script, shown instead of its code hash;
                repeat for several. Without :<hash-type> it applies to all of them
 
-Exits 1 if any script rejects, or if the sum differs from the node's.
+Exit codes: 0 every script accepts (and the sum matches the node's)
+            1 a script rejects, or the sum differs from the node's
+            2 usage or environment error: bad arguments, node unreachable,
+              transaction not found, ckb-debugger missing or unreadable output
 
   report       runs every scenario in a cycles.json (see README) and records each
                script group's result and cycles; --json writes them for diff.
                --binaries-from <dir> reads the binaries from another checkout
-               (the PR's base). Exits 1 only if a scenario could not run: a
+               (the PR's base). Exits 2 if a scenario could not run: a
                rejection is a result, not an error
   diff         compares two reports group by group: Δ cycles, Δ%, and any group
                whose result changed (ok → exit 12, or back). --fail-above exits 1
-               when a group grows by more than that percentage,
-               --fail-on-result-change when a result changed; a scenario the
-               head could not run always exits 1
+               when a group grows by more than that percentage (a new group
+               has no base, so no percentage: it is never over the threshold),
+               --fail-on-result-change when a result changed, including a new
+               group that does not accept. A scenario the head could not run
+               always exits 1; one the base could not run exits 1 when either
+               flag is set
   mock         saves a transaction as a ckb-debugger mock transaction, every cell
                it touches included, so a scenario can replay it with no node`;
 
@@ -75,6 +87,15 @@ function table(p: Profile): string {
   return out.join("\n");
 }
 
+/** `--timeout <seconds>` → milliseconds; usage error (exit 2) for anything but a positive number. */
+function timeoutOf(value: string | undefined): { timeoutMs?: number } {
+  if (value === undefined) return {};
+  const seconds = Number(value);
+  if (!(seconds > 0)) throw new Error("--timeout expects a number of seconds, e.g. 30");
+  return { timeoutMs: seconds * 1000 };
+}
+
+
 const toJson = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x), 2);
 
 async function reportCommand(args: string[]): Promise<number> {
@@ -84,6 +105,7 @@ async function reportCommand(args: string[]): Promise<number> {
     options: {
       json: { type: "string" },
       rpc: { type: "string" },
+      timeout: { type: "string" },
       debugger: { type: "string" },
       "binaries-from": { type: "string" },
     },
@@ -94,6 +116,7 @@ async function reportCommand(args: string[]): Promise<number> {
   }
   const report = await runReport(positionals[0], {
     ...(values.rpc && { rpcUrl: values.rpc }),
+    ...timeoutOf(values.timeout),
     ...(values.debugger && { debuggerPath: values.debugger }),
     ...(values["binaries-from"] && { binariesRoot: values["binaries-from"] }),
     onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${s.name}`),
@@ -102,7 +125,7 @@ async function reportCommand(args: string[]): Promise<number> {
   if (values.json) await writeFile(values.json, toJson(data) + "\n");
   console.log(formatReport(data));
   for (const e of errors) console.error(`error: ${e}`);
-  return errors.length ? 1 : 0;
+  return errors.length ? 2 : 0;
 }
 
 async function readReport(path: string): Promise<CycleReport> {
@@ -156,6 +179,7 @@ async function mockCommand(args: string[]): Promise<number> {
       out: { type: "string", short: "o" },
       mainnet: { type: "boolean" },
       rpc: { type: "string" },
+      timeout: { type: "string" },
     },
   });
   const [hash] = positionals;
@@ -163,7 +187,7 @@ async function mockCommand(args: string[]): Promise<number> {
     console.log(USAGE);
     return 2;
   }
-  const rpc = httpRpc(values.rpc ?? (values.mainnet ? "https://mainnet.ckb.dev/" : "https://testnet.ckb.dev/"));
+  const rpc = httpRpc(values.rpc ?? PUBLIC_RPC[values.mainnet ? "mainnet" : "testnet"], timeoutOf(values.timeout));
   const mock = values.file
     ? await mockFromTransaction(rpc, readTransactionJson(await readFile(values.file, "utf8")))
     : (await buildMockTransaction(rpc, hash)).mock;
@@ -183,6 +207,7 @@ async function main(): Promise<number> {
     options: {
       mainnet: { type: "boolean" },
       rpc: { type: "string" },
+      timeout: { type: "string" },
       debugger: { type: "string" },
       json: { type: "boolean" },
       file: { type: "string" },
@@ -202,8 +227,11 @@ async function main(): Promise<number> {
   const target = values.file ? readTransactionJson(await readFile(values.file, "utf8")) : hash;
 
   const p = await profileTransaction(target, {
-    network: values.mainnet ? "mainnet" : "testnet",
+    // Only an explicit --mainnet is passed on, and checked against the node;
+    // without it, the node itself says which chain it serves.
+    ...(values.mainnet && { network: "mainnet" as const }),
     ...(values.rpc && { rpcUrl: values.rpc }),
+    ...timeoutOf(values.timeout),
     ...(values.debugger && { debuggerPath: values.debugger }),
     scriptNames: parseNames(values.name ?? []),
   });
@@ -217,10 +245,13 @@ async function main(): Promise<number> {
   return mismatch || p.groups.some((g) => g.result !== 0) ? 1 : 0;
 }
 
+// 1 is a verdict (a script rejects, a sum differs, a diff over its thresholds);
+// anything thrown is the tool not getting that far: 2, so a CI job asserting a
+// rejection with `test $? = 1` does not pass when the node is down.
 main().then(
   (code) => process.exit(code),
   (e) => {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
-    process.exit(1);
+    process.exit(2);
   },
 );

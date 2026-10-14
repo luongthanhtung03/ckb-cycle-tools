@@ -106,7 +106,10 @@ The replay is exact for what a script can observe through syscalls: cells, data,
 witnesses, headers. **Older transactions replay on the VM they ran on:** a
 `hash_type: "type"` script runs on the CKB-VM version of its block's epoch (v0
 before Mirana, v1 before Meepo, v2 since), so a 2023 testnet transaction matches
-the node only on v1, and the CLI picks it from the block. The output ends with the
+the node only on v1, and the CLI picks it from the block. The hardfork epochs come
+from the node it asks (`get_consensus`), never from a flag: `--rpc` with a mainnet
+node gives mainnet's schedule with or without `--mainnet`, and `--mainnet` with a
+node that serves another chain stops with an error. The output ends with the
 ckb-debugger version, that VM version, the network and the node used, so a result
 can be reproduced.
 
@@ -115,11 +118,18 @@ did not record them instead of claiming a mismatch (`--rpc` another node to
 compare). A script that faults in the VM (invalid instruction, cycle limit) shows
 as a rejection with the VM's message, Type ID is checked as the node checks it,
 and a script's logs can neither fake its result nor send control characters to
-your terminal.
+your terminal: only ckb-debugger's final lines are read, they must agree with its
+exit code, and a run that prints more than 64 MB is an error, never parsed.
 
-The CLI exits non-zero on a mismatch or a rejecting script, and CI runs it against
+Exit codes: **0** every script accepts (and the sum matches the node's); **1** a
+script rejects, or the sum differs from the node's; **2** a usage or environment
+error: bad arguments, a node that cannot be reached or does not answer within
+`--timeout` (default 30 s), a transaction the node does not have (or rejected),
+ckb-debugger missing or printing something it cannot read. So `test $? = 1`
+asserts a rejection without passing when the node is down. CI runs the CLI against
 live testnet transactions on a clean machine. `--json` for machine output,
-`--mainnet` or `--rpc <url>` for another node. Your own scripts show as a short code
+`--mainnet` or `--rpc <url>` for another node (at most 16 requests in flight).
+Your own scripts show as a short code
 hash; name them with `--name <code-hash>=<label>` (repeatable, optionally
 `<code-hash>:<hash-type>=…`), or `profileTransaction(tx, { scriptNames })` from code.
 The web page does the same: click a script for its full code hash and a name box

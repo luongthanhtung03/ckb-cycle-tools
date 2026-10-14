@@ -18,6 +18,7 @@ import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
 import { resultLabel } from "./diff.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
 import { parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
+import { consensusOf, nodeVerdict, PUBLIC_RPC } from "./replay.js";
 import { substituteBinaries, type BinarySubstitution } from "./substitute.js";
 
 export interface BinaryConfig {
@@ -97,6 +98,8 @@ export interface ReportOptions {
   debuggerPath?: string;
   /** Overrides the config's node. */
   rpcUrl?: string;
+  /** Per RPC request, in milliseconds. Default 30 s. */
+  timeoutMs?: number;
   /**
    * Where binary paths resolve, instead of the config file's directory: a
    * checkout of the base commit, so the base report replays the same scenarios
@@ -131,7 +134,9 @@ export async function runReport(configPath: string, options: ReportOptions = {})
   const config = parseCyclesConfig(await readFile(configPath, "utf8"));
   const dir = dirname(resolve(configPath));
   const binDir = options.binariesRoot ? resolve(options.binariesRoot) : dir;
-  const network = config.network ?? "testnet";
+  // Only a network the config names is checked against the node; otherwise the
+  // node says which chain it serves, and its own hardfork epochs are used.
+  const network = config.network;
   const rpcUrl = options.rpcUrl ?? config.rpc;
   const baseNames = parseNames(Object.entries(config.names ?? {}).map(([k, v]) => `${k}=${v}`));
 
@@ -147,8 +152,11 @@ export async function runReport(configPath: string, options: ReportOptions = {})
           ...(b.outPoint && { outPoint: b.outPoint }),
           ...(b.codeHash && { codeHash: b.codeHash }),
         }),
-        (e: Error) => {
-          throw new Error(`binary "${name}": cannot read ${b.path} (${e.message}); build it first`);
+        (e: NodeJS.ErrnoException) => {
+          const err = new Error(`binary "${name}": cannot read ${b.path} (${e.message}); build it first`);
+          // Absent from another checkout (the base): the scenario's code is new there, not broken.
+          if (options.binariesRoot && e.code === "ENOENT") missingBinary.add(err);
+          throw err;
         },
       );
       binaries.set(name, p);
@@ -156,6 +164,7 @@ export async function runReport(configPath: string, options: ReportOptions = {})
     return p;
   };
   const used = new Set<string>();
+  const missingBinary = new WeakSet<Error>();
 
   let debuggerVersion: string | undefined;
   const scenarios: ScenarioResult[] = [];
@@ -166,8 +175,9 @@ export async function runReport(configPath: string, options: ReportOptions = {})
       const names = explicit ? s.binaries! : Object.keys(config.binaries ?? {});
       const subs = await Promise.all(names.map(binary));
       const profileOptions = {
-        network,
+        ...(network && { network }),
         ...(rpcUrl && { rpcUrl }),
+        ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
         ...(options.debuggerPath && { debuggerPath: options.debuggerPath }),
         ...(s.scriptVersion !== undefined && { scriptVersion: s.scriptVersion }),
       };
@@ -178,7 +188,8 @@ export async function runReport(configPath: string, options: ReportOptions = {})
         // Nothing to swap: profile it as the CLI does, with the node's check.
         profile = await profileTransaction(s.tx, { ...profileOptions, scriptNames: baseNames });
       } else {
-        const rpc = () => httpRpc(rpcUrl ?? (network === "mainnet" ? "https://mainnet.ckb.dev/" : "https://testnet.ckb.dev/"));
+        const url = rpcUrl ?? PUBLIC_RPC[network ?? "testnet"];
+        const rpc = () => httpRpc(url, { ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }) });
         let mock: MockTransaction;
         let scriptVersion = s.scriptVersion;
         if (s.mock) {
@@ -187,9 +198,15 @@ export async function runReport(configPath: string, options: ReportOptions = {})
         } else if (s.file) {
           mock = await mockFromTransaction(rpc(), readTransactionJson(await readFile(resolve(dir, s.file), "utf8")));
         } else {
-          const built = await buildMockTransaction(rpc(), s.tx!);
+          const node = rpc();
+          const [built, consensus] = await Promise.all([
+            buildMockTransaction(node, s.tx!),
+            consensusOf(node, url, { ...(network && { network }), ...(rpcUrl && { rpcUrl }) }),
+          ]);
           mock = built.mock;
-          if (scriptVersion === undefined && built.epoch !== undefined) scriptVersion = scriptVersionAt(network, built.epoch);
+          if (scriptVersion === undefined && built.epoch !== undefined) {
+            scriptVersion = scriptVersionAt(consensus?.vmEpochs ?? network ?? "testnet", built.epoch);
+          }
         }
         const { mock: swapped, applied } = substituteBinaries(mock, subs, { skipUnmatched: !explicit });
         // A substituted binary is labelled by its name; "names" still wins.
@@ -207,9 +224,18 @@ export async function runReport(configPath: string, options: ReportOptions = {})
         });
       }
       debuggerVersion ??= profile.env.debugger;
+      // Kept with the scenario: numbers that do not add up to the node's are not to be trusted.
+      if (nodeVerdict(profile) === "mismatch") {
+        warnings.push(`the groups add up to ${profile.measuredCycles} cycles, the node reported ${profile.nodeCycles}`);
+      }
       result = { name: s.name, groups: groupResults(profile), ...(warnings.length && { warnings }) };
     } catch (e) {
-      result = { name: s.name, error: e instanceof Error ? e.message : String(e), groups: [] };
+      result = {
+        name: s.name,
+        error: e instanceof Error ? e.message : String(e),
+        groups: [],
+        ...(e instanceof Error && missingBinary.has(e) && { binaryMissing: true }),
+      };
     }
     scenarios.push(result);
     options.onScenario?.(result);

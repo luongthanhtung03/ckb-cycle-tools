@@ -104,13 +104,45 @@ describe("diffReports", () => {
     expect(diffFailed(d)).toBe(true);
   });
 
-  it("counts every group as new when the base could not run the scenario", () => {
+  // Found in hardening review: a base that could not run made every head group
+  // "new", rejections included, and the gate passed with nothing compared.
+  it("reports a scenario the base could not run, and fails a gated check on it", () => {
     const d = diffReports(
-      report({ name: "transfer", error: "ENOENT", groups: [] }),
-      report({ name: "transfer", groups: [g("input.0.lock", 5)] }),
+      report({ name: "spend", error: 'binary "x": cannot read', groups: [] }),
+      report({ name: "spend", groups: [g("input.0.lock", 100_000_000)] }),
+    );
+    expect(d.rows.map((r) => r.kind)).toEqual(["base-error", "new"]);
+    expect(d.baseErrors).toBe(1);
+    expect(formatText(d)).toContain('NOT COMPARED: base: binary "x": cannot read');
+    expect(formatText(d).split("\n")[0]).toContain("1 scenario could not run on the base");
+    expect(diffFailed(d)).toBe(false);
+    expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+    expect(diffFailed(d, { failAbove: 5 })).toBe(true);
+  });
+
+  it("counts the groups as new when the scenario's binary does not exist on the base yet", () => {
+    const d = diffReports(
+      report({ name: "spend", error: "ENOENT", binaryMissing: true, groups: [] }),
+      report({ name: "spend", groups: [g("input.0.lock", 5)] }),
     );
     expect(d.rows.map((r) => r.kind)).toEqual(["new"]);
-    expect(diffFailed(d)).toBe(false);
+    expect(diffFailed(d, { failOnResultChange: true, failAbove: 5 })).toBe(false);
+  });
+
+  // Found in hardening review: a new group never failed the check, even when it rejected.
+  it("counts a new group that does not accept as a result change", () => {
+    const d = diffReports(
+      report({ name: "a", groups: [g("input.0.lock", 1_000)] }),
+      report({ name: "a", groups: [g("input.0.lock", 1_000), g("output.0.type", 900_000_000, 5)] }),
+      { failAbove: 5 },
+    );
+    expect(d.rows[1]).toMatchObject({ kind: "result", group: "output.0.type", overThreshold: false });
+    expect(d.resultChanges).toBe(1);
+    expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+    const text = formatText(d);
+    expect(text).toContain("NEW, DOES NOT ACCEPT: exit 5");
+    // No base, so no percentage: the output says the threshold did not apply to it.
+    expect(text.split("\n")[0]).toContain("1 new group not checked against the 5% threshold (no base to compare with)");
   });
 });
 
@@ -143,6 +175,16 @@ describe("formatMarkdown", () => {
   it("escapes names that would break the table", () => {
     const d = diffReports(report(), report({ name: "a | b", groups: [g("input.0.lock", 1, 0, "x|y")] }));
     expect(formatMarkdown(d)).toContain("| a \\| b | `input.0.lock` | x\\|y |");
+  });
+
+  // GitHub links @mentions and #refs after rendering: only a zero-width space stops them.
+  const ZWSP = String.fromCharCode(0x200b);
+  it("neutralises mentions, refs and formatting in names and the title", () => {
+    const d = diffReports(report(), report({ name: "@luongthanhtung03 ~~struck~~ #1 &lt;b&gt;", groups: [g("input.0.lock", 1)] }));
+    const text = formatMarkdown(d, { title: "x\n\n<!-- ckb-cycles-report -->\n# injected @team" });
+    expect(text).toContain(`| @${ZWSP}luongthanhtung03 \\~\\~struck\\~\\~ #${ZWSP}1 \\&lt;b\\&gt; |`);
+    expect(text.split("\n")[1]).toBe(`### x \\<\\!-- ckb-cycles-report --\\> # injected @${ZWSP}team`);
+    expect(text.split(COMMENT_MARKER)).toHaveLength(2);
   });
 
   it("says so when nothing changed", () => {

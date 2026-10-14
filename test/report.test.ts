@@ -90,6 +90,8 @@ describe("runReport", () => {
     for (const s of r.scenarios) {
       expect(s.groups).toEqual([]);
       expect(s.error).toMatch(/cannot read .* build it first/);
+      // Absent from that checkout: diff counts its groups as new, not the base as broken.
+      expect(s.binaryMissing).toBe(true);
     }
     expect(r.errors).toHaveLength(config.scenarios.length);
   });
