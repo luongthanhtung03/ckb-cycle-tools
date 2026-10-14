@@ -35,6 +35,11 @@ inputs:
   ckb-debugger-version:
     description: ckb-standalone-debugger release to install when ckb-debugger is not on PATH.
     default: v1.1.1
+  ckb-debugger-sha256:
+    description: >
+      SHA-256 of that release's x86_64-unknown-linux-gnu tarball. Pinned for the
+      default v1.1.1; required when ckb-debugger-version is changed.
+    default: ""
 
 outputs:
   report:
@@ -44,7 +49,9 @@ outputs:
     description: Path to the markdown diff.
     value: ${{ steps.diff.outputs.markdown }}
   failed:
-    description: '"true" when the diff failed the thresholds or a head scenario could not run.'
+    description: >
+      "true" when the diff failed the thresholds, a head scenario could not run, or (with
+      a threshold set) a base scenario could not run.
     value: ${{ steps.diff.outputs.failed }}
 
 runs:
@@ -54,14 +61,23 @@ runs:
       shell: bash
       env:
         VERSION: ${{ inputs.ckb-debugger-version }}
+        SHA256: ${{ inputs.ckb-debugger-sha256 }}
       run: |
         if command -v ckb-debugger >/dev/null; then ckb-debugger --version; exit 0; fi
         if [ "$RUNNER_OS" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
           echo "::error::install ckb-debugger yourself on $RUNNER_OS/$(uname -m), or use ubuntu-latest"
           exit 1
         fi
+        # A release asset can be replaced under the same tag: run only the tarball that was checked.
+        # v1.1.1's checksum is the one the release publishes (…-sha256.txt) and GitHub's asset digest.
+        if [ -z "$SHA256" ] && [ "$VERSION" = v1.1.1 ]; then SHA256=0dee02804af46386527c8bb94c2ee63592594ca1ec952ea42ffa9df07a9f005e; fi
+        if [ -z "$SHA256" ]; then
+          echo "::error::ckb-debugger $VERSION: set ckb-debugger-sha256 to the SHA-256 of its x86_64-unknown-linux-gnu tarball"
+          exit 1
+        fi
         url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${VERSION}/ckb-debugger_${VERSION}_x86_64-unknown-linux-gnu.tar.gz"
         curl -fsSL "$url" -o "$RUNNER_TEMP/ckb-debugger.tar.gz"
+        echo "$SHA256  $RUNNER_TEMP/ckb-debugger.tar.gz" | sha256sum -c -
         mkdir -p "$HOME/.ckb-tools"
         tar -xzf "$RUNNER_TEMP/ckb-debugger.tar.gz" -C "$HOME/.ckb-tools"
         echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
@@ -101,11 +117,24 @@ runs:
         fi
         git fetch --no-tags --depth=1 origin "$BASE"
         git worktree add --detach "$out/base" "$BASE"
-        # The base's build may fail (or not exist yet): its scenarios then count as new.
-        if [ -n "$BUILD" ]; then (cd "$out/base" && bash -euo pipefail -c "$BUILD") || echo "::warning::the build failed on the base commit"; fi
-        # The head's scenarios, with the base's binaries: only the code differs.
-        # Binary paths are relative to the config's directory, in the base checkout too.
-        node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base/$(dirname "$CONFIG")" --json "$out/base.json" || true
+        # A base whose build fails has nothing to compare: every scenario is recorded as
+        # a base error, which the diff reports and fails on when a threshold is set.
+        # (A binary that the build did not make because it is new in the PR is told
+        # apart by the report itself: its scenario counts as new.)
+        if [ -n "$BUILD" ] && ! (cd "$out/base" && bash -euo pipefail -c "$BUILD"); then
+          echo "::warning::the build failed on the base commit"
+          node -e '
+            const [head, out] = process.argv.slice(1);
+            const fs = require("fs");
+            const r = fs.existsSync(head) ? JSON.parse(fs.readFileSync(head, "utf8")) : { scenarios: [] };
+            const scenarios = r.scenarios.map((s) => ({ name: s.name, error: "the build failed on the base commit", groups: [] }));
+            fs.writeFileSync(out, JSON.stringify({ tool: "ckb-cycles", version: 1, scenarios }));
+          ' "$out/head.json" "$out/base.json"
+        else
+          # The head's scenarios, with the base's binaries: only the code differs.
+          # Binary paths are relative to the config's directory, in the base checkout too.
+          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base/$(dirname "$CONFIG")" --json "$out/base.json" || true
+        fi
         git worktree remove --force "$out/base"
 
     - name: Diff
@@ -127,7 +156,8 @@ runs:
         node "$CKB_CYCLES" diff "$out/base.json" "$out/head.json" "${args[@]}" > "$out/comment.md"
         code=$?
         set -e
-        # 0 and 1 are verdicts; anything else, or no output, is the diff itself failing.
+        # 0 and 1 are verdicts; anything else (2: bad arguments or reports), or no output,
+        # is the diff itself failing.
         if [ "$code" -gt 1 ] || [ ! -s "$out/comment.md" ]; then cat "$out/comment.md"; exit 2; fi
         cat "$out/comment.md" >> "$GITHUB_STEP_SUMMARY"
         {
@@ -145,16 +175,19 @@ runs:
         BODY: ${{ steps.diff.outputs.markdown }}
       run: |
         marker='<!-- ckb-cycles-report -->'
-        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
-          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1) || id=""
+        # Only a comment this token posted is ours to update: anyone can write one that
+        # starts with the marker. The workflow token cannot read /user; it is the bot.
+        login=$(gh api user --jq .login 2>/dev/null) || login='github-actions[bot]'
+        # All the matches first, then the first of them: `| head` could cut gh off mid-page.
+        ids=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+          --jq ".[] | select(.user.login == \"$login\" and (.body | startswith(\"$marker\"))) | .id") || ids=""
+        id=${ids%%$'\n'*}
         # A pull request from a fork gets a read-only token: the summary still has the table.
-        if [ -n "$id" ]; then
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$BODY" >/dev/null \
-            || echo "::warning::could not update the cycle report comment (read-only token?)"
-        else
-          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
-            || echo "::warning::could not post the cycle report comment (read-only token?)"
+        if [ -n "$id" ] && gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$BODY" >/dev/null; then
+          exit 0
         fi
+        gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
+          || echo "::warning::could not post the cycle report comment (read-only token?)"
 
     - name: Fail on the thresholds
       if: steps.diff.outputs.failed == 'true'

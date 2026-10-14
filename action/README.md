@@ -42,11 +42,17 @@ it is not already on PATH. It needs Node 20 or later, which the runner has.
 | `title` | `Cycle report` | the comment's heading |
 | `github-token` | `github.token` | needs `pull-requests: write` |
 | `ckb-debugger-version` | `v1.1.1` | release installed when none is on PATH |
+| `ckb-debugger-sha256` | v1.1.1's | SHA-256 of that release's `x86_64-unknown-linux-gnu` tarball; required with another version |
 
 Outputs: `report` (head report JSON), `markdown` (the comment), `failed`.
 
 The table also goes to the job summary, so a pull request from a fork (whose
-token cannot comment) still shows it.
+token cannot comment) still shows it. Only a comment posted by the token's own
+account (`github-actions[bot]` for the default token) is updated: a comment by
+anyone else that starts with the marker is left alone.
+
+Use it under `pull_request`, as above, not `pull_request_target` with a checkout of
+the PR's head: `build` runs the PR's code, which must not get a write token.
 
 ## cycles.json
 
@@ -101,9 +107,10 @@ npx ckb-cycles report cycles.json --binaries-from ../base-checkout --json base.j
 npx ckb-cycles diff base.json head.json --markdown --fail-above 5
 ```
 
-Exit codes: `report` 1 when a scenario could not run (a rejection is a result,
-not an error); `diff` 1 when a threshold is crossed or a head scenario could not
-run.
+Exit codes: `report` 2 when a scenario could not run (a rejection is a result,
+not an error); `diff` 1 when a threshold is crossed, a head scenario could not
+run, or (with `--fail-above` or `--fail-on-result-change`) a base scenario could
+not run; 2 for bad arguments or reports.
 
 ## Limits
 
@@ -111,5 +118,11 @@ run.
   overwrite each other's comment.
 - Cycles are ckb-debugger's for the VM version you set (`scriptVersion`, default
   the block's, or 2). Both sides use the same debugger, so the diff is exact.
-- A scenario the base cannot run (new files, a binary that does not exist yet)
-  shows its groups as new rather than failing.
+- A scenario whose binary does not exist on the base yet (new in the PR) shows
+  its groups as new. A scenario the base cannot run for any other reason (its
+  build failed, a node error) is a row of its own, "NOT COMPARED", and fails the
+  check when a threshold is set: nothing in it was compared.
+- A new group has no base, so no percentage: `fail-above` cannot apply to it, and
+  the summary line says how many new groups it skipped. A new group that does not
+  accept counts as a result change (against "did not run") for
+  `fail-on-result-change`.
