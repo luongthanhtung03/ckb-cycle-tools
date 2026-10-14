@@ -3,7 +3,7 @@
  * the page. It downloads and compiles the module on the first "load", then
  * runs one group per "run" message with the mock transaction in memory.
  */
-import { runWasmDebugger, WASM_TX_FILE, wasmDebuggerVersion, wasmOutput } from "ckb-cycle-tools/wasm";
+import { runWasmDebugger, WASM_TX_FILE, wasmDebuggerVersion } from "ckb-cycle-tools/wasm";
 import type { WorkerIn, WorkerOut } from "./debugger";
 
 const post = (m: WorkerOut) => (self as unknown as { postMessage(m: WorkerOut): void }).postMessage(m);
@@ -47,7 +47,8 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
     } else {
       if (!module) throw new Error("ckb-debugger is not loaded");
       const r = await runWasmDebugger((await module).module, msg.args, { [WASM_TX_FILE.slice(1)]: msg.tx });
-      post({ type: "output", id: msg.id, output: wasmOutput(r) });
+      // The whole run, exit code included: the page checks the result lines against it.
+      post({ type: "output", id: msg.id, run: r });
     }
   } catch (err) {
     post({ type: "error", ...(msg.type === "run" && { id: msg.id }), message: err instanceof Error ? err.message : String(err) });
