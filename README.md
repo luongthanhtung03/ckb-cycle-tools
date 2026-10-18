@@ -236,6 +236,24 @@ CI rebuilds both implementations from source — the Rust lock from a pinned
 ckb-session-kit commit — reruns the 20 scenarios, and publishes the table in the
 job summary.
 
+## Limits
+
+- **It needs a node, or a saved transaction.** Rebuilding a transaction means
+  fetching every input cell and cell dep; without RPC access, use a mock file
+  (`ckb-cycles mock` saves one) or `--file`.
+- **Type ID is charged, not run.** The node verifies Type ID natively; the tools
+  charge its fixed 1,000,000 cycles and check its rules the way the node does.
+- **Two debugger builds.** The CLI uses the native ckb-debugger you install
+  (1.1.1 here); the web page uses the WebAssembly build shipped in
+  `ckb-testtool` (0.200.1). They agree on every transaction checked, but a
+  future CKB-VM change could reach one before the other; each result names the
+  version it used.
+- **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
+  tools then say the total is unknown instead of claiming a match.
+- **The PR Action has not yet commented on a real pull request.** Every step is
+  covered by tests and was run locally end to end; the first public run will be
+  linked here.
+
 ## Why it is a separate repository
 
 It started as measurement scaffolding inside a learning exercise. That is a bad place
