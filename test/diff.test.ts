@@ -5,6 +5,8 @@ import {
   diffReports,
   formatMarkdown,
   formatText,
+  FUNCTION_LIMIT,
+  FUNCTIONS_SHOWN,
   type CycleReport,
   type GroupResult,
 } from "../src/diff.js";
@@ -202,5 +204,93 @@ describe("formatText", () => {
       "SCENARIO   GROUP         SCRIPT               BASE    HEAD     Δ      Δ%",
       "overspend  input.0.lock  my-lock  12,893 (exit 12)  13,000  +107  +0.83%  RESULT CHANGED: exit 12 → ok",
     ]);
+  });
+});
+
+describe("functions", () => {
+  const f = (name: string, self: number, total = self) => ({ name, self, total });
+  const fg = (cycles: number, functions?: ReturnType<typeof f>[], extra: Partial<GroupResult> = {}): GroupResult => ({
+    ...g("input.0.lock", cycles),
+    ...(functions && { functions }),
+    ...extra,
+  });
+  const full = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => f(`${prefix}${i}`, 100 - i));
+
+  it("lists the functions whose self cycles changed, largest change first", () => {
+    const d = diffReports(
+      report({ name: "charge", groups: [fg(20_000, [f("lock_hash", 4_490), f("memcpy", 3_145), f("main", 2_545), f("gone", 10)])] }),
+      report({ name: "charge", groups: [fg(21_600, [f("lock_hash", 5_972), f("memcpy", 3_125), f("main", 2_545), f("new_fn", 50)])] }),
+    );
+    expect(d.rows[0].functions).toEqual([
+      { name: "lock_hash", base: 4_490, head: 5_972, delta: 1_482 },
+      { name: "new_fn", base: 0, head: 50, delta: 50 },
+      { name: "memcpy", base: 3_145, head: 3_125, delta: -20 },
+      { name: "gone", base: 10, head: 0, delta: -10 },
+    ]);
+  });
+
+  it("does not guess a side cut at the limit, nor one without functions", () => {
+    const head = full("h", FUNCTION_LIMIT);
+    const cut = diffReports(
+      report({ name: "s", groups: [fg(1, full("b", FUNCTION_LIMIT))] }),
+      report({ name: "s", groups: [fg(2, head)] }),
+    ).rows[0].functions!;
+    // Neither name is in the other full list: either may be just below its cut.
+    expect(cut.find((x) => x.name === "h0")).toEqual({ name: "h0", head: 100 });
+    expect(cut.find((x) => x.name === "b0")).toEqual({ name: "b0", base: 100 });
+    // A base report from before functions existed: every base is unknown.
+    const old = diffReports(report({ name: "s", groups: [fg(1)] }), report({ name: "s", groups: [fg(2, [f("a", 5)])] }));
+    expect(old.rows[0]).toMatchObject({ kind: "changed", delta: 1, functions: [{ name: "a", head: 5 }] });
+  });
+
+  it("keeps a base with functions and a head without them as a plain diff", () => {
+    const d = diffReports(report({ name: "s", groups: [fg(1, [f("a", 5)])] }), report({ name: "s", groups: [fg(2)] }));
+    expect(d.rows[0]).not.toHaveProperty("functions");
+    expect(formatMarkdown(d)).not.toContain("Functions in");
+  });
+
+  it("folds the changed functions under the table, after the rows and before the unchanged groups", () => {
+    const fns = Array.from({ length: 12 }, (_, i) => f(`session_lock::f${i}<[u8; 32]>`, 100 + i));
+    const d = diffReports(
+      report(
+        { name: "charge #1", groups: [fg(20_000, fns.map((x) => ({ ...x, self: 100 })))] },
+        { name: "idle", groups: [g("input.0.lock", 5)] },
+      ),
+      report({ name: "charge #1", groups: [fg(21_000, fns)] }, { name: "idle", groups: [g("input.0.lock", 5)] }),
+    );
+    const text = formatMarkdown(d);
+    const lines = text.split("\n");
+    const start = lines.indexOf(
+      "<details><summary>Functions in charge #\u200b1 · <code>input.0.lock</code> (my-lock): 11 functions changed</summary>",
+    );
+    expect(start).toBeGreaterThan(lines.findIndex((l) => l.startsWith("| charge")));
+    expect(start).toBeLessThan(lines.findIndex((l) => l.includes("1 unchanged group")));
+    expect(lines.slice(start + 2, start + 5)).toEqual([
+      "| Function | Base self | Head self | Δ |",
+      "|---|---:|---:|---:|",
+      "| session\\_lock::f11\\<\\[u8; 32\\]\\> | 100 | 111 | +11 |",
+    ]);
+    // Ten shown, the rest counted.
+    expect(lines.filter((l) => l.startsWith("| session"))).toHaveLength(FUNCTIONS_SHOWN);
+    expect(lines).toContain("and 1 more.");
+    expect(text.startsWith(COMMENT_MARKER)).toBe(true);
+    expect(text.split(COMMENT_MARKER)).toHaveLength(2);
+  });
+
+  it("says why a group recorded no functions", () => {
+    const warning = "the symbols build costs 21,100 cycles, the binary 21,000: not the same code";
+    const d = diffReports(report({ name: "s", groups: [fg(1)] }), report({ name: "s", groups: [fg(2, undefined, { functionsWarning: warning })] }));
+    const lines = formatMarkdown(d).split("\n");
+    expect(lines).toContain("<details><summary>Functions in s · <code>input.0.lock</code> (my-lock): not recorded</summary>");
+    expect(formatText(d).split("\n").at(-1)).toBe(`functions in s input.0.lock not recorded: ${warning}`);
+  });
+
+  it("adds one compact line per group to the terminal table", () => {
+    const d = diffReports(
+      report({ name: "s", groups: [fg(1, [f("a", 5), f("b", 7)])] }),
+      report({ name: "s", groups: [fg(2, [f("a", 9), f("b", 7), f("c", 1)])] }),
+    );
+    const out = formatText(d).split("\n");
+    expect(out.slice(-2)).toEqual(["", "functions in s input.0.lock: a +4, c +1"]);
   });
 });

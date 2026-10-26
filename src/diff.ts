@@ -41,6 +41,37 @@ export interface GroupResult {
   result: number;
   error?: string;
   cycles: number;
+  /**
+   * The costliest functions of the run, heaviest self first (at most
+   * FUNCTION_LIMIT). Only for a group whose binary has a `symbols` build.
+   */
+  functions?: FunctionResult[];
+  /** Why `functions` were not recorded although asked for (the symbols build costs other cycles…). */
+  functionsWarning?: string;
+}
+
+export interface FunctionResult {
+  name: string;
+  /** Cycles spent in the function itself. */
+  self: number;
+  /** Cycles spent in it and everything it called. */
+  total: number;
+}
+
+/** How many functions a report keeps per group. */
+export const FUNCTION_LIMIT = 15;
+
+/**
+ * One function's self cycles on each side. A side is undefined when it is not
+ * known: no functions were recorded there, or the function is not in a list
+ * that was cut at FUNCTION_LIMIT. In a shorter list, absent means 0.
+ */
+export interface FunctionDelta {
+  name: string;
+  base?: number;
+  head?: number;
+  /** Set when both sides are known. */
+  delta?: number;
 }
 
 /** `error`: the head could not run the scenario. `base-error`: the base could not, so nothing was compared. */
@@ -61,6 +92,10 @@ export interface DiffRow {
   overThreshold: boolean;
   /** Free text for an error row. */
   note?: string;
+  /** Functions whose self cycles changed, largest change first (when the head recorded functions). */
+  functions?: FunctionDelta[];
+  /** The head's reason for not recording functions. */
+  functionsWarning?: string;
 }
 
 export interface CycleDiff {
@@ -153,7 +188,32 @@ function groupRow(scenario: string, b: GroupResult | undefined, h: GroupResult |
     row.kind = "result";
     row.base = { result: NOT_RUN };
   }
+  if (h?.functions) row.functions = functionDeltas(b?.functions, h.functions);
+  if (h?.functionsWarning) row.functionsWarning = h.functionsWarning;
   return row;
+}
+
+/**
+ * The functions whose self cycles differ between two lists, largest change
+ * first. One whose other side is not known (see FunctionDelta) is kept, ranked
+ * by the side that is.
+ */
+export function functionDeltas(base: FunctionResult[] | undefined, head: FunctionResult[]): FunctionDelta[] {
+  const side = (list: FunctionResult[] | undefined, name: string) => {
+    if (!list) return undefined;
+    const f = list.find((f) => f.name === name);
+    return f ? f.self : list.length < FUNCTION_LIMIT ? 0 : undefined;
+  };
+  const names = [...new Set([...head.map((f) => f.name), ...(base ?? []).map((f) => f.name)])];
+  const size = (d: FunctionDelta) => Math.abs(d.delta ?? d.head ?? d.base ?? 0);
+  return names
+    .map((name): FunctionDelta => {
+      const b = side(base, name);
+      const h = side(head, name);
+      return { name, ...(b !== undefined && { base: b }), ...(h !== undefined && { head: h }), ...(b !== undefined && h !== undefined && { delta: h - b }) };
+    })
+    .filter((d) => d.delta !== 0)
+    .sort((x, y) => size(y) - size(x) || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
 }
 
 /**
@@ -231,6 +291,50 @@ const md = (s: string) =>
     .replace(MD_ESCAPE, (c) => `\\${c}`)
     .replace(/([@#])(?=\w)/g, "$1\u200b");
 
+/** Text for inside an HTML tag (a `<summary>`, which GitHub does not read as markdown). */
+const html = (s: string) =>
+  s
+    .replace(/[\r\n]+/g, " ")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/([@#])(?=\w)/g, "$1\u200b");
+
+/** How many changed functions a comment lists per group. */
+export const FUNCTIONS_SHOWN = 10;
+
+/** A folded block per group that recorded functions: which of them changed, or why none were recorded. */
+function functionBlocks(rows: DiffRow[]): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    const where = `${html(r.scenario)} · <code>${html(r.group)}</code> (${html(r.script)})`;
+    if (r.functionsWarning) {
+      out.push(`<details><summary>Functions in ${where}: not recorded</summary>`, "", md(r.functionsWarning), "", "</details>", "");
+      continue;
+    }
+    if (!r.functions?.length) continue;
+    const shown = r.functions.slice(0, FUNCTIONS_SHOWN);
+    const more = r.functions.length - shown.length;
+    const n = r.functions.length;
+    out.push(
+      `<details><summary>Functions in ${where}: ${n} function${n === 1 ? "" : "s"} changed</summary>`,
+      "",
+      "| Function | Base self | Head self | Δ |",
+      "|---|---:|---:|---:|",
+      ...shown.map((f) => `| ${md(f.name)} | ${fnCell(f.base)} | ${fnCell(f.head)} | ${f.delta === undefined ? "" : signed(f.delta)} |`),
+      "",
+      ...(more > 0 ? [`and ${more} more.`, ""] : []),
+      `<sub>Self cycles, from ckb-debugger's profiler with the symbols build; — means not among the ${FUNCTION_LIMIT} costliest (or not recorded).</sub>`,
+      "",
+      "</details>",
+      "",
+    );
+  }
+  return out;
+}
+
+const fnCell = (n: number | undefined) => (n === undefined ? "—" : fmt(n));
+
 /** The hidden marker that identifies the sticky comment, so it is updated instead of duplicated. */
 export const COMMENT_MARKER = "<!-- ckb-cycles-report -->";
 
@@ -265,7 +369,7 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
 
   const vs = options.baseLabel && options.headLabel ? ` (\`${md(options.baseLabel)}\` → \`${md(options.headLabel)}\`)` : "";
   const out = [COMMENT_MARKER, `### ${md(options.title ?? "Cycle report")}`, "", `${summarize(diff)}${vs}.`, ""];
-  if (shown.length) out.push(head, ...shown.map(line), "");
+  if (shown.length) out.push(head, ...shown.map(line), "", ...functionBlocks(shown));
   else out.push("No script group changed its cycles or its result.", "");
   if (same.length) {
     out.push(
@@ -303,5 +407,20 @@ export function formatText(diff: CycleDiff): string {
       .map((c, i) => (right.has(i) ? c.padStart(widths[i]) : c.padEnd(widths[i])))
       .join("  ")
       .trimEnd();
-  return [summarize(diff), "", line(header), ...rows.map(line)].join("\n");
+  // Under the table, one line per group that recorded functions: the largest changes.
+  const functions: string[] = [];
+  for (const r of diff.rows.filter((r) => r.kind !== "same")) {
+    const where = `${r.scenario} ${r.group}`;
+    if (r.functionsWarning) functions.push(`functions in ${where} not recorded: ${r.functionsWarning}`);
+    else if (r.functions?.length) {
+      const top = r.functions
+        .slice(0, 5)
+        .map((f) => (f.delta !== undefined ? `${f.name} ${signed(f.delta)}` : `${f.name} ${fnText(f.base)} → ${fnText(f.head)}`));
+      const more = r.functions.length - top.length;
+      functions.push(`functions in ${where}: ${top.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
+    }
+  }
+  return [summarize(diff), "", line(header), ...rows.map(line), ...(functions.length ? ["", ...functions] : [])].join("\n");
 }
+
+const fnText = (n: number | undefined) => (n === undefined ? "?" : fmt(n));
