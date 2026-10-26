@@ -177,6 +177,45 @@ signature. CI replays this file and requires exactly that refusal.
 In code: `profileTransaction(readTransactionJson(json))`, or pass an RPC-shaped
 transaction object directly.
 
+### Inside a script: flamegraphs
+
+`ckb-cycles flame` shows where inside each script the cycles go. It runs every
+script group in ckb-debugger's flamegraph mode, merges the stacks, names the
+frames by function, prints the costliest ones and writes an SVG flamegraph and
+a folded-stack file per group (open the `.folded` in
+[speedscope](https://www.speedscope.app/) for an interactive view).
+
+Deployed scripts are stripped, so a profile of one is a single frame. Give an
+unstripped build of the same code with `--bin <code-hash>=<elf>`; the tool runs
+the group with both binaries and says whether the cycles agree, so you know the
+graph describes the deployed code. Here, a real
+[subscription charge](https://testnet.explorer.nervos.org/transaction/0x50ae6df49d411a5766da1c9717da9e6ff34670194b389779f717fcee71a03092)
+of the ckb-session-kit lock, with that lock built with symbols
+(`CARGO_PROFILE_RELEASE_STRIP=false cargo build --release`):
+
+```
+$ npx ckb-cycles flame 0x50ae6df4…a03092 --script input.0.lock \
+    --bin 0xab419466…4c08ce=target/riscv64imac-unknown-none-elf/release/session-lock
+input.0.lock  0xab4194…4c08ce  ok  20,999 cycles
+  --bin …/session-lock: same cycles as the deployed binary
+  profiled 19,187 cycles (loading the binary is not profiled)
+  SELF        TOTAL       FUNCTION
+       4,490       5,972  session_lock::lock_hash
+       3,145       3,145  compiler_builtins::mem::memcpy
+       2,545      18,678  __ckb_std_main
+       2,156       2,156  session_lock::has_type
+       2,076       2,076  memcmp
+  → flame/input.0.lock.svg, flame/input.0.lock.folded
+```
+
+Reading the lock hashes of the transaction's cells is the lock's largest cost.
+The profile covers the script's run; loading the binary into the VM (1,812
+cycles here) is counted by the node but not by the profiler.
+
+In code: `flameTransaction(target, { bins, readFile })`, then `functionCosts`,
+`flameTree` and `renderFlameSvg` from `ckb-cycle-tools/flame` (no Node
+built-ins, so the browser can draw the same graph).
+
 ## Cycle reports on pull requests
 
 A change to a script should say what it did to that script's cycles, and above
@@ -248,6 +287,9 @@ job summary.
   `ckb-testtool` (0.200.1). They agree on every transaction checked, but a
   future CKB-VM change could reach one before the other; each result names the
   version it used.
+- **Flamegraphs need symbols.** On-chain binaries are stripped; `flame` names
+  functions only with an unstripped build passed by `--bin`, and only the CLI
+  draws them so far (not the web page or the PR comment yet).
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
   tools then say the total is unknown instead of claiming a match.
 - **The PR Action has not yet commented on a real pull request.** Every step is

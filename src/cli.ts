@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { diffFailed, diffReports, formatMarkdown, formatText, type CycleReport } from "./diff.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
-import { parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
+import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } from "./flame.js";
+import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
 import { PUBLIC_RPC } from "./replay.js";
 import { formatReport, runReport } from "./report.js";
 
@@ -16,6 +18,8 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
                   [--fail-on-result-change] [--title <s>] [--base-label <s>] [--head-label <s>]
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
                   [--timeout <s>]
+       ckb-cycles flame <tx-hash> | --file <tx.json>  [-o <dir>] [--script <selector> ...]
+                  [--bin <code-hash>=<elf> ...] [--top <n>] [--mainnet] [--rpc <url>] [--debugger <path>]
 
 Replays a CKB transaction in ckb-debugger, one run per script group, and prints
 the cycles each group cost.
@@ -50,7 +54,15 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                always exits 1; one the base could not run exits 1 when either
                flag is set
   mock         saves a transaction as a ckb-debugger mock transaction, every cell
-               it touches included, so a scenario can replay it with no node`;
+               it touches included, so a scenario can replay it with no node
+  flame        where inside each script the cycles go: ckb-debugger's flamegraph
+               mode per script group. Prints the costliest functions and writes
+               <dir>/<selector>.svg and .folded (for speedscope or inferno), in
+               ./flame by default. A deployed binary is usually stripped, so it is
+               one frame: --bin gives an unstripped build of the same code (its
+               cycles are checked against the deployed binary's). The profile
+               leaves out loading the binary, so it is a little under the group's
+               cycles`;
 
 const fmt = (n: bigint) => n.toLocaleString("en-US");
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -196,11 +208,93 @@ async function mockCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+/** `--bin 0xabc…=target/release/my-script` → flameTransaction's bins. */
+function parseBins(flags: string[]): Record<string, string> {
+  const bins: Record<string, string> = {};
+  for (const flag of flags) {
+    const m = /^(0x[0-9a-fA-F]{64})=(.+)$/.exec(flag);
+    if (!m) throw new Error(`--bin expects <code-hash>=<path to an ELF>, got "${flag}"`);
+    bins[m[1].toLowerCase()] = m[2];
+  }
+  return bins;
+}
+
+async function flameCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      file: { type: "string" },
+      out: { type: "string", short: "o" },
+      script: { type: "string", multiple: true },
+      bin: { type: "string", multiple: true },
+      top: { type: "string" },
+      mainnet: { type: "boolean" },
+      rpc: { type: "string" },
+      timeout: { type: "string" },
+      debugger: { type: "string" },
+      name: { type: "string", multiple: true },
+    },
+  });
+  const [hash] = positionals;
+  if (positionals.length > 1 || !hash === !values.file || (hash && !/^0x[0-9a-fA-F]{64}$/.test(hash))) {
+    console.log(USAGE);
+    return 2;
+  }
+  const top = values.top === undefined ? 8 : Number(values.top);
+  if (!(Number.isInteger(top) && top > 0)) throw new Error("--top expects a positive whole number");
+  const target = values.file ? readTransactionJson(await readFile(values.file, "utf8")) : hash;
+  const { plan, groups, debugger: version } = await flameTransaction(target, {
+    ...(values.mainnet && { network: "mainnet" as const }),
+    ...(values.rpc && { rpcUrl: values.rpc }),
+    ...timeoutOf(values.timeout),
+    ...(values.debugger && { debuggerPath: values.debugger }),
+    scriptNames: parseNames(values.name ?? []),
+    bins: parseBins(values.bin ?? []),
+    ...(values.script && { scripts: values.script }),
+    readFile: (path) => readFile(path, "utf8"),
+  });
+  if (!groups.length) {
+    console.error("error: no script group to profile (check --script)");
+    return 2;
+  }
+  const dir = values.out ?? "flame";
+  await mkdir(dir, { recursive: true });
+  const out: string[] = [`tx ${plan.hash}  (${plan.status})`, ""];
+  let bad = false;
+  for (const g of groups) {
+    const label = g.name ?? short(g.codeHash);
+    const profiled = foldedTotal(g.folded);
+    out.push(`${g.selector}  ${label}  ${g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`}  ${fmt(g.cycles)} cycles`);
+    if (g.bin) {
+      const same = g.deployedCycles === g.cycles;
+      out.push(`  --bin ${g.bin}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles with the deployed binary: this build is not that code`}`);
+      bad ||= !same;
+    }
+    if (!g.folded.size) {
+      out.push("  no profile written (the run stopped before it could be profiled?)", "");
+      continue;
+    }
+    const costs = functionCosts(g.folded);
+    if (costs.length === 1) out.push("  one frame: the binary has no symbols. Pass an unstripped build with --bin <code-hash>=<elf>");
+    out.push(`  profiled ${fmt(profiled)} cycles (loading the binary is not profiled)`, "  SELF        TOTAL       FUNCTION");
+    for (const c of costs.slice(0, top)) out.push(`  ${fmt(c.self).padStart(10)}  ${fmt(c.total).padStart(10)}  ${c.name}`);
+    const base = join(dir, g.selector);
+    await writeFile(`${base}.folded`, formatFolded(g.folded) + "\n");
+    await writeFile(`${base}.svg`, renderFlameSvg(flameTree(g.folded, g.selector), { title: `${g.selector} · ${label}` }));
+    out.push(`  → ${base}.svg, ${base}.folded`, "");
+  }
+  out.push(`${version} · CKB-VM v${plan.scriptVersion} for type scripts · ${plan.network} · ${plan.rpcUrl}`);
+  console.log(out.join("\n"));
+  return bad || groups.some((g) => g.result !== 0) ? 1 : 0;
+}
+
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
   if (command === "report") return reportCommand(rest);
   if (command === "diff") return diffCommand(rest);
   if (command === "mock") return mockCommand(rest);
+  if (command === "flame") return flameCommand(rest);
 
   const { values, positionals } = parseArgs({
     allowPositionals: true,

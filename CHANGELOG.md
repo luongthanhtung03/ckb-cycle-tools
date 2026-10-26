@@ -15,11 +15,14 @@ First stable release.
 - Only complete ckb-debugger result lines are trusted, cross-checked with its exit code.
 - `report`, `diff` and `mock` subcommands; swap a cell dep's binary for a fresh build
   before replaying; name your own scripts with `--name`.
+- `flame`: per-group flamegraphs from ckb-debugger's profiler (SVG + folded
+  stacks, costliest functions printed); `--bin` swaps in an unstripped build and
+  checks its cycles against the deployed binary's.
 - Exit codes: 0 every script accepts and the sum matches the node; 1 a script
   rejects or the sum differs; 2 a usage or environment error.
 
 ### Library
-- `.` (analysis), `./analyze`, `./replay` (pure, works in the browser), `./wasm`
+- `.` (analysis), `./analyze`, `./replay` and `./flame` (pure, work in the browser), `./wasm`
   (ckb-debugger's WebAssembly build, in memory, same numbers as native).
 
 ### GitHub Action

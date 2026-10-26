@@ -25,8 +25,20 @@ export {
   selectorFor,
 } from "./replay.js";
 export type { DebuggerOutput, GroupRun, Profile, ProfiledGroup, ReplayOptions, ReplayPlan, RunDebugger } from "./replay.js";
-export { profileTransaction, runNativeDebugger } from "./profile.js";
-export type { ProfileOptions } from "./profile.js";
+export { flameTransaction, profileTransaction, runNativeDebugger } from "./profile.js";
+export type { FlameGroup, ProfileOptions } from "./profile.js";
+export {
+  flameTree,
+  foldedTotal,
+  formatFolded,
+  frameName,
+  functionCosts,
+  parseFolded,
+  profiledCycles,
+  renderFlameSvg,
+  splitStack,
+} from "./flame.js";
+export type { FlameNode, Folded, FunctionCost } from "./flame.js";
 export { runWasmDebugger, wasmDebuggerVersion, wasmOutput, wasmRunner, WASM_TX_FILE } from "./wasm.js";
 export type { WasmRun } from "./wasm.js";
 export { substituteBinaries } from "./substitute.js";

@@ -5,7 +5,19 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { MockTransaction, RpcTransaction } from "./mock.js";
-import { planReplay, replayGroups, type DebuggerOutput, type Profile, type ReplayOptions } from "./replay.js";
+import { parseFolded, type Folded } from "./flame.js";
+import {
+  debuggerArgs,
+  parseDebuggerRun,
+  planReplay,
+  replayGroups,
+  selectorFor,
+  TYPE_ID_CODE_HASH,
+  type DebuggerOutput,
+  type Profile,
+  type ReplayOptions,
+  type ReplayPlan,
+} from "./replay.js";
 
 // The pure parts live in replay.ts, shared with the browser; existing imports keep working.
 export {
@@ -76,6 +88,87 @@ export async function profileTransaction(
     await writeFile(txFile, JSON.stringify(plan.mock));
     // ckb-debugger exits non-zero when a script rejects; its output still says why.
     return await replayGroups(plan, (args) => runNativeDebugger(debuggerPath, args), { txFile, debugger: debuggerVersion });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+export interface FlameGroup {
+  selector: string;
+  name?: string;
+  codeHash: string;
+  role: string;
+  /** Exit code and cycles of the profiled run, as in a profile. */
+  result: number;
+  error?: string;
+  cycles: bigint;
+  /** Merged folded stacks, frames named by function. */
+  folded: Folded;
+  /** The binary used instead of the one in the transaction (`--bin`), if any. */
+  bin?: string;
+  /**
+   * With `bin`: the cycles of the same group run with the transaction's own
+   * binary. Different cycles mean the build is not the deployed code, and the
+   * flamegraph describes the build.
+   */
+  deployedCycles?: bigint;
+}
+
+/**
+ * Profiles each script group with ckb-debugger's flamegraph mode. `bins` maps a
+ * code hash to an unstripped build of that script, used instead of the
+ * deployed (stripped) binary so the frames have names; each such group is also
+ * run with the deployed binary, to check the build behaves the same.
+ * `scripts` limits the run to those selectors (`input.0.lock`, …).
+ */
+export async function flameTransaction(
+  target: string | RpcTransaction | MockTransaction,
+  options: ProfileOptions & { bins?: Record<string, string>; scripts?: string[]; readFile: (path: string) => Promise<string> },
+): Promise<{ plan: ReplayPlan; groups: FlameGroup[]; debugger: string }> {
+  const debuggerPath = options.debuggerPath ? checkDebuggerPath(options.debuggerPath) : resolveDebugger();
+  const plan = await planReplay(target, options);
+  const debuggerVersion = await run(debuggerPath, ["--version"]).then(
+    (r) => r.stdout.trim(),
+    () => "unknown",
+  );
+  const bins = Object.fromEntries(Object.entries(options.bins ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  const dir = await mkdtemp(join(tmpdir(), "ckb-flame-"));
+  try {
+    const txFile = join(dir, "tx.json");
+    await writeFile(txFile, JSON.stringify(plan.mock));
+    const groups: FlameGroup[] = [];
+    for (const g of plan.groups) {
+      const selector = selectorFor(g);
+      if (options.scripts && !options.scripts.includes(selector)) continue;
+      if (g.role === "type" && g.codeHash === TYPE_ID_CODE_HASH) continue; // built into the node: nothing to profile
+      const base = debuggerArgs(txFile, selector, plan.scriptVersion);
+      const bin = bins[g.codeHash.toLowerCase()];
+      const out = join(dir, `${selector}.folded`);
+      const runOut = await runNativeDebugger(debuggerPath, [
+        ...base,
+        ...(bin ? ["--bin", bin] : []),
+        "--enable-flamegraph",
+        "--flamegraph-output",
+        out,
+      ]);
+      const folded = parseFolded(await options.readFile(out).catch(() => ""));
+      // Flamegraph mode leaves out loading the binary, so result and cycles come
+      // from plain runs: with the build, and with the deployed binary to compare.
+      const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await runNativeDebugger(debuggerPath, [...base, ...(bin ? ["--bin", bin] : [])]));
+      const deployedCycles = bin ? parseDebuggerRun(await runNativeDebugger(debuggerPath, base)).cycles : undefined;
+      groups.push({
+        selector,
+        ...(g.name && { name: g.name }),
+        codeHash: g.codeHash,
+        role: g.role,
+        result: parsed.result,
+        ...(parsed.error && { error: parsed.error }),
+        cycles: parsed.cycles,
+        folded,
+        ...(bin && { bin, deployedCycles }),
+      });
+    }
+    return { plan, groups, debugger: debuggerVersion };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
