@@ -303,6 +303,17 @@ const html = (s: string) =>
 /** How many changed functions a comment lists per group. */
 export const FUNCTIONS_SHOWN = 10;
 
+/** The longest function name a comment shows; Rust generics can run to kilobytes. */
+const NAME_MAX = 120;
+const clipName = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_MAX - 1)}…` : name);
+
+/**
+ * GitHub refuses a comment over 65,536 characters, and the Action would then
+ * leave the previous push's comment in place (review, 27 Oct). Function blocks
+ * are dropped first when the comment would not fit.
+ */
+const COMMENT_MAX = 60_000;
+
 /** A folded block per group that recorded functions: which of them changed, or why none were recorded. */
 function functionBlocks(rows: DiffRow[]): string[] {
   const out: string[] = [];
@@ -321,7 +332,7 @@ function functionBlocks(rows: DiffRow[]): string[] {
       "",
       "| Function | Base self | Head self | Δ |",
       "|---|---:|---:|---:|",
-      ...shown.map((f) => `| ${md(f.name)} | ${fnCell(f.base)} | ${fnCell(f.head)} | ${f.delta === undefined ? "" : signed(f.delta)} |`),
+      ...shown.map((f) => `| ${md(clipName(f.name))} | ${fnCell(f.base)} | ${fnCell(f.head)} | ${f.delta === undefined ? "" : signed(f.delta)} |`),
       "",
       ...(more > 0 ? [`and ${more} more.`, ""] : []),
       `<sub>Self cycles, from ckb-debugger's profiler with the symbols build; — means not among the ${FUNCTION_LIMIT} costliest (or not recorded).</sub>`,
@@ -369,8 +380,13 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
 
   const vs = options.baseLabel && options.headLabel ? ` (\`${md(options.baseLabel)}\` → \`${md(options.headLabel)}\`)` : "";
   const out = [COMMENT_MARKER, `### ${md(options.title ?? "Cycle report")}`, "", `${summarize(diff)}${vs}.`, ""];
-  if (shown.length) out.push(head, ...shown.map(line), "", ...functionBlocks(shown));
-  else out.push("No script group changed its cycles or its result.", "");
+  if (shown.length) {
+    out.push(head, ...shown.map(line), "");
+    const blocks = functionBlocks(shown);
+    const size = out.join("\n").length + blocks.join("\n").length;
+    if (size < COMMENT_MAX) out.push(...blocks);
+    else if (blocks.length) out.push("<sub>Function details left out: the comment would pass GitHub's size limit.</sub>", "");
+  } else out.push("No script group changed its cycles or its result.", "");
   if (same.length) {
     out.push(
       `<details><summary>${same.length} unchanged group${same.length === 1 ? "" : "s"}</summary>`,

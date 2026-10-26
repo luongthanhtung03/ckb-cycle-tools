@@ -243,6 +243,20 @@ describe("functions", () => {
     expect(old.rows[0]).toMatchObject({ kind: "changed", delta: 1, functions: [{ name: "a", head: 5 }] });
   });
 
+  // Review, 27 Oct: GitHub refuses comments over 65,536 characters.
+  it("clips long names, and leaves function blocks out when the comment would not fit", () => {
+    const long = "x".repeat(5_000);
+    const one = diffReports(report({ name: "s", groups: [fg(1, [f(long, 1)])] }), report({ name: "s", groups: [fg(2, [f(long, 9)])] }));
+    const text = formatMarkdown(one);
+    expect(text).toContain(`${"x".repeat(119)}…`);
+    expect(text).not.toContain("x".repeat(121));
+    const many = Array.from({ length: 600 }, (_, i) => ({ name: `scenario ${i}`, groups: [fg(i + 1, [f("y".repeat(150) + i, i)])] }));
+    const big = diffReports(report(...many.map((m) => ({ ...m, groups: [fg(1, [f(m.groups[0].functions![0].name, 0)])] }))), report(...many));
+    const out = formatMarkdown(big);
+    expect(out.length).toBeLessThan(65_536);
+    expect(out).toContain("Function details left out");
+  });
+
   it("keeps a base with functions and a head without them as a plain diff", () => {
     const d = diffReports(report({ name: "s", groups: [fg(1, [f("a", 5)])] }), report({ name: "s", groups: [fg(2)] }));
     expect(d.rows[0]).not.toHaveProperty("functions");

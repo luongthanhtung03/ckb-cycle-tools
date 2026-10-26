@@ -45,14 +45,21 @@ export function splitStack(stack: string): string[] {
   return frames;
 }
 
+/** The deepest stack kept; deeper frames are folded into one. */
+export const MAX_DEPTH = 256;
+
 /** Parses ckb-debugger's folded output: identical stacks merged, frames named by function only. */
 export function parseFolded(text: string): Folded {
   const folded: Folded = new Map();
   for (const line of text.split(/\r?\n/)) {
     const m = /^(.*\S)\s+(\d+)$/.exec(line);
     if (!m) continue;
+    // A real CKB script nests nowhere near this deep; a hostile file could, and
+    // the tree is walked recursively (review, 27 Oct). Deeper frames fold into the last.
+    const frames = splitStack(m[1]).map(frameName);
+    if (frames.length > MAX_DEPTH) frames.splice(MAX_DEPTH - 1, frames.length, "…");
     // Rejoined with ";" as the frame separator: a name's own "; " (with a space) stays inside it.
-    const stack = splitStack(m[1]).map(frameName).join(";");
+    const stack = frames.join(";");
     folded.set(stack, (folded.get(stack) ?? 0n) + BigInt(m[2]));
   }
   return folded;
@@ -97,12 +104,19 @@ export interface FlameNode {
 /** The call tree: each node's value is the cycles of every stack through it. Children heaviest first. */
 export function flameTree(f: Folded, rootName = "all"): FlameNode {
   const root: FlameNode = { name: rootName, value: 0n, children: [] };
+  // Children by name, so a wide profile is not quadratic (review, 27 Oct).
+  const index = new Map<FlameNode, Map<string, FlameNode>>();
   for (const [stack, v] of f) {
     root.value += v;
     let node = root;
     for (const name of splitStack(stack)) {
-      let child = node.children.find((c) => c.name === name);
-      if (!child) node.children.push((child = { name, value: 0n, children: [] }));
+      const byName = index.get(node) ?? index.set(node, new Map()).get(node)!;
+      let child = byName.get(name);
+      if (!child) {
+        child = { name, value: 0n, children: [] };
+        node.children.push(child);
+        byName.set(name, child);
+      }
       child.value += v;
       node = child;
     }

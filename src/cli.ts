@@ -269,8 +269,10 @@ async function flameCommand(args: string[]): Promise<number> {
     const profiled = foldedTotal(g.folded);
     out.push(`${g.selector}  ${label}  ${g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`}  ${fmt(g.cycles)} cycles`);
     if (g.bin) {
-      const same = g.deployedCycles === g.cycles;
-      out.push(`  --bin ${g.bin}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles with the deployed binary: this build is not that code`}`);
+      // Same cycles and the same verdict, and neither run stopped by the VM: two stopped
+      // runs both report 0 cycles, which proves nothing (review, 27 Oct).
+      const same = g.deployedCycles === g.cycles && g.deployedResult === g.result && !g.error && !g.deployedError;
+      out.push(`  --bin ${g.bin}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
       bad ||= !same;
     }
     if (!g.folded.size) {

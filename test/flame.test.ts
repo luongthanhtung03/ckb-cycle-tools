@@ -6,6 +6,7 @@ import {
   formatFolded,
   frameName,
   functionCosts,
+  MAX_DEPTH,
   parseFolded,
   profiledCycles,
   renderFlameSvg,
@@ -58,6 +59,25 @@ describe("parseFolded on real ckb-debugger output", () => {
 
   it("writes merged folded text that parses back to the same stacks", () => {
     expect(parseFolded(formatFolded(folded))).toEqual(folded);
+  });
+});
+
+describe("hostile input (review, 27 Oct)", () => {
+  it("folds frames past MAX_DEPTH into one, so a deep file cannot overflow the stack", () => {
+    const deep = Array.from({ length: 50_000 }, (_, i) => `f${i}`).join(";") + " 7";
+    const folded = parseFolded(deep);
+    const [stack] = [...folded.keys()];
+    expect(splitStack(stack)).toHaveLength(MAX_DEPTH);
+    expect(stack.endsWith(";…")).toBe(true);
+    expect(renderFlameSvg(flameTree(folded)).startsWith("<svg")).toBe(true);
+  });
+
+  it("builds a wide tree without a quadratic scan", () => {
+    const wide = Array.from({ length: 50_000 }, (_, i) => `main;fn${i} 1`).join("\n");
+    const t0 = Date.now();
+    const tree = flameTree(parseFolded(wide));
+    expect(tree.children[0].children).toHaveLength(50_000);
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 });
 

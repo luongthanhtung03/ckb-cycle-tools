@@ -127,6 +127,9 @@ export interface FlameGroup {
    * flamegraph describes the build.
    */
   deployedCycles?: bigint;
+  /** With `bin`: the exit code of that run (with the deployed binary), and whether the VM stopped it. */
+  deployedResult?: number;
+  deployedError?: string;
 }
 
 /**
@@ -166,7 +169,7 @@ export async function flameTransaction(
       // Flamegraph mode leaves out loading the binary, so result and cycles come
       // from plain runs: with the build, and with the deployed binary to compare.
       const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(bin ? ["--bin", bin] : [])]));
-      const deployedCycles = bin ? parseDebuggerRun(await exec(base)).cycles : undefined;
+      const deployed = bin ? parseDebuggerRun(await exec(base)) : undefined;
       groups.push({
         selector,
         ...(g.name && { name: g.name }),
@@ -176,7 +179,13 @@ export async function flameTransaction(
         ...(parsed.error && { error: parsed.error }),
         cycles: parsed.cycles,
         folded,
-        ...(bin && { bin, deployedCycles }),
+        ...(bin &&
+          deployed && {
+            bin,
+            deployedCycles: deployed.cycles,
+            deployedResult: deployed.result,
+            ...(deployed.error && { deployedError: deployed.error }),
+          }),
       });
     }
     return { plan, groups, debugger: debuggerVersion };
