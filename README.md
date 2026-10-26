@@ -251,6 +251,40 @@ That table (with `--markdown`) is what the PR comment shows; unchanged groups
 fold away below it. This repo runs the Action on its own pull requests
 ([`.github/workflows/cycle-report.yml`](.github/workflows/cycle-report.yml)).
 
+### Which functions changed
+
+A row says a group got 3% dearer; the flamegraph mode can say where. Give a
+binary an unstripped build of the same code as `symbols`, and ask for
+`functions`, for every scenario or per scenario:
+
+```json
+{
+  "functions": true,
+  "binaries": {
+    "my-lock": {
+      "path": "build/release/my-lock",
+      "symbols": "build/release/my-lock.debug",
+      "codeHash": "0x…"
+    }
+  },
+  "scenarios": [{ "name": "spend", "mock": "tests/mocks/spend.json" }]
+}
+```
+
+For each group whose script is that binary, `report` runs the group again in
+ckb-debugger's flamegraph mode with `--bin <symbols>` and records the 15
+costliest functions (self and total cycles) in the report. It first checks that
+the symbols build costs exactly the cycles of the binary it stands for; if not,
+it is not the same code, and the group gets a warning instead of functions.
+`diff --markdown` then adds a folded block under the table for each changed
+group: the functions whose self cycles changed, base, head and Δ, the ten
+largest changes first. A report without functions (an older base, or a
+config without `symbols`) still diffs as before; a function shows `—` where
+its cycles are not known on that side.
+
+A Rust build keeps its symbols with `CARGO_PROFILE_RELEASE_STRIP=false`; build
+it next to the stripped one, from the same commit.
+
 ## ckb-js-vm vs Rust: one lock, two implementations
 
 `benchmarks/session-lock` holds a TypeScript port of the
@@ -288,8 +322,9 @@ job summary.
   future CKB-VM change could reach one before the other; each result names the
   version it used.
 - **Flamegraphs need symbols.** On-chain binaries are stripped; `flame` names
-  functions only with an unstripped build passed by `--bin`, and only the CLI
-  draws them so far (not the web page or the PR comment yet).
+  functions only with an unstripped build passed by `--bin` (or `symbols` in a
+  cycles.json). The CLI draws the graphs and the PR comment lists the changed
+  functions; the web page does neither yet.
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
   tools then say the total is unknown instead of claiming a match.
 - **The PR Action has not yet commented on a real pull request.** Every step is

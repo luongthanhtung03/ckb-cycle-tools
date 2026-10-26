@@ -28,6 +28,9 @@ First stable release.
 ### GitHub Action
 - `action/`: posts one sticky cycle report on a pull request, group by group against
   the base branch; checksums the ckb-debugger it installs; fails on a broken base.
+- Function-level costs in the report: a binary's `symbols` build and `"functions": true`
+  in cycles.json record each group's costliest functions (checked against the binary's
+  cycles), and the comment folds in which functions changed.
 
 ### Web inspector
 - ckb-cycle-tools.vercel.app: paste a transaction hash, see its scripts and the

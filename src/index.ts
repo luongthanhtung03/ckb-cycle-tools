@@ -43,7 +43,18 @@ export { runWasmDebugger, wasmDebuggerVersion, wasmOutput, wasmRunner, WASM_TX_F
 export type { WasmRun } from "./wasm.js";
 export { substituteBinaries } from "./substitute.js";
 export type { AppliedSubstitution, BinarySubstitution } from "./substitute.js";
-export { COMMENT_MARKER, diffFailed, diffReports, formatMarkdown, formatText, resultLabel, summarize } from "./diff.js";
-export type { CycleDiff, CycleReport, DiffOptions, DiffRow, GroupResult, MarkdownOptions, ScenarioResult } from "./diff.js";
+export {
+  COMMENT_MARKER,
+  diffFailed,
+  diffReports,
+  formatMarkdown,
+  formatText,
+  FUNCTION_LIMIT,
+  functionDeltas,
+  FUNCTIONS_SHOWN,
+  resultLabel,
+  summarize,
+} from "./diff.js";
+export type { CycleDiff, CycleReport, DiffOptions, DiffRow, FunctionDelta, FunctionResult, GroupResult, MarkdownOptions, ScenarioResult } from "./diff.js";
 export { formatReport, groupResults, parseCyclesConfig, runReport } from "./report.js";
 export type { BinaryConfig, CyclesConfig, ReportOptions, ScenarioConfig } from "./report.js";

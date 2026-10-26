@@ -43,8 +43,10 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
   report       runs every scenario in a cycles.json (see README) and records each
                script group's result and cycles; --json writes them for diff.
                --binaries-from <dir> reads the binaries from another checkout
-               (the PR's base). Exits 2 if a scenario could not run: a
-               rejection is a result, not an error
+               (the PR's base). A binary with "symbols" in a scenario with
+               "functions" also records the group's costliest functions.
+               Exits 2 if a scenario could not run: a rejection is a result,
+               not an error
   diff         compares two reports group by group: Δ cycles, Δ%, and any group
                whose result changed (ok → exit 12, or back). --fail-above exits 1
                when a group grows by more than that percentage (a new group

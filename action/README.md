@@ -86,6 +86,21 @@ by `outPoint`. Paths are relative to the config file; the base report reads them
 from the base checkout. A scenario without `"binaries"` is offered every binary
 and uses the ones that match; with a list, each listed one must match.
 
+To see which functions changed, not only by how much a group did:
+
+- `"symbols"` on a binary: an unstripped build of the same code, relative to the
+  config like `path` (so `build` must produce it on both checkouts).
+- `"functions": true` at the top level (every scenario) or on a scenario (which
+  overrides the top level).
+
+Each group whose script is a binary with `symbols` is then profiled once more
+with that build, and the report keeps its 15 costliest functions. The comment
+gets a folded block per changed group with the functions whose self cycles
+changed (the ten largest changes). If the symbols build does not cost exactly
+what the binary costs, it is not the same code: the group gets a warning in the
+comment instead of functions. A base without functions (an older report, a
+base without the symbols build) still compares; its side shows `—`.
+
 What the swap changes depends on how your script points at its code:
 
 - **`hash_type: "type"`** (deployed with Type ID, as most are): nothing but the
