@@ -1,0 +1,34 @@
+# Changelog
+
+This project follows [semantic versioning](https://semver.org/).
+
+## 1.0.0 (unreleased)
+
+First stable release.
+
+### CLI: `ckb-cycles`
+- Replays a transaction per script group in ckb-debugger; the sum matches the node's
+  total. Resolves the real ckb-debugger past the Windows `.cmd` shim.
+- Failure-path profiling: `--file` profiles a transaction that is not on chain.
+- Right VM version per script, from the node's hardfork epochs; input headers are
+  replayed, so header-reading scripts (Nervos DAO) match.
+- Only complete ckb-debugger result lines are trusted, cross-checked with its exit code.
+- `report`, `diff` and `mock` subcommands; swap a cell dep's binary for a fresh build
+  before replaying; name your own scripts with `--name`.
+- Exit codes: 0 every script accepts and the sum matches the node; 1 a script
+  rejects or the sum differs; 2 a usage or environment error.
+
+### Library
+- `.` (analysis), `./analyze`, `./replay` (pure, works in the browser), `./wasm`
+  (ckb-debugger's WebAssembly build, in memory, same numbers as native).
+
+### GitHub Action
+- `action/`: posts one sticky cycle report on a pull request, group by group against
+  the base branch; checksums the ckb-debugger it installs; fails on a broken base.
+
+### Web inspector
+- ckb-cycle-tools.vercel.app: paste a transaction hash, see its scripts and the
+  per-group cycles computed in the page.
+
+### Benchmark
+- The session lock in Rust vs ckb-js-vm, same 20 scenarios, rebuilt and rerun in CI.
