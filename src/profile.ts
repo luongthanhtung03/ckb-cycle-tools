@@ -39,6 +39,25 @@ export const MAX_DEBUGGER_OUTPUT = 64 << 20;
 
 export interface ProfileOptions extends ReplayOptions {
   debuggerPath?: string;
+  /**
+   * Runs ckb-debugger instead of the native binary (`--version` included):
+   * for tests, or another way to run it. `debuggerPath` is then not used.
+   */
+  runDebugger?: (args: string[]) => Promise<DebuggerOutput>;
+}
+
+/** The debugger to run, and its `--version` line ("unknown" if it cannot say). */
+async function debuggerOf(options: ProfileOptions): Promise<{ exec: (args: string[]) => Promise<DebuggerOutput>; version: string }> {
+  let exec = options.runDebugger;
+  if (!exec) {
+    const debuggerPath = options.debuggerPath ? checkDebuggerPath(options.debuggerPath) : resolveDebugger();
+    exec = (args) => runNativeDebugger(debuggerPath, args);
+  }
+  const version = await exec(["--version"]).then(
+    (r) => (r.exitCode === 0 && r.stdout.trim()) || "unknown",
+    () => "unknown",
+  );
+  return { exec, version };
 }
 
 /**
@@ -75,19 +94,15 @@ export async function profileTransaction(
   target: string | RpcTransaction | MockTransaction,
   options: ProfileOptions = {},
 ): Promise<Profile> {
-  const debuggerPath = options.debuggerPath ? checkDebuggerPath(options.debuggerPath) : resolveDebugger();
+  const { exec, version: debuggerVersion } = await debuggerOf(options);
   const plan = await planReplay(target, options);
-  const debuggerVersion = await run(debuggerPath, ["--version"]).then(
-    (r) => r.stdout.trim(),
-    () => "unknown",
-  );
 
   const dir = await mkdtemp(join(tmpdir(), "ckb-cycles-"));
   try {
     const txFile = join(dir, "tx.json");
     await writeFile(txFile, JSON.stringify(plan.mock));
     // ckb-debugger exits non-zero when a script rejects; its output still says why.
-    return await replayGroups(plan, (args) => runNativeDebugger(debuggerPath, args), { txFile, debugger: debuggerVersion });
+    return await replayGroups(plan, exec, { txFile, debugger: debuggerVersion });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -125,12 +140,8 @@ export async function flameTransaction(
   target: string | RpcTransaction | MockTransaction,
   options: ProfileOptions & { bins?: Record<string, string>; scripts?: string[]; readFile: (path: string) => Promise<string> },
 ): Promise<{ plan: ReplayPlan; groups: FlameGroup[]; debugger: string }> {
-  const debuggerPath = options.debuggerPath ? checkDebuggerPath(options.debuggerPath) : resolveDebugger();
+  const { exec, version: debuggerVersion } = await debuggerOf(options);
   const plan = await planReplay(target, options);
-  const debuggerVersion = await run(debuggerPath, ["--version"]).then(
-    (r) => r.stdout.trim(),
-    () => "unknown",
-  );
   const bins = Object.fromEntries(Object.entries(options.bins ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const dir = await mkdtemp(join(tmpdir(), "ckb-flame-"));
   try {
@@ -144,7 +155,7 @@ export async function flameTransaction(
       const base = debuggerArgs(txFile, selector, plan.scriptVersion);
       const bin = bins[g.codeHash.toLowerCase()];
       const out = join(dir, `${selector}.folded`);
-      const runOut = await runNativeDebugger(debuggerPath, [
+      const runOut = await exec([
         ...base,
         ...(bin ? ["--bin", bin] : []),
         "--enable-flamegraph",
@@ -154,8 +165,8 @@ export async function flameTransaction(
       const folded = parseFolded(await options.readFile(out).catch(() => ""));
       // Flamegraph mode leaves out loading the binary, so result and cycles come
       // from plain runs: with the build, and with the deployed binary to compare.
-      const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await runNativeDebugger(debuggerPath, [...base, ...(bin ? ["--bin", bin] : [])]));
-      const deployedCycles = bin ? parseDebuggerRun(await runNativeDebugger(debuggerPath, base)).cycles : undefined;
+      const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(bin ? ["--bin", bin] : [])]));
+      const deployedCycles = bin ? parseDebuggerRun(await exec(base)).cycles : undefined;
       groups.push({
         selector,
         ...(g.name && { name: g.name }),
