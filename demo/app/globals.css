@@ -141,4 +141,4 @@ label.button {
 label.button:hover { background: var(--green); color: var(--bg); border-color: var(--green); }
 .block.drop { outline: 1px dashed var(--green); outline-offset: 4px; }
 .flame { overflow-x: auto; margin-top: 12px; }
-.flame svg { display: block; max-width: none; }
+.flame svg { display: block; width: 100%; height: auto; }
