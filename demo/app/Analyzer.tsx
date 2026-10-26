@@ -5,6 +5,7 @@ import { analyzeTransaction, type ScriptGroup, type TxAnalysis } from "ckb-cycle
 import type { Profile, ProfiledGroup } from "ckb-cycle-tools/replay";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { loadDebugger } from "./debugger";
+import { Flame } from "./Flame";
 import { Prompt, Terminal } from "./Terminal";
 
 const explorerTx = (h: string) => `https://testnet.explorer.nervos.org/transaction/${h}`;
@@ -139,6 +140,8 @@ export default function Analyzer() {
             {result && <Result a={result} />}
           </section>
         )}
+
+        <Flame />
       </Terminal>
       <footer>
         <span>MIT · built during CKBuilder</span>

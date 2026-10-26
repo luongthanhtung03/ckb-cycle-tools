@@ -132,3 +132,13 @@ footer { margin-top: 16px; color: var(--dim); font-size: 12px; display: flex; ju
   .titlebar .title { display: none; }
   .stat-value { font-size: 26px; }
 }
+
+/* flamegraph from a .folded file */
+label.button {
+  display: inline-block; font-size: 13px; padding: 5px 12px; cursor: pointer; border-radius: 3px;
+  color: var(--green); border: 1px solid var(--green-dim);
+}
+label.button:hover { background: var(--green); color: var(--bg); border-color: var(--green); }
+.block.drop { outline: 1px dashed var(--green); outline-offset: 4px; }
+.flame { overflow-x: auto; margin-top: 12px; }
+.flame svg { display: block; max-width: none; }

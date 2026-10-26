@@ -212,6 +212,12 @@ Reading the lock hashes of the transaction's cells is the lock's largest cost.
 The profile covers the script's run; loading the binary into the VM (1,812
 cycles here) is counted by the node but not by the profiler.
 
+**In the browser:** drop the `.folded` file on the
+[web inspector](https://ckb-cycle-tools.vercel.app/) ("inside a script"), or open
+its example, and it draws the same flamegraph and table. Nothing is uploaded.
+(The page's WebAssembly ckb-debugger can profile but not name functions, so the
+profile itself comes from the CLI.)
+
 In code: `flameTransaction(target, { bins, readFile })`, then `functionCosts`,
 `flameTree` and `renderFlameSvg` from `ckb-cycle-tools/flame` (no Node
 built-ins, so the browser can draw the same graph).
@@ -323,8 +329,8 @@ job summary.
   version it used.
 - **Flamegraphs need symbols.** On-chain binaries are stripped; `flame` names
   functions only with an unstripped build passed by `--bin` (or `symbols` in a
-  cycles.json). The CLI draws the graphs and the PR comment lists the changed
-  functions; the web page does neither yet.
+  cycles.json). The CLI draws the graphs, the PR comment lists the changed
+  functions, and the web page draws a `.folded` file the CLI made.
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
   tools then say the total is unknown instead of claiming a match.
 - **The PR Action has not yet commented on a real pull request.** Every step is

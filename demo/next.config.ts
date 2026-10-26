@@ -11,6 +11,7 @@ const config: NextConfig = {
     root,
     resolveAlias: {
       "ckb-cycle-tools/analyze": "../dist/analyze.js",
+      "ckb-cycle-tools/flame": "../dist/flame.js",
       "ckb-cycle-tools/replay": "../dist/replay.js",
       "ckb-cycle-tools/wasm": "../dist/wasm.js",
     },
