@@ -4,7 +4,7 @@ Cycle measurement for CKB on-chain scripts.
 
 **Live demo:** [ckb-cycle-tools.vercel.app](https://ckb-cycle-tools.vercel.app/) — paste a testnet tx hash, see cycles and script groups (CKB testnet).
 
-**Status: early development.** Built in the open during my CKBuilder programme.
+**Status: v1.0.** Built in the open during my CKBuilder programme.
 
 | When | Milestone |
 |---|---|
