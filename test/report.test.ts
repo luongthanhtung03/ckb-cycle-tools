@@ -1,8 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveDebugger } from "../src/debugger.js";
+import { diffReports, formatMarkdown, type CycleReport } from "../src/diff.js";
+import { functionCosts, parseFolded } from "../src/flame.js";
+import type { DebuggerOutput } from "../src/profile.js";
 import { formatReport, parseCyclesConfig, runReport } from "../src/report.js";
 
 const H = "0x" + "ab".repeat(32);
@@ -31,6 +34,19 @@ describe("parseCyclesConfig", () => {
     expect(c.scenarios.map((s) => s.name)).toEqual(["a", "b", "c"]);
   });
 
+  it("takes a binary's symbols build and functions, per scenario or for all", () => {
+    const c = parseCyclesConfig(
+      JSON.stringify({
+        functions: true,
+        binaries: { mine: { path: "build/mine", codeHash: H, symbols: "build/mine.debug" } },
+        scenarios: [{ name: "a", tx: H }, { name: "b", tx: H, functions: false }],
+      }),
+    );
+    expect(c.binaries!.mine.symbols).toBe("build/mine.debug");
+    expect(c.functions).toBe(true);
+    expect(c.scenarios[1].functions).toBe(false);
+  });
+
   it.each([
     ["not JSON", "{", /not valid JSON/],
     ["no scenarios", "{}", /expected \{ "scenarios"/],
@@ -44,6 +60,10 @@ describe("parseCyclesConfig", () => {
     ["a bad out point", JSON.stringify({ binaries: { x: { path: "p", outPoint: { tx_hash: H, index: 1 } } }, scenarios: [] }), /"outPoint" must be/],
     ["a bad name", JSON.stringify({ names: { "0x12": "x" }, scenarios: [] }), /--name expects/],
     ["a bad network", JSON.stringify({ network: "devnet", scenarios: [] }), /"network"/],
+    ["empty symbols", JSON.stringify({ binaries: { x: { path: "p", codeHash: H, symbols: "" } }, scenarios: [] }), /"symbols" must be a path/],
+    ["a non-boolean functions", JSON.stringify({ functions: "yes", scenarios: [] }), /"functions" must be true or false/],
+    ["a scenario's non-boolean functions", JSON.stringify({ scenarios: [{ name: "a", tx: H, functions: 1 }] }), /scenario "a": "functions"/],
+    ["functions without symbols", JSON.stringify({ binaries: { x: { path: "p", codeHash: H } }, scenarios: [{ name: "a", tx: H, functions: true }] }), /needs a binary with "symbols"/],
   ])("refuses %s", (_, json, message) => {
     expect(() => parseCyclesConfig(json)).toThrow(message);
   });
@@ -106,5 +126,102 @@ describe("runReport", () => {
     expect(lock("one shannon over max_per_tx").result).toBe(12);
     expect(lock("args too short").result).toBe(10);
     expect(lock("pays the allowed recipient").cycles).toBeGreaterThan(1_000_000);
+  });
+});
+
+describe("runReport with functions", () => {
+  // The session lock's mock: input.0.lock runs ckb-js-vm (by type hash), input.1.lock always-success.
+  const VM = "0xb95123c71a870e3f0f74a7ee1dab8268dbfbc1407b46733ebd1b41f854b4324a";
+  const mock = resolve("benchmarks/session-lock/mocks/spend-exactly-max-per-tx.json");
+  const folded = readFileSync("test/fixtures/session-lock-charge.flamegraph.txt", "utf8");
+
+  /** A cycles.json in a fresh directory, with a binary and (unless `symbols` is false) its symbols build. */
+  const setup = (config: { functions?: boolean; scenarioFunctions?: boolean; symbols?: boolean }) => {
+    const dir = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
+    writeFileSync(join(dir, "vm"), "built");
+    if (config.symbols !== false) writeFileSync(join(dir, "vm.debug"), "unstripped");
+    writeFileSync(
+      join(dir, "cycles.json"),
+      JSON.stringify({
+        ...(config.functions !== undefined && { functions: config.functions }),
+        binaries: { vm: { path: "vm", codeHash: VM, symbols: "vm.debug" } },
+        scenarios: [{ name: "charge", mock, ...(config.scenarioFunctions !== undefined && { functions: config.scenarioFunctions }) }],
+      }),
+    );
+    return dir;
+  };
+
+  /** Stands in for ckb-debugger: fixed cycles, the fixture as the flamegraph, `--bin` costing `binCycles`. */
+  const fakeDebugger = (binCycles = 20_999) => {
+    const runs: string[][] = [];
+    const run = async (args: string[]): Promise<DebuggerOutput> => {
+      runs.push(args);
+      if (args[0] === "--version") return { stdout: "ckb-debugger 1.1.1\n", stderr: "", exitCode: 0 };
+      const out = args.indexOf("--flamegraph-output");
+      if (out >= 0) writeFileSync(args[out + 1], folded);
+      const selector = args[args.indexOf("--script") + 1];
+      const cycles = selector === "input.0.lock" ? (args.includes("--bin") ? binCycles : 20_999) : 539;
+      return { stdout: `Run result: 0\nAll cycles: ${cycles}(0.0M)\n`, stderr: "", exitCode: 0 };
+    };
+    return { runs, run };
+  };
+
+  it("records the costliest functions of a group whose binary has symbols", async () => {
+    const dir = setup({ functions: true });
+    const { runs, run } = fakeDebugger();
+    const r = await runReport(join(dir, "cycles.json"), { runDebugger: run });
+    expect(r.errors).toEqual([]);
+    const [lock, other] = r.scenarios[0].groups;
+    expect(lock).toMatchObject({ selector: "input.0.lock", script: "vm", cycles: 20_999 });
+    const expected = functionCosts(parseFolded(folded))
+      .slice(0, 15)
+      .map((f) => ({ name: f.name, self: Number(f.self), total: Number(f.total) }));
+    expect(lock.functions).toEqual(expected);
+    expect(lock.functions![0]).toMatchObject({ name: "session_lock::lock_hash", self: 4_490 });
+    expect(lock).not.toHaveProperty("functionsWarning");
+    // Only the group with symbols is profiled, with the symbols build.
+    expect(other).not.toHaveProperty("functions");
+    const flame = runs.filter((a) => a.includes("--enable-flamegraph"));
+    expect(flame).toHaveLength(1);
+    expect(flame[0]).toEqual(expect.arrayContaining(["--script", "input.0.lock", "--bin", join(dir, "vm.debug")]));
+    expect(formatReport(r)).toContain("charge input.0.lock: costliest functions (self cycles): session_lock::lock_hash 4,490");
+  });
+
+  it("records a warning instead when the symbols build costs other cycles", async () => {
+    const dir = setup({ scenarioFunctions: true });
+    const r = await runReport(join(dir, "cycles.json"), { runDebugger: fakeDebugger(21_100).run });
+    const lock = r.scenarios[0].groups[0];
+    expect(lock.cycles).toBe(20_999);
+    expect(lock).not.toHaveProperty("functions");
+    expect(lock.functionsWarning).toMatch(/symbols build vm\.debug runs 21,100 cycles \(ok\), the binary 20,999 \(ok\): not the same code/);
+  });
+
+  it("says so on the group when the symbols build is missing, and still measures it", async () => {
+    const dir = setup({ functions: true, symbols: false });
+    const { runs, run } = fakeDebugger();
+    const r = await runReport(join(dir, "cycles.json"), { runDebugger: run });
+    expect(r.errors).toEqual([]);
+    expect(r.scenarios[0].groups[0]).toMatchObject({ cycles: 20_999, functionsWarning: "cannot read the symbols build vm.debug: build it first" });
+    expect(runs.some((a) => a.includes("--enable-flamegraph"))).toBe(false);
+  });
+
+  it("leaves the report as it was when functions are not asked for", async () => {
+    for (const dir of [setup({}), setup({ functions: true, scenarioFunctions: false })]) {
+      const { runs, run } = fakeDebugger();
+      const r = await runReport(join(dir, "cycles.json"), { runDebugger: run });
+      for (const g of r.scenarios[0].groups) expect(Object.keys(g).sort()).toEqual(["codeHash", "cycles", "hashType", "result", "role", "script", "selector"]);
+      expect(runs.some((a) => a.includes("--enable-flamegraph"))).toBe(false);
+    }
+  });
+
+  it("diffs a head with functions against a base report without them", async () => {
+    const { errors: _, ...head } = await runReport(join(setup({ functions: true }), "cycles.json"), { runDebugger: fakeDebugger().run });
+    const { errors: __, ...base } = await runReport(join(setup({}), "cycles.json"), { runDebugger: fakeDebugger().run });
+    // Through JSON, as the Action passes them.
+    const d = diffReports(JSON.parse(JSON.stringify(base)) as CycleReport, JSON.parse(JSON.stringify(head)) as CycleReport);
+    expect(d.rows.map((r) => r.kind)).toEqual(["same", "same"]);
+    expect(d.rows[0].functions![0]).toEqual({ name: "session_lock::lock_hash", head: 4_490 });
+    // Unchanged groups stay folded away, functions or not.
+    expect(formatMarkdown(d)).not.toContain("Functions in");
   });
 });
