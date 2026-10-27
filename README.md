@@ -295,24 +295,26 @@ it next to the stripped one, from the same commit.
 
 `benchmarks/session-lock` holds a TypeScript port of the
 [ckb-session-kit](https://github.com/luongthanhtung03/ckb-session-kit) session lock
-for ckb-js-vm. It runs the same 20 scenarios as the Rust original in the real
-CKB-VM and fails unless both implementations make every accept/reject decision
-correctly.
+for ckb-js-vm, plain CKB and token sessions (error codes 10-20). It runs the same
+58 scenarios as the Rust original (ckb-session-kit 49227cd) in the real CKB-VM and
+fails unless both implementations make every accept/reject decision correctly.
 
 | | Rust | ckb-js-vm |
 |---|---:|---:|
-| Mean cycles, accepted spends | 12,263 | 14,573,318 |
-| Cheapest run (start-up cost) | 2,318 | 13,916,789 |
+| Mean cycles, accepted plain CKB spends | 14,758 | 15,037,968 |
+| Mean cycles, accepted token spends | 20,348 | 15,518,698 |
+| Cheapest run (start-up cost) | 3,145 | 14,272,805 |
 
 About 95% of the ckb-js-vm cost is starting the VM; the lock's own logic runs at
-roughly 66× the Rust logic. Full table: [RESULTS.md](benchmarks/session-lock/RESULTS.md).
+roughly 66× the Rust logic. Full table, and the 8 Oct numbers for comparison:
+[RESULTS.md](benchmarks/session-lock/RESULTS.md).
 
 ```bash
 npm run bench:session-lock   # needs the Rust lock built in ../ckb-session-kit, or SESSION_LOCK_BIN
 ```
 
 CI rebuilds both implementations from source — the Rust lock from a pinned
-ckb-session-kit commit — reruns the 20 scenarios, and publishes the table in the
+ckb-session-kit commit — reruns every scenario, and publishes the table in the
 job summary.
 
 ## Limits

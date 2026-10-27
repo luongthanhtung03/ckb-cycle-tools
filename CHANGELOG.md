@@ -37,4 +37,5 @@ First stable release.
   per-group cycles computed in the page.
 
 ### Benchmark
-- The session lock in Rust vs ckb-js-vm, same 20 scenarios, rebuilt and rerun in CI.
+- The session lock in Rust vs ckb-js-vm, rebuilt and rerun in CI: the current lock
+  (ckb-session-kit 49227cd, plain CKB and token sessions, codes 10-20), 58 scenarios.
