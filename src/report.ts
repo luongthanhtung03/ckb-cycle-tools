@@ -15,7 +15,7 @@
  * went to, in scenarios with `"functions": true`.
  */
 import { readFile, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
 import { FUNCTION_LIMIT, resultLabel } from "./diff.js";
 import { functionCosts } from "./flame.js";
@@ -396,8 +396,25 @@ export async function confine(file: string, roots: string[] | undefined): Promis
       const rel = relative(root, p);
       return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
     });
-  if (!within(real ?? resolve(file))) throw new Error(`${file} is outside the checkout (${roots.join(", ")}): not read`);
+  if (!within(real ?? (await realParent(resolve(file))))) {
+    throw new Error(`${file} is outside the checkout (${roots.join(", ")}): not read`);
+  }
   return real ?? file;
+}
+
+/**
+ * A missing file's path with its nearest existing ancestor resolved, so it compares
+ * like the roots do (Windows runners' temp dir is an 8.3 short name, RUNNER~1).
+ */
+async function realParent(p: string): Promise<string> {
+  const parent = dirname(p);
+  if (parent === p) return p;
+  try {
+    return join(await realpath(parent), basename(p));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    return join(await realParent(parent), basename(p));
+  }
 }
 
 /** The report for a terminal: one block per scenario. */

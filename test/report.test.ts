@@ -6,7 +6,7 @@ import { resolveDebugger } from "../src/debugger.js";
 import { diffReports, formatMarkdown, type CycleReport } from "../src/diff.js";
 import { functionCosts, parseFolded } from "../src/flame.js";
 import type { DebuggerOutput } from "../src/profile.js";
-import { formatReport, parseCyclesConfig, runReport } from "../src/report.js";
+import { confine, formatReport, parseCyclesConfig, runReport } from "../src/report.js";
 
 const H = "0x" + "ab".repeat(32);
 
@@ -160,6 +160,16 @@ describe("runReport", () => {
     const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
     const r = await runReport("cycles.json", { binariesRoot: empty, roots: [".", empty] });
     for (const s of r.scenarios) expect(s.binaryMissing).toBe(true);
+  });
+
+  // Windows runners name the temp dir RUNNER~1; a symlinked dir stands in for that alias here.
+  it.skipIf(process.platform === "win32")("with roots, a missing file under an aliased root is still missing, not outside", async () => {
+    const { symlinkSync } = await import("node:fs");
+    const real = mkdtempSync(join(tmpdir(), "ckb-real-"));
+    const alias = join(mkdtempSync(join(tmpdir(), "ckb-alias-")), "link");
+    symlinkSync(real, alias);
+    await expect(confine(join(alias, "new", "bin"), [real])).resolves.toBe(join(alias, "new", "bin"));
+    await expect(confine(join(tmpdir(), "elsewhere"), [real])).rejects.toThrow(/outside the checkout/);
   });
 
   const bytecode = "benchmarks/session-lock/dist/session-lock.bc";
