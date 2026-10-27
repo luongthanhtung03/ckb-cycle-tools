@@ -72,7 +72,7 @@ jobs:
   # The Rust vs ckb-js-vm benchmark, rebuilt from source on a clean machine.
   # The Rust lock comes from ckb-session-kit at a pinned commit, so the numbers
   # here always refer to a known version of it. compare.mjs exits non-zero unless
-  # both implementations return the expected code in all 20 scenarios.
+  # both implementations return the expected code in every scenario.
   bench-session-lock:
     runs-on: ubuntu-latest
     steps:
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: luongthanhtung03/ckb-session-kit
-          ref: 3745aa06fcd0a831d2a73a9fef2d488b84e02d3f
+          ref: 49227cd06ff14e3c2816cbaff69007a97b1d746e
           path: ckb-session-kit
       - run: rustup target add riscv64imac-unknown-none-elf
       - name: Build the Rust session lock
@@ -103,7 +103,7 @@ jobs:
       - run: npm ci
       - name: Build the ckb-js-vm session lock
         run: npm run bench:build
-      - name: Run both implementations through the 20 scenarios
+      - name: Run both implementations through every scenario
         env:
           SESSION_LOCK_BIN: ${{ github.workspace }}/ckb-session-kit/contracts/session-lock/target/riscv64imac-unknown-none-elf/release/session-lock
         run: node benchmarks/session-lock/compare.mjs
