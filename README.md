@@ -339,9 +339,21 @@ with the same replay as `ckb-cycles <tx-hash>`:
 ckb-debugger 1.1.1. All 1,000 matched the node's cycle totals exactly, so none was
 excluded. secp256k1_blake160 accounts for 93.7% of the cycles, at a median of
 1,647,788 per group; it runs once per distinct owner, so the costliest transaction
-in the sample (68 owners) cost 111,979,599 cycles. The report lists min, median,
-p90 and max per script, its share, an example transaction, and the scripts it could
-not name, with the cell their code came from.
+in the sample (68 owners) cost 111,979,599 cycles. 694 of the 1,000 transactions
+update d.id's on-chain time oracle (two type scripts at about 45k and 33k cycles),
+and the next most expensive type script is the Bitcoin SPV client behind RGB++
+(median 1,369,197). The report lists min, median, p90 and max per script, its
+share, an example transaction, and the cell each script's code came from.
+
+The random sample saw no xUDT, Omnilock, Spore or Type ID, so the report has a
+second, separate section of targeted samples: for each of 22 scripts, up to 40 of
+the most recent transactions in which it ran, found with the indexer RPC and
+replayed the same way (653 replays; 601 matched the node, none mismatched, and
+52 older transactions, all at or before block 19,011,137, have no cycle total
+on the public node and are listed as not recorded). Medians per group from that
+section: xUDT 20,498, Spore 103,953, Cluster 98,683, Omnilock 1,458,708
+(Ethereum displaying) and 1,458,571 (Bitcoin), JoyID 6,844,452, RGB++ lock
+1,418,522, COTA 1,134,820. These are costs per run, not shares of mainnet.
 
 Only a transaction whose groups add up to the node's total is aggregated; any other
 is listed in the report with its reason, never dropped. To reproduce the same window
@@ -354,8 +366,18 @@ npm run atlas -- --rpc https://mainnet.ckb.dev/ --to 20851152 --blocks 15277 --s
 
 Without `--to` it samples back from the current tip; `--out <dir>` chooses where
 `data.json` and `report.md` go, `--resume` continues an interrupted run, and
-`--report-only <dir>` rebuilds the report from an existing `data.json`. The atlas
-and its script are part of the repository only, not the npm package.
+`--report-only <dir>` rebuilds the report from an existing `data.json` (and names
+scripts identified since the run). The atlas and its script are part of the
+repository only, not the npm package.
+
+Targeted samples are added to an existing atlas folder. `--script` takes a name
+(`xudt`, `omnilock`, `spore`, `cluster`, `type-id`, `joyid`, `rgbpp-lock`,
+`ickb-logic`, `das-lock` and others; an unknown name lists them) or a code hash as
+`<hash>[:<hash type>[:lock|type]]`, optionally narrowed to an args prefix with
+`@<hex>`, e.g. `omnilock@0x04` for Omnilock's Bitcoin auth. The search looks back
+from `--to`, widening five-fold from 20,000 blocks up to `--max-window`, and
+replays the newest `--max-txs` (default 40). The command that made the report's
+section is at the end of the report.
 
 ## Limits
 
