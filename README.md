@@ -345,9 +345,10 @@ job summary.
   functions, and the web page draws a `.folded` file the CLI made.
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
   tools then say the total is unknown instead of claiming a match.
-- **The PR Action has not yet commented on a real pull request.** Every step is
-  covered by tests and was run locally end to end; the first public run will be
-  linked here.
+- **The PR Action has run on one public pull request so far**, in this repository:
+  [#1](https://github.com/luongthanhtung03/ckb-cycle-tools/pull/1) slows one check of
+  the ckb-js-vm benchmark lock on purpose, and the comment reports it (+2.94% on that
+  scenario, results unchanged). It has not yet run in another project's repository.
 
 ## Why it is a separate repository
 
