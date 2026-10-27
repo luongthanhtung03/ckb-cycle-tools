@@ -270,8 +270,9 @@ async function replayOne(ctx: ReplayContext, hash: string, blockNumber: number, 
 /**
  * Every indexer transaction for a script in blocks [from, to]. One prefix
  * query first; a busy script makes the indexer time out on that, so it is then
- * asked one more args byte at a time (256 smaller queries, each split again if
- * it still times out). The union is the same set of transactions either way.
+ * asked one more args byte at a time (256 smaller queries, each split again
+ * if it still times out, up to five bytes deep: JoyID's args all start with
+ * the same two bytes). The union is the same set of transactions either way.
  */
 async function indexerTxs(rpc: Rpc, t: Target, from: number, to: number): Promise<IndexerTx[]> {
   const page = async (args: string): Promise<IndexerTx[]> => {
@@ -304,7 +305,7 @@ async function indexerTxs(rpc: Rpc, t: Target, from: number, to: number): Promis
         const msg = e instanceof Error ? e.message : String(e);
         if (!/timeout/i.test(msg)) throw e;
         // Split a byte further; retry the narrowest queries a few times before giving up.
-        if (depth < 2) break;
+        if (depth < 5) break;
         if (attempt >= 4) throw new Error(`the indexer timed out on ${t.name} args ${args}: ${msg}`);
         await new Promise((r) => setTimeout(r, 3000 * attempt));
       }
@@ -376,7 +377,15 @@ async function runTargeted(specs: string[]) {
   try {
     for (const t of targets) {
       console.log(`${t.name}: searching back from block ${toBlock}`);
-      const { selected, query } = await findRecent(ctx.rpc, t, maxTxs, toBlock, maxWindow);
+      let found: Awaited<ReturnType<typeof findRecent>>;
+      try {
+        found = await findRecent(ctx.rpc, t, maxTxs, toBlock, maxWindow);
+      } catch (e) {
+        // One target the indexer cannot answer for does not end the others; it is left out and said so.
+        console.error(`  ${t.name}: search failed, no sample: ${e instanceof Error ? e.message : e}`);
+        continue;
+      }
+      const { selected, query } = found;
       const records: TxRecord[] = [];
       for (const { hash, block } of selected) {
         const key = `${t.name}|${hash}`;
