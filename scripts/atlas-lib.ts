@@ -100,6 +100,8 @@ export interface Atlas {
   };
   /** Total cycles per matched transaction. */
   txCycles: Distribution;
+  /** Matched transactions by the scripts that ran in them, commonest first. */
+  combinations: { scripts: string; transactions: number; medianCycles: string }[];
   scripts: ScriptRow[];
   /** Everything not aggregated, with why: never silently dropped. */
   excluded: { hash: string; block: number; verdict: TxRecord["verdict"]; nodeCycles: string | null; measuredCycles: string; reason?: string }[];
@@ -301,10 +303,32 @@ export function aggregate(meta: AtlasMeta, records: TxRecord[]): Atlas {
       errors: records.filter((r) => r.verdict === "error").length,
     },
     txCycles: distribution(matched.map((r) => BigInt(r.measuredCycles))),
+    combinations: combinationsOf(matched),
     scripts,
     excluded,
     transactions: records,
   };
+}
+
+/** "secp256k1_blake160 + xUDT", with "3 x " for a script that ran as several groups. */
+export function combinationOf(r: TxRecord): string {
+  const counts = new Map<string, number>();
+  for (const g of r.groups) counts.set(g.label, (counts.get(g.label) ?? 0) + 1);
+  return [...counts]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, n]) => (n > 1 ? `${n} x ${label}` : label))
+    .join(" + ");
+}
+
+function combinationsOf(matched: TxRecord[]): Atlas["combinations"] {
+  const by = new Map<string, bigint[]>();
+  for (const r of matched) {
+    const k = combinationOf(r);
+    by.set(k, [...(by.get(k) ?? []), BigInt(r.measuredCycles)]);
+  }
+  return [...by]
+    .map(([scripts, cycles]) => ({ scripts, transactions: cycles.length, medianCycles: String(percentile([...cycles].sort(cmp), 50)) }))
+    .sort((a, b) => b.transactions - a.transactions || a.scripts.localeCompare(b.scripts));
 }
 
 /**
@@ -323,7 +347,7 @@ export function verdictOf(nodeCycles: bigint | undefined, groups: { cycles: bigi
 /* --------------------------------------------------------------- rendering */
 
 const num = (s: string | bigint) => BigInt(s).toLocaleString("en-US");
-const pct = (x: number) => `${(x * 100).toFixed(x >= 0.001 || x === 0 ? 1 : 2)}%`;
+const pct = (x: number) => (x > 0 && x < 0.0001 ? "<0.01%" : `${(x * 100).toFixed(x >= 0.001 || x === 0 ? 1 : 2)}%`);
 const shortHash = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
 const txLink = (h: string) => `[${shortHash(h)}](https://explorer.nervos.org/transaction/${h})`;
 
@@ -391,6 +415,17 @@ export function renderMarkdown(a: Atlas, opts: { reproduce?: string } = {}): str
     lines.push(`- ${labels.join(", ")}: \`${r.codeHash}\` (${r.hashType})${cell}`);
   }
   lines.push("");
+  if (a.combinations.length) {
+    lines.push("## What ran together");
+    lines.push("");
+    lines.push("Matched transactions by the scripts that ran in them (\"2 x\" is one script running as two groups, e.g. inputs with two different owners).");
+    lines.push("");
+    lines.push("| Scripts | Transactions | Median cycles |");
+    lines.push("|---|--:|--:|");
+    for (const c of a.combinations.slice(0, 10)) lines.push(`| ${c.scripts} | ${c.transactions} | ${num(c.medianCycles)} |`);
+    if (a.combinations.length > 10) lines.push(`| ${a.combinations.length - 10} other combinations | ${a.combinations.slice(10).reduce((s, c) => s + c.transactions, 0)} | |`);
+    lines.push("");
+  }
   lines.push("## Excluded");
   lines.push("");
   if (!a.excluded.length) {

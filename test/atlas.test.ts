@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   aggregate,
+  combinationOf,
   nameGroup,
   omnilockMode,
   percentile,
@@ -138,6 +139,16 @@ describe("aggregate", () => {
     expect(secp.codeCell).toBe("0x71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c:0");
   });
 
+  it("groups matched transactions by the scripts that ran together", () => {
+    expect(atlas.combinations).toEqual([
+      { scripts: "Omnilock (Ethereum) + secp256k1_blake160", transactions: 1, medianCycles: "4300000" },
+      { scripts: "secp256k1_blake160", transactions: 1, medianCycles: "1650000" },
+      { scripts: "secp256k1_blake160 + xUDT", transactions: 1, medianCycles: "1700000" },
+    ]);
+    const twoOwners = { ...fixture.transactions[1], groups: [fixture.transactions[1].groups[0], fixture.transactions[1].groups[0]] };
+    expect(combinationOf(twoOwners)).toBe("2 x secp256k1_blake160");
+  });
+
   it("is empty but well formed with nothing matched", () => {
     const empty = aggregate(fixture.meta, fixture.transactions.filter((t) => t.verdict !== "match"));
     expect(empty.scripts).toEqual([]);
@@ -160,6 +171,16 @@ describe("renderMarkdown", () => {
     expect(md).toContain("| secp256k1_blake160 | lock | 3 | 1,600,000 | 1,600,000 | 1,650,000 | 1,650,000 | 63.4% |");
     expect(md).toContain("measured 4990000 vs node 5000000 (-10000)");
     expect(md).toContain("ECONNRESET");
+  });
+
+  it("shows a tiny share as under 0.01%, not as zero", () => {
+    const tiny = aggregate(fixture.meta, [
+      { ...fixture.transactions[0], nodeCycles: "100000000", measuredCycles: "100000000", groups: [
+        { ...fixture.transactions[0].groups[0], cycles: "99999000" },
+        { ...fixture.transactions[0].groups[1], cycles: "1000" },
+      ] },
+    ]);
+    expect(renderMarkdown(tiny)).toMatch(/\| xUDT \| type \|.*\| <0\.01% \|/);
   });
 
   it("is plain text: no emoji or pictographs", () => {

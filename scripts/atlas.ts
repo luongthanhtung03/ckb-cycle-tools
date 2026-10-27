@@ -48,12 +48,16 @@ const today = new Date().toLocaleDateString("en-CA");
 const reproduceCommand = (m: { rpcUrl: string; fromBlock: number; toBlock: number; stride: number }, maxTxs: number) =>
   `npm ci\nnpm run atlas -- --rpc ${m.rpcUrl} --to ${m.toBlock} --blocks ${m.toBlock - m.fromBlock + 1} --stride ${m.stride} --max-txs ${maxTxs}`;
 
-/** Re-renders report.md from a data.json, e.g. after a change to the report layout. */
+/**
+ * Rebuilds data.json's aggregates and report.md from its recorded transactions,
+ * e.g. after a change to the report layout. Nothing is replayed or fetched.
+ */
 async function reportOnly(dir: string) {
   const data = JSON.parse(await readFile(join(dir, "data.json"), "utf8"));
   const atlas = aggregate(data.meta, data.transactions);
+  await writeFile(join(dir, "data.json"), JSON.stringify(atlas, null, 1) + "\n");
   await writeFile(join(dir, "report.md"), renderMarkdown(atlas, { reproduce: reproduceCommand(data.meta, data.summary.sampled) }));
-  console.log(`wrote ${join(dir, "report.md")}`);
+  console.log(`wrote ${join(dir, "report.md")} and data.json`);
 }
 
 /**
