@@ -101,7 +101,8 @@ runs:
       run: |
         if [ -n "$BUILD" ]; then bash -euo pipefail -c "$BUILD"; fi
         # A scenario that cannot run is in the report as an error row; the diff fails on it.
-        node "$CKB_CYCLES" report "$CONFIG" --json "$RUNNER_TEMP/ckb-cycles/head.json" || true
+        # --root: the cycles.json is the PR's; it reads nothing outside the checkout.
+        node "$CKB_CYCLES" report "$CONFIG" --root "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/ckb-cycles/head.json" || true
 
     - name: Report the base
       shell: bash
@@ -133,7 +134,7 @@ runs:
         else
           # The head's scenarios, with the base's binaries: only the code differs.
           # Binary paths are relative to the config's directory, in the base checkout too.
-          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base/$(dirname "$CONFIG")" --json "$out/base.json" || true
+          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base/$(dirname "$CONFIG")" --root "$GITHUB_WORKSPACE" --root "$out/base" --json "$out/base.json" || true
         fi
         git worktree remove --force "$out/base"
 

@@ -13,7 +13,7 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
                   [--json] [--name <code-hash>[:<hash-type>]=<label> ...]
        ckb-cycles --file <tx.json> [same options]
        ckb-cycles report <cycles.json> [--json <out.json>] [--binaries-from <dir>]
-                  [--rpc <url>] [--timeout <s>] [--debugger <path>]
+                  [--root <dir> ...] [--rpc <url>] [--timeout <s>] [--debugger <path>]
        ckb-cycles diff <base.json> <head.json> [--markdown] [--fail-above <percent>]
                   [--fail-on-result-change] [--title <s>] [--base-label <s>] [--head-label <s>]
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
@@ -45,6 +45,9 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                --binaries-from <dir> reads the binaries from another checkout
                (the PR's base). A binary with "symbols" in a scenario with
                "functions" also records the group's costliest functions.
+               --root <dir> (repeatable) refuses any file the config names
+               outside those directories, symlinks resolved: for CI, where
+               the cycles.json comes from a pull request
                Exits 2 if a scenario could not run: a rejection is a result,
                not an error
   diff         compares two reports group by group: Δ cycles, Δ%, and any group
@@ -122,6 +125,7 @@ async function reportCommand(args: string[]): Promise<number> {
       timeout: { type: "string" },
       debugger: { type: "string" },
       "binaries-from": { type: "string" },
+      root: { type: "string", multiple: true },
     },
   });
   if (positionals.length !== 1) {
@@ -133,6 +137,7 @@ async function reportCommand(args: string[]): Promise<number> {
     ...timeoutOf(values.timeout),
     ...(values.debugger && { debuggerPath: values.debugger }),
     ...(values["binaries-from"] && { binariesRoot: values["binaries-from"] }),
+    ...(values.root && { roots: values.root }),
     onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${s.name}`),
   });
   const { errors, ...data } = report;

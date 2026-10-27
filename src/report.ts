@@ -14,8 +14,8 @@
  * unstripped build of the same code) can also say which functions its cycles
  * went to, in scenarios with `"functions": true`.
  */
-import { readFile, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
 import { FUNCTION_LIMIT, resultLabel } from "./diff.js";
 import { functionCosts } from "./flame.js";
@@ -100,6 +100,9 @@ export function parseCyclesConfig(json: string): CyclesConfig {
     seen.add(s.name);
     const sources = [s.tx, s.file, s.mock].filter((v) => v !== undefined);
     if (sources.length !== 1) fail(`scenario "${s.name}" needs exactly one of "tx", "file", "mock"`);
+    for (const k of ["file", "mock"] as const) {
+      if (s[k] !== undefined && (typeof s[k] !== "string" || !s[k])) fail(`scenario "${s.name}": "${k}" must be a path`);
+    }
     if (s.tx !== undefined && !HASH.test(s.tx)) fail(`scenario "${s.name}": "tx" must be a transaction hash`);
     for (const b of s.binaries ?? []) if (!c.binaries?.[b]) fail(`scenario "${s.name}" uses unknown binary "${b}"`);
     if (s.scriptVersion !== undefined && ![0, 1, 2].includes(s.scriptVersion)) {
@@ -126,6 +129,13 @@ export interface ReportOptions {
    * with the binaries built from the base.
    */
   binariesRoot?: string;
+  /**
+   * Directories every file the config names (mocks, transaction files,
+   * binaries, symbols builds) must be inside, symlinks resolved: in CI, the
+   * checkouts, so a pull request's cycles.json cannot read the rest of the
+   * runner into the report. Default: anywhere.
+   */
+  roots?: string[];
   /** Called as each scenario finishes, for progress output. */
   onScenario?: (s: ScenarioResult) => void;
   /** Runs ckb-debugger instead of the native binary (see ProfileOptions): for tests. */
@@ -162,12 +172,17 @@ export async function runReport(configPath: string, options: ReportOptions = {})
   const rpcUrl = options.rpcUrl ?? config.rpc;
   const baseNames = parseNames(Object.entries(config.names ?? {}).map(([k, v]) => `${k}=${v}`));
 
+  const roots = options.roots?.length ? await Promise.all(options.roots.map((r) => realpath(resolve(r)))) : undefined;
+  const inside = (file: string) => confine(file, roots);
+
   const binaries = new Map<string, Promise<BinarySubstitution>>();
   const binary = (name: string) => {
     let p = binaries.get(name);
     if (!p) {
       const b = config.binaries![name];
-      p = readFile(resolve(binDir, b.path)).then(
+      p = inside(resolve(binDir, b.path))
+        .then((file) => readFile(file))
+        .then(
         (data) => ({
           name,
           data: new Uint8Array(data),
@@ -217,10 +232,10 @@ export async function runReport(configPath: string, options: ReportOptions = {})
         let mock: MockTransaction;
         let scriptVersion = s.scriptVersion;
         if (s.mock) {
-          mock = JSON.parse(await readFile(resolve(dir, s.mock), "utf8"));
+          mock = JSON.parse(await readFile(await inside(resolve(dir, s.mock)), "utf8"));
           if (!mock?.mock_info || !mock.tx) throw new Error(`${s.mock} is not a ckb-debugger mock transaction`);
         } else if (s.file) {
-          mock = await mockFromTransaction(rpc(), readTransactionJson(await readFile(resolve(dir, s.file), "utf8")));
+          mock = await mockFromTransaction(rpc(), readTransactionJson(await readFile(await inside(resolve(dir, s.file)), "utf8")));
         } else {
           const node = rpc();
           const [built, consensus] = await Promise.all([
@@ -256,7 +271,7 @@ export async function runReport(configPath: string, options: ReportOptions = {})
         }
         if (symbols.size) {
           groups = groupResults(profile);
-          await recordFunctions(groups, swapped, symbols, binDir, {
+          await recordFunctions(groups, swapped, symbols, binDir, inside, {
             ...profileOptions,
             ...(scriptVersion !== undefined && { scriptVersion }),
           });
@@ -311,6 +326,7 @@ async function recordFunctions(
   mock: MockTransaction,
   symbols: Map<string, string>,
   binDir: string,
+  inside: (file: string) => Promise<string>,
   options: ProfileOptions,
 ): Promise<void> {
   const fmt = (n: bigint | number) => n.toLocaleString("en-US");
@@ -318,7 +334,13 @@ async function recordFunctions(
   const wanted = groups.filter((g) => symbolsOf(g));
   const bins: Record<string, string> = {};
   for (const g of wanted) {
-    const file = resolve(binDir, symbolsOf(g)!);
+    let file: string;
+    try {
+      file = await inside(resolve(binDir, symbolsOf(g)!));
+    } catch (e) {
+      g.functionsWarning = e instanceof Error ? e.message : String(e);
+      continue;
+    }
     // A missing build is said on its group; the cycles are measured all the same.
     const found = await stat(file).then(
       (st) => st.isFile(),
@@ -355,6 +377,27 @@ async function recordFunctions(
         .map((c) => ({ name: c.name, self: Number(c.self), total: Number(c.total) }));
     }
   }
+}
+
+/**
+ * `file` with its symlinks resolved, when it is inside one of `roots` (already
+ * resolved); an error otherwise. A file that does not exist is checked by its
+ * path and returned as given, so reading it fails with the usual ENOENT (a
+ * binary absent from the base is a new binary, not an error).
+ */
+export async function confine(file: string, roots: string[] | undefined): Promise<string> {
+  if (!roots) return file;
+  const real = await realpath(file).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === "ENOENT") return undefined;
+    throw e;
+  });
+  const within = (p: string) =>
+    roots.some((root) => {
+      const rel = relative(root, p);
+      return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+    });
+  if (!within(real ?? resolve(file))) throw new Error(`${file} is outside the checkout (${roots.join(", ")}): not read`);
+  return real ?? file;
 }
 
 /** The report for a terminal: one block per scenario. */

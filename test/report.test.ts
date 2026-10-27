@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveDebugger } from "../src/debugger.js";
 import { diffReports, formatMarkdown, type CycleReport } from "../src/diff.js";
@@ -58,6 +58,7 @@ describe("parseCyclesConfig", () => {
     ["a binary with both matchers", JSON.stringify({ binaries: { x: { path: "p", codeHash: H, outPoint: { tx_hash: H, index: "0x0" } } }, scenarios: [] }), /either "outPoint" or "codeHash"/],
     ["a binary with neither", JSON.stringify({ binaries: { x: { path: "p" } }, scenarios: [] }), /either "outPoint" or "codeHash"/],
     ["a bad out point", JSON.stringify({ binaries: { x: { path: "p", outPoint: { tx_hash: H, index: 1 } } }, scenarios: [] }), /"outPoint" must be/],
+    ["a mock that is not a path", JSON.stringify({ scenarios: [{ name: "a", mock: { path: "x" } }] }), /"mock" must be a path/],
     ["a bad name", JSON.stringify({ names: { "0x12": "x" }, scenarios: [] }), /--name expects/],
     ["a bad network", JSON.stringify({ network: "devnet", scenarios: [] }), /"network"/],
     ["empty symbols", JSON.stringify({ binaries: { x: { path: "p", codeHash: H, symbols: "" } }, scenarios: [] }), /"symbols" must be a path/],
@@ -114,6 +115,51 @@ describe("runReport", () => {
       expect(s.binaryMissing).toBe(true);
     }
     expect(r.errors).toHaveLength(config.scenarios.length);
+  });
+
+  // Security review, 27 Oct: in CI the cycles.json is the pull request's.
+  it("with roots, reads nothing the config names outside them", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "ckb-outside-"));
+    const secret = join(outside, "secret.txt");
+    writeFileSync(secret, "TOKEN=abcdef");
+    const repo = mkdtempSync(join(tmpdir(), "ckb-repo-"));
+    writeFileSync(
+      join(repo, "cycles.json"),
+      JSON.stringify({
+        binaries: { b: { path: `../${basename(outside)}/secret.txt`, codeHash: H } },
+        scenarios: [
+          { name: "absolute", mock: secret, binaries: [] },
+          { name: "dotdot", file: `../${basename(outside)}/secret.txt`, binaries: [] },
+          { name: "binary", mock: secret, binaries: ["b"] },
+        ],
+      }),
+    );
+    const r = await runReport(join(repo, "cycles.json"), { roots: [repo] });
+    for (const s of r.scenarios) {
+      expect(s.error).toMatch(/is outside the checkout/);
+      // Not a word of the file reached the report (JSON.parse quotes the start of what it read).
+      expect(s.error).not.toContain("TOKEN");
+    }
+    // Without roots (local use), the same config does read the file.
+    const open = await runReport(join(repo, "cycles.json"));
+    expect(open.scenarios[0].error).toContain("TOKEN");
+  });
+
+  it.skipIf(process.platform === "win32")("with roots, follows a symlink before deciding", async () => {
+    const { symlinkSync } = await import("node:fs");
+    const outside = mkdtempSync(join(tmpdir(), "ckb-outside-"));
+    writeFileSync(join(outside, "secret.json"), "TOKEN=abcdef");
+    const repo = mkdtempSync(join(tmpdir(), "ckb-repo-"));
+    symlinkSync(join(outside, "secret.json"), join(repo, "mock.json"));
+    writeFileSync(join(repo, "cycles.json"), JSON.stringify({ scenarios: [{ name: "link", mock: "mock.json" }] }));
+    const r = await runReport(join(repo, "cycles.json"), { roots: [repo] });
+    expect(r.scenarios[0].error).toMatch(/is outside the checkout/);
+  });
+
+  it("with roots, still tells a binary missing from the base from one outside", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
+    const r = await runReport("cycles.json", { binariesRoot: empty, roots: [".", empty] });
+    for (const s of r.scenarios) expect(s.binaryMissing).toBe(true);
   });
 
   const bytecode = "benchmarks/session-lock/dist/session-lock.bc";
