@@ -189,6 +189,39 @@ describe("formatMarkdown", () => {
     expect(text.split(COMMENT_MARKER)).toHaveLength(2);
   });
 
+  // Security review, 27 Oct: what a PR's cycles.json can put in the bot's comment.
+  it("breaks bare links, and drops bidi overrides and control characters", () => {
+    const d = diffReports(report(), report({ name: "see https://evil.example and www.evil.example ‮abc\u0007", groups: [g("input.0.lock", 1)] }));
+    const text = formatMarkdown(d);
+    expect(text).toContain(`see https:${ZWSP}//evil.example and www${ZWSP}.evil.example abc |`);
+    expect(text).not.toMatch(/[‮\u0007]/);
+  });
+
+  it("puts a selector or label that is not plain in <code>, where a backtick cannot end it", () => {
+    const d = diffReports(report(), report({ name: "s", groups: [g("input.0.lock`|**x**", 1)] }));
+    const text = formatMarkdown(d, { baseLabel: "abc`d", headLabel: "def5678" });
+    expect(text).toContain("| s | <code>input.0.lock\\`\\|\\*\\*x\\*\\*</code> |");
+    expect(text).toContain("(<code>abc\\`d</code> → `def5678`)");
+  });
+
+  it("stays under GitHub's comment limit whatever the names, keeping the rows that matter", () => {
+    const long = "n".repeat(50_000);
+    // Long names are clipped on every row.
+    const one = formatMarkdown(diffReports(report(), report({ name: long, groups: [g("input.0.lock", 1, 0, long)] })));
+    expect(one.length).toBeLessThan(2_000);
+    // Thousands of rows: the unchanged ones go first, then the last changed rows.
+    const many = (cycles: number) =>
+      report(...Array.from({ length: 3_000 }, (_, i) => ({ name: `${"s".repeat(250)}${i}`, groups: [g("input.0.lock", i < 2_000 ? 1 : cycles)] })));
+    const flipped = report(...many(1).scenarios.map((s, i) => (i === 2_999 ? { ...s, groups: [g("input.0.lock", 1, 12)] } : s)));
+    const text = formatMarkdown(diffReports(many(1), { ...flipped, scenarios: flipped.scenarios.map((s, i) => (i < 2_000 ? s : { ...s, groups: [{ ...s.groups[0], cycles: s.groups[0].cycles + 1 }] })) }));
+    expect(text.length).toBeLessThan(65_536);
+    expect(text).toContain("unchanged groups left out");
+    expect(text).toMatch(/\d+ more changed rows left out/);
+    // The result change sorts first, so it survives the cut.
+    expect(text).toContain("RESULT CHANGED: ok → exit 12");
+    expect(text.trimEnd().endsWith("one run per script group.</sub>")).toBe(true);
+  });
+
   it("says so when nothing changed", () => {
     expect(formatMarkdown(diffReports(base, base))).toContain("No script group changed its cycles or its result.");
   });
