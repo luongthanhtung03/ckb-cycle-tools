@@ -80,7 +80,7 @@ const reproduceCommand = (m: { rpcUrl: string; fromBlock: number; toBlock: numbe
   `npm ci\nnpm run atlas -- --rpc ${m.rpcUrl} --to ${m.toBlock} --blocks ${m.toBlock - m.fromBlock + 1} --stride ${m.stride} --max-txs ${maxTxs}`;
 
 const reproduceTargeted = (run: TargetedRun, dir: string) =>
-  `npm run atlas -- --out ${dir.replace(/\\/g, "/")} --rpc ${run.meta.rpcUrl} --to ${run.meta.toBlock} --max-txs ${run.meta.maxTxs} \\\n  ` +
+  `npm run atlas -- --out ${dir.replace(/\\/g, "/")} --rpc ${run.meta.rpcUrl} --to ${run.meta.toBlock} --max-txs ${run.meta.maxTxs}${run.meta.maxWindow ? ` --max-window ${run.meta.maxWindow}` : ""} \\\n  ` +
   run.samples.map((s) => `--script ${targetSpec(s.target)}`).join(" ");
 
 /** Writes data.json and report.md for an atlas, with its targeted samples when it has them. */
@@ -417,6 +417,7 @@ async function runTargeted(specs: string[]) {
       debugger: ctx.version,
       toBlock,
       maxTxs,
+      maxWindow,
       startedAt: data.targeted && kept.length ? data.targeted.meta.startedAt : startedAt,
       finishedAt: new Date().toISOString(),
       ...(ctx.toolCommit && { toolCommit: ctx.toolCommit }),

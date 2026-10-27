@@ -322,12 +322,19 @@ describe("targeted samples", () => {
     const randomPart = (s: string) => s.slice(0, s.indexOf("## Excluded"));
     expect(randomPart(md)).toBe(randomPart(before));
     const targeted = md.slice(md.indexOf("## Targeted samples"), md.indexOf("## Method and limits"));
-    expect(targeted).toContain("| Omnilock: Omnilock (Ethereum) | 1 to 102 | 9 | 5 | 3 | 1 | 2,700,000 |");
+    expect(targeted).toContain("| Omnilock (Ethereum) | 1 to 102 | 9 | 5 | 3 | 1 | 2,700,000 |");
     expect(targeted).toContain("### Omnilock");
     expect(targeted).toContain("measured 4990000 vs node 5000000 (-10000)");
     expect(targeted).not.toMatch(/%/);
     expect(md).toContain("npm run atlas -- --script omnilock");
     expect(md).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it("names a row of an args-narrowed search by its script and the prefix", () => {
+    const eth = aggregateTargeted(resolveTarget("omnilock@0x01"), { fromBlock: 1, toBlock: 102, found: 1 }, fixture.transactions);
+    const md = renderMarkdown({ ...aggregate(fixture.meta, []), targeted: { meta: { rpcUrl: "u", chain: "ckb", debugger: "d", toBlock: 102, maxTxs: 40, startedAt: "a", finishedAt: "b" }, samples: [eth] } });
+    expect(md).toContain("| Omnilock (Ethereum), args 0x01 | 1 to 102 |");
+    expect(md).toContain("### Omnilock, args 0x01");
   });
 
   it("says so when no transaction ran the script", () => {

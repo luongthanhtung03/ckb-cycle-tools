@@ -408,6 +408,8 @@ export interface TargetedRun {
     toBlock: number;
     /** Transactions replayed per target, at most. */
     maxTxs: number;
+    /** The widest window searched back, in blocks. */
+    maxWindow?: number;
     startedAt: string;
     finishedAt: string;
     toolCommit?: string;
@@ -579,6 +581,13 @@ const pct = (x: number) => (x > 0 && x < 0.0001 ? "<0.01%" : `${(x * 100).toFixe
 const shortHash = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
 const txLink = (h: string) => `[${shortHash(h)}](https://explorer.nervos.org/transaction/${h})`;
 
+/** A target row's name: the script's label, with the searched args prefix when there was one. */
+function rowLabel(t: Target, label: string): string {
+  const same = t.name === label || t.name.startsWith(label.replace(/ \(.*\)$/, ""));
+  if (!same) return `${t.name}: ${label}`;
+  return t.args ? `${label}, args ${t.args}` : label;
+}
+
 /**
  * The "Targeted samples" section: one sample per `--script` target, kept apart
  * from the random sample (no shares, no shared totals).
@@ -620,8 +629,7 @@ export function renderTargeted(run: TargetedRun): string[] {
       continue;
     }
     for (const r of s.targetRows) {
-      const label = s.targetRows.length > 1 || r.label !== s.target.name ? `${s.target.name}: ${r.label}` : r.label;
-      lines.push(`| ${label} | ${q} | ${head} | ${r.groups} | ${num(r.min)} | ${num(r.median)} | ${num(r.p90)} | ${num(r.max)} |`);
+      lines.push(`| ${rowLabel(s.target, r.label)} | ${q} | ${head} | ${r.groups} | ${num(r.min)} | ${num(r.median)} | ${num(r.p90)} | ${num(r.max)} |`);
     }
   }
   lines.push("");
