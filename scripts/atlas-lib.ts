@@ -161,6 +161,9 @@ export const EXTRA_MAINNET_SCRIPTS: Record<string, string> = {
   // utxostack/rgbpp-sdk COMPATIBLE_XUDT_TYPE_SCRIPTS ("RUSD Mainnet", "USDI Mainnet").
   "0x26a33e0815888a4a0614a0b7d09fa951e0993ff21e55905510104a0b1312032b:type": "RUSD (xUDT compatible)",
   "0xbfa35a9c38a676682b65ade8f02be164d48632281477e36f8dc2f41f79e56bfc:type": "USDI (xUDT compatible)",
+  // nervina-labs/ckb-dex-sdk src/constants/index.ts, MainnetInfo.DexLockScript (a
+  // lock for orders listed for sale, seen with Spore and JoyID).
+  "0xab0ede4350a201bd615892044ea9edf12180189572e49a7ff3f78cce179ae09f:type": "ckb-dex lock",
   // iCKB: ickb/contracts scripts/deployment/mainnet/migrations/2024-09-12-151119.json
   // (data hashes; the scripts are referenced by data1).
   "0x2a8100ab5990fa055ab1b50891702e1e895c7bd1df6322cd725c1a6115873bd3:data1": "iCKB logic",
@@ -296,6 +299,7 @@ export const TARGETS: Record<string, Omit<Target, "name"> & { label: string }> =
   "ickb-logic": { label: "iCKB logic", codeHash: "0x2a8100ab5990fa055ab1b50891702e1e895c7bd1df6322cd725c1a6115873bd3", hashType: "data1", role: "type" },
   "ickb-limit-order": { label: "iCKB limit order", codeHash: "0x49dfb6afee5cc8ac4225aeea8cb8928b150caf3cd92fea33750683c74b13254a", hashType: "data1", role: "lock" },
   "ickb-owned-owner": { label: "iCKB owned owner", codeHash: "0xacc79e07d107831feef4c70c9e683dac5644d5993b9cb106dca6e74baa381bd0", hashType: "data1", role: "lock" },
+  "dex-lock": { label: "ckb-dex lock", codeHash: "0xab0ede4350a201bd615892044ea9edf12180189572e49a7ff3f78cce179ae09f", hashType: "type", role: "lock" },
   "das-lock": { label: "d.id das-lock", codeHash: "0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137", hashType: "type", role: "lock" },
   "did-account": { label: "d.id AccountCell type", codeHash: "0x4f170a048198408f4f4d36bdbcddcebe7a0ae85244d3ab08fd40a80cbfc70918", hashType: "type", role: "type" },
 };
@@ -776,7 +780,7 @@ export function renderMarkdown(a: Atlas, opts: { reproduce?: string; reproduceTa
   );
   lines.push(
     "- Names come from CCC's mainnet table of known scripts, plus a short table in scripts/atlas-lib.ts of scripts " +
-      "whose code hash is published elsewhere (Spore and Cluster from @ckb-ccc/spore; d.id, RGB++ and iCKB from " +
+      "whose code hash is published elsewhere (Spore and Cluster from @ckb-ccc/spore; d.id, RGB++, iCKB and ckb-dex from " +
       "their own repositories, each with its source). Scripts in neither show as unknown with their code hash; " +
       "Omnilock's mode is read from the first byte of its args.",
   );
