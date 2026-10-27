@@ -26,8 +26,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: test (${{ matrix.os }}, node ${{ matrix.node }})
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -45,8 +45,8 @@ jobs:
   testnet-profile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -86,8 +86,8 @@ jobs:
   bench-session-lock:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: luongthanhtung03/ckb-session-kit
           ref: 49227cd06ff14e3c2816cbaff69007a97b1d746e
@@ -106,7 +106,7 @@ jobs:
           mkdir -p "$HOME/.ckb-tools"
           tar -xzf /tmp/ckb-debugger.tar.gz -C "$HOME/.ckb-tools"
           echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm

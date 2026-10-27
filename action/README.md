@@ -20,7 +20,7 @@ jobs:
   cycles:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: luongthanhtung03/ckb-cycle-tools/action@main
         with:
           build: make build         # whatever builds the binaries cycles.json names
