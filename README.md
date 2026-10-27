@@ -327,6 +327,36 @@ CI rebuilds both implementations from source — the Rust lock from a pinned
 ckb-session-kit commit — reruns every scenario, and publishes the table in the
 job summary.
 
+## Mainnet cycle atlas
+
+A one-off snapshot of what the scripts in recent mainnet transactions cost, measured
+with the same replay as `ckb-cycles <tx-hash>`:
+[atlas/2026-10-28/report.md](atlas/2026-10-28/report.md), raw results in
+[data.json](atlas/2026-10-28/data.json).
+
+1,000 transactions from every 12th block between 20,835,876 and 20,851,152
+(26 to 27 Oct 2026, about 39 hours), each replayed per script group in
+ckb-debugger 1.1.1. All 1,000 matched the node's cycle totals exactly, so none was
+excluded. secp256k1_blake160 accounts for 93.7% of the cycles, at a median of
+1,647,788 per group; it runs once per distinct owner, so the costliest transaction
+in the sample (68 owners) cost 111,979,599 cycles. The report lists min, median,
+p90 and max per script, its share, an example transaction, and the scripts it could
+not name, with the cell their code came from.
+
+Only a transaction whose groups add up to the node's total is aggregated; any other
+is listed in the report with its reason, never dropped. To reproduce the same window
+(read-only JSON-RPC against a public node, paced and retried; about 25 minutes):
+
+```bash
+npm ci
+npm run atlas -- --rpc https://mainnet.ckb.dev/ --to 20851152 --blocks 15277 --stride 12 --max-txs 1000
+```
+
+Without `--to` it samples back from the current tip; `--out <dir>` chooses where
+`data.json` and `report.md` go, `--resume` continues an interrupted run, and
+`--report-only <dir>` rebuilds the report from an existing `data.json`. The atlas
+and its script are part of the repository only, not the npm package.
+
 ## Limits
 
 - **It needs a node, or a saved transaction.** Rebuilding a transaction means
