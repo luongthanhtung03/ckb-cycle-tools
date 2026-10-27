@@ -40,3 +40,7 @@ next-env.d.ts
 # playwright output
 e2e/test-results/
 e2e/playwright-report/
+
+# mainnet cycle atlas: a run's scratch state (data.json and report.md are kept)
+atlas/**/progress.jsonl
+atlas/**/run.json

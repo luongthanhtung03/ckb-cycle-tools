@@ -1,0 +1,69 @@
+{
+  "meta": {
+    "rpcUrl": "https://mainnet.ckb.dev/",
+    "chain": "ckb",
+    "fromBlock": 100,
+    "toBlock": 102,
+    "stride": 1,
+    "blocksSampled": 3,
+    "cellbaseSkipped": 3,
+    "debugger": "ckb-debugger 1.1.1",
+    "scriptVersion": 2,
+    "startedAt": "2026-10-28T00:00:00.000Z",
+    "finishedAt": "2026-10-28T00:10:00.000Z"
+  },
+  "transactions": [
+    {
+      "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "block": 102,
+      "nodeCycles": "1700000",
+      "measuredCycles": "1700000",
+      "verdict": "match",
+      "groups": [
+        { "role": "lock", "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8", "hashType": "type", "label": "secp256k1_blake160", "cycles": "1600000", "result": 0, "codeCell": "0x71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c:0" },
+        { "role": "type", "codeHash": "0x50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95", "hashType": "data1", "label": "xUDT", "cycles": "100000", "result": 0 }
+      ]
+    },
+    {
+      "hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "block": 101,
+      "nodeCycles": "1650000",
+      "measuredCycles": "1650000",
+      "verdict": "match",
+      "groups": [
+        { "role": "lock", "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8", "hashType": "type", "label": "secp256k1_blake160", "cycles": "1650000", "result": 0 }
+      ]
+    },
+    {
+      "hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "block": 101,
+      "nodeCycles": "4300000",
+      "measuredCycles": "4300000",
+      "verdict": "match",
+      "groups": [
+        { "role": "lock", "codeHash": "0x9b819793a64463aed77c615d6cb226eea5487ccfc0783043a587254cda2b6f26", "hashType": "type", "label": "Omnilock (Ethereum)", "cycles": "2700000", "result": 0 },
+        { "role": "lock", "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8", "hashType": "type", "label": "secp256k1_blake160", "cycles": "1600000", "result": 0 }
+      ]
+    },
+    {
+      "hash": "0x4444444444444444444444444444444444444444444444444444444444444444",
+      "block": 100,
+      "nodeCycles": "5000000",
+      "measuredCycles": "4990000",
+      "verdict": "mismatch",
+      "reason": "measured 4990000 vs node 5000000 (-10000)",
+      "groups": [
+        { "role": "lock", "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8", "hashType": "type", "label": "secp256k1_blake160", "cycles": "4990000", "result": 0 }
+      ]
+    },
+    {
+      "hash": "0x5555555555555555555555555555555555555555555555555555555555555555",
+      "block": 100,
+      "nodeCycles": null,
+      "measuredCycles": "0",
+      "verdict": "error",
+      "reason": "get_transaction: cannot reach https://mainnet.ckb.dev/ (ECONNRESET)",
+      "groups": []
+    }
+  ]
+}

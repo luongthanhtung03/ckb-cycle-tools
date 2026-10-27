@@ -40,7 +40,8 @@
     "bench:build": "npm run build && node benchmarks/session-lock/build-js.mjs",
     "bench:session-lock": "npm run bench:build && node benchmarks/session-lock/compare.mjs",
     "prepack": "npm run build",
-    "pack:check": "node scripts/pack-check.mjs"
+    "pack:check": "node scripts/pack-check.mjs",
+    "atlas": "tsx scripts/atlas.ts"
   },
   "devDependencies": {
     "@ckb-js-std/bindings": "^1.0.0",
