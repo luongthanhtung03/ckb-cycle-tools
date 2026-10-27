@@ -342,6 +342,47 @@ job summary.
 It started as measurement scaffolding inside a learning exercise. That is a bad place
 for a tool to live if anyone else might want it.
 
+## Related work
+
+Other CKB tools touch the same ground. This is what each one does, as far as its
+own documentation says, and where this repository sits next to it.
+
+- **[ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger)**
+  (nervosnetwork) runs CKB scripts off chain from a mock transaction and reports
+  their cycles, with a flamegraph mode. It is the engine everything here drives;
+  nothing in this repository re-implements the VM. What is added on top: rebuilding
+  a mock transaction from a tx hash or a saved transaction, one run per script
+  group with totals checked against the node, picking the VM version from the
+  block, Type ID charged as the node charges it, named flamegraphs checked against
+  the deployed binary, report diffs, and the PR Action.
+- **[ckb-devnet-explorer](https://github.com/wildanrhmn/ckb-devnet-explorer)** is a
+  lightweight explorer for OffCKB devnets that reads the node directly. It names
+  genesis and project-deployed scripts (including JS contracts on ckb-js-vm),
+  decodes cells such as DAO, xUDT, Spore and Type ID, and shows each transaction's
+  fee, size and cycles. It answers "what is in this transaction"; cycle-tools
+  answers "which script spent the cycles, and why", on testnet and mainnet as well.
+  The two fit together: a devnet transaction can be saved with `ckb-cycles mock`
+  and profiled here.
+- **[CKB Contract Flow](https://talk.nervos.org/t/ckb-contract-flow-visual-cell-transition-explainers-on-chain-tx-decoder-for-46-ckb-contracts/11014)**
+  ([repo](https://github.com/gpBlockchain/ckb-contract-flow-html)) explains the
+  cell transition rules of 46 contracts as visual pages, and its decoder splits a
+  testnet or mainnet transaction into script groups and checks each contract's
+  rules. It explains what a script requires; it does not run scripts or measure
+  cycles. Cycle-tools runs them and measures, without explaining the rules.
+- **[CKBadger](https://talk.nervos.org/t/ckbadger-a-local-first-ckb-native-explorer-and-a-vibe-coding-experiment/10276)**
+  ([repo](https://github.com/janx/ckbadger)) is a local-first explorer built around
+  the cell model, syncing from a node and showing mainnet and testnet side by side.
+  It is for browsing the chain; cycle-tools looks at one transaction at a time and
+  only at its execution cost.
+- **[CellScript](https://github.com/CellScript-Labs/CellScript)**'s
+  [cost report](https://talk.nervos.org/t/cellscript-0-30-abstractions-bytes-and-the-cost/10732)
+  compares executable bytes and cycles of matched CellScript and hand-written Rust
+  contracts, with acceptance and rejection cases on both sides. It is a language
+  project measuring its own compiler output, and the method is close to this
+  repository's ckb-js-vm vs Rust harness. The two are complementary: a
+  `cycles.json` and the PR Action could track such pairs on every change, with
+  per-function diffs, rather than only at release time.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
