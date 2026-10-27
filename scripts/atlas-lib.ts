@@ -155,6 +155,13 @@ export const EXTRA_MAINNET_SCRIPTS: Record<string, string> = {
   // defines as account_cell.
   "0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137:type": "d.id das-lock",
   "0x4f170a048198408f4f4d36bdbcddcebe7a0ae85244d3ab08fd40a80cbfc70918:type": "d.id AccountCell type",
+  // The same TypeIdTable, fields 3 to 7: balance_cell, income_cell, pre_account_cell,
+  // proposal_cell, account_sale_cell.
+  "0xebafc1ebe95b88cac426f984ed5fce998089ecad0cd2f8b17755c9de4cb02162:type": "d.id BalanceCell type",
+  "0x6c1d69a358954fc471a2ffa82a98aed5a4912e6002a5e761524f2304ab53bf39:type": "d.id IncomeCell type",
+  "0x18ab87147e8e81000ab1b9f319a5784d4c7b6c98a9cec97d738a5c11f69e7254:type": "d.id PreAccountCell type",
+  "0x6127a41ad0549e8574a25b4d87a7414f1e20579306c943c53ffe7d03f3859bbe:type": "d.id ProposalCell type",
+  "0x80f520a379c41c019ab56afd426b536175bff9c574b17524da81d2d82f3fb737:type": "d.id AccountSaleCell type",
   // utxostack/rgbpp-sdk packages/ckb/src/constants/index.ts, MainnetInfo.
   "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936:type": "RGB++ lock",
   "0x70d64497a075bd651e98ac030455ea200637ee325a12ad08aff03f1a117e5a62:type": "BTC time lock (RGB++)",

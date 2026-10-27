@@ -206,6 +206,7 @@ describe("scripts identified after the first run", () => {
     expect(t("0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137")).toBe("d.id das-lock");
     expect(t("0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936")).toBe("RGB++ lock");
     expect(t("0xab0ede4350a201bd615892044ea9edf12180189572e49a7ff3f78cce179ae09f")).toBe("ckb-dex lock");
+    expect(t("0xebafc1ebe95b88cac426f984ed5fce998089ecad0cd2f8b17755c9de4cb02162")).toBe("d.id BalanceCell type");
     // Same code hash, another hash type: not the same script.
     expect(t("0x3a468d53352eb855521dabed0dc7036929bfe72766ad58f801edfbae564f7b43", "data1")).toMatch(/^unknown /);
   });
