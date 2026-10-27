@@ -19,9 +19,10 @@ permissions:
 jobs:
   cycles:
     runs-on: ubuntu-latest
+    timeout-minutes: 30             # a PR whose script loops still ends
     steps:
       - uses: actions/checkout@v7
-      - uses: luongthanhtung03/ckb-cycle-tools/action@main
+      - uses: luongthanhtung03/ckb-cycle-tools/action@<commit-sha>  # pin a commit, not @main
         with:
           build: make build         # whatever builds the binaries cycles.json names
           fail-above: 5             # fail when a group grows by more than 5%
@@ -51,8 +52,25 @@ token cannot comment) still shows it. Only a comment posted by the token's own
 account (`github-actions[bot]` for the default token) is updated: a comment by
 anyone else that starts with the marker is left alone.
 
-Use it under `pull_request`, as above, not `pull_request_target` with a checkout of
-the PR's head: `build` runs the PR's code, which must not get a write token.
+## Security
+
+- Use it under `pull_request`, as above, never `pull_request_target` or
+  `workflow_run` with a checkout of the PR's head: `build` runs the PR's code,
+  which must not get a write token or your secrets.
+- Leave `github-token` at the workflow token. A personal access token or an app
+  token would be on a runner where the PR's build has already run. (An app
+  token also cannot read `/user`, so the comment it posted is not recognised
+  and each push adds another.)
+- Pin the Action to a commit SHA: it runs with a token that can comment.
+- The PR's `cycles.json` decides which files the report reads. The Action
+  passes `--root` with the checkouts, so a path outside them (absolute, `..`,
+  or a symlink) is an error row, not read. Names and errors from it are
+  escaped in the comment: no mentions, links, HTML or table breaks.
+- `timeout-minutes` on the job bounds a script that runs forever (ckb-debugger
+  stops it only at its cycle limit).
+- The comment is a review aid, not a gate against a hostile PR: a pull request
+  can change the workflow, the build and so the numbers. Treat the check as
+  reliable for PRs from people with write access.
 
 ## cycles.json
 
@@ -119,6 +137,7 @@ What the swap changes depends on how your script points at its code:
 ```bash
 npx ckb-cycles report cycles.json --json head.json
 npx ckb-cycles report cycles.json --binaries-from ../base-checkout --json base.json
+# --root <dir> (repeatable): read no file the config names outside these
 npx ckb-cycles diff base.json head.json --markdown --fail-above 5
 ```
 
