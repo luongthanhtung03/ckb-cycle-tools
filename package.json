@@ -43,10 +43,10 @@
     "@ckb-js-std/core": "^1.0.1",
     "@types/node": "^22.20.5",
     "ckb-testtool": "^1.0.5",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "~5.8.2",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.2",
