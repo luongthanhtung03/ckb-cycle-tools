@@ -106,6 +106,8 @@ export interface Atlas {
   /** Everything not aggregated, with why: never silently dropped. */
   excluded: { hash: string; block: number; verdict: TxRecord["verdict"]; nodeCycles: string | null; measuredCycles: string; reason?: string }[];
   transactions: TxRecord[];
+  /** The targeted samples (`--script`), kept apart from the random sample above. */
+  targeted?: TargetedRun;
 }
 
 /* ------------------------------------------------------------------ naming */
@@ -126,13 +128,44 @@ const DISPLAY: Record<string, string> = {
 };
 
 /**
- * Mainnet scripts CCC core does not list, from @ckb-ccc/spore's
- * SCRIPTS_SPORE_MAINNET and SCRIPTS_CLUSTER_MAINNET (codeHash:hashType).
+ * Mainnet scripts CCC core does not list (codeHash:hashType), each with where
+ * its code hash is published. A script is named here only when a public source
+ * gives this exact code hash, or the chain ties it to one that does.
  */
 export const EXTRA_MAINNET_SCRIPTS: Record<string, string> = {
+  // @ckb-ccc/spore SCRIPTS_SPORE_MAINNET and SCRIPTS_CLUSTER_MAINNET.
   "0x4a4dce1df3dffff7f8b2cd7dff7303df3b6150c9788cb75dcf6747247132b9f5:data1": "Spore",
   "0x7366a61534fa7c7e6225ecc0d828ea3b5366adec2b58206f2ee84995fe030075:data1": "Spore Cluster",
   "0xcfba73b58b6f30e70caed8a999748781b164ef9a1e218424a6fb55ebf641cb33:type": "Spore (DID)",
+  // d.id's on-chain time oracle (ckb-time-script): github.com/dotbitHQ/ckb-time-script
+  // migrations/mainnet/2021-08-24-000000.json gives both type IDs and code cell data
+  // hashes, and dotbitHQ/ckb-time-generator config/mainnet.yaml uses them with the
+  // code cells the atlas loads them from (0xae3197c3…:0 and 0x3ba4c4b6…:0).
+  "0x3a468d53352eb855521dabed0dc7036929bfe72766ad58f801edfbae564f7b43:type": "d.id time oracle (index state)",
+  "0x9e537bf5b8ec044ca3f53355e879f3fd8832217e4a9b41d9994cf0c547241a79:type": "d.id time oracle (info)",
+  // The Bitcoin SPV light client (utxostack/ckb-bitcoin-spv-contracts, the binary is
+  // ckb-bitcoin-spv-type-lock). The RGB++ lock's config cell (0xcb4d9f97…:1, the
+  // current version of the config dep published in utxostack/rgbpp-sdk) names the
+  // client's type script hash 0xd0cd2ad2…, which is this code hash with the client
+  // args; RGB++ lock transactions carry that client cell as a cell dep.
+  "0xa76e227da81b97d23deabf0d8964aa41c042f4bcf2db2b8bd873fe8521de741d:type": "Bitcoin SPV client (RGB++)",
+  // d.id (formerly .bit) account system: dotbitHQ/did-config config.yaml lists das-lock
+  // by this code hash, and the ConfigCellMain witness in dotbitHQ/das_parser_tool's
+  // README has this hash first in its TypeIdTable, which das-types schemas/cell.mol
+  // defines as account_cell.
+  "0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137:type": "d.id das-lock",
+  "0x4f170a048198408f4f4d36bdbcddcebe7a0ae85244d3ab08fd40a80cbfc70918:type": "d.id AccountCell type",
+  // utxostack/rgbpp-sdk packages/ckb/src/constants/index.ts, MainnetInfo.
+  "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936:type": "RGB++ lock",
+  "0x70d64497a075bd651e98ac030455ea200637ee325a12ad08aff03f1a117e5a62:type": "BTC time lock (RGB++)",
+  // utxostack/rgbpp-sdk COMPATIBLE_XUDT_TYPE_SCRIPTS ("RUSD Mainnet", "USDI Mainnet").
+  "0x26a33e0815888a4a0614a0b7d09fa951e0993ff21e55905510104a0b1312032b:type": "RUSD (xUDT compatible)",
+  "0xbfa35a9c38a676682b65ade8f02be164d48632281477e36f8dc2f41f79e56bfc:type": "USDI (xUDT compatible)",
+  // iCKB: ickb/contracts scripts/deployment/mainnet/migrations/2024-09-12-151119.json
+  // (data hashes; the scripts are referenced by data1).
+  "0x2a8100ab5990fa055ab1b50891702e1e895c7bd1df6322cd725c1a6115873bd3:data1": "iCKB logic",
+  "0x49dfb6afee5cc8ac4225aeea8cb8928b150caf3cd92fea33750683c74b13254a:data1": "iCKB limit order",
+  "0xacc79e07d107831feef4c70c9e683dac5644d5993b9cb106dca6e74baa381bd0:data1": "iCKB owned owner",
 };
 
 /**
@@ -207,6 +240,194 @@ export function nameGroup(
   return `unknown ${g.codeHash.slice(0, 10)}…${g.codeHash.slice(-4)}`;
 }
 
+/**
+ * Names recorded groups that were unknown when they were replayed, from the
+ * current EXTRA_MAINNET_SCRIPTS: how a report picks up scripts identified after
+ * the run without replaying anything. Every other label, and every number, is
+ * kept as recorded. Returns new records.
+ */
+export function relabel(records: TxRecord[]): TxRecord[] {
+  return records.map((r) => ({
+    ...r,
+    groups: r.groups.map((g) => {
+      if (!g.label.startsWith("unknown ")) return g;
+      const label = EXTRA_MAINNET_SCRIPTS[`${g.codeHash.toLowerCase()}:${g.hashType}`];
+      return label ? { ...g, label } : g;
+    }),
+  }));
+}
+
+/* ----------------------------------------------------------------- targets */
+
+/** A script to sample on purpose (`--script`), as the indexer searches for it. */
+export interface Target {
+  /** Display name, also the section heading. */
+  name: string;
+  codeHash: string;
+  hashType: string;
+  /** Where the script runs: a lock runs for inputs only, a type for inputs and outputs. */
+  role: "lock" | "type";
+  /** Args prefix to search by; every args when absent. */
+  args?: string;
+}
+
+/**
+ * The scripts `--script <name>` knows, by the names the CLI accepts. Code
+ * hashes are CCC's mainnet KnownScript values, or the EXTRA_MAINNET_SCRIPTS
+ * sources above.
+ */
+export const TARGETS: Record<string, Omit<Target, "name"> & { label: string }> = {
+  xudt: { label: "xUDT", codeHash: "0x50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95", hashType: "data1", role: "type" },
+  sudt: { label: "sUDT", codeHash: "0x5e7a36a77e68eecc013dfa2fe6a23f3b6c344b04005808694ae6dd45eea4cfd5", hashType: "type", role: "type" },
+  omnilock: { label: "Omnilock", codeHash: "0x9b819793a64463aed77c615d6cb226eea5487ccfc0783043a587254cda2b6f26", hashType: "type", role: "lock" },
+  acp: { label: "anyone-can-pay", codeHash: "0xd369597ff47f29fbc0d47d2e3775370d1250b85140c670e4718af712983a2354", hashType: "type", role: "lock" },
+  joyid: { label: "JoyID", codeHash: "0xd00c84f0ec8fd441c38bc3f87a371f547190f2fcff88e642bc5bf54b9e318323", hashType: "type", role: "lock" },
+  multisig: { label: "secp256k1_multisig (legacy)", codeHash: "0x5c5069eb0857efc65e1bca0c07df34c31663b3622fd3876c876320fc9634e2a8", hashType: "type", role: "lock" },
+  "pw-lock": { label: "PWLock", codeHash: "0xbf43c3602455798c1a61a596e0d95278864c552fafe231c063b3fabf97a8febc", hashType: "type", role: "lock" },
+  cota: { label: "COTA", codeHash: "0x1122a4fb54697cf2e6e3a96c9d80fd398a936559b90954c6e88eb7ba0cf652df", hashType: "type", role: "type" },
+  spore: { label: "Spore", codeHash: "0x4a4dce1df3dffff7f8b2cd7dff7303df3b6150c9788cb75dcf6747247132b9f5", hashType: "data1", role: "type" },
+  cluster: { label: "Spore Cluster", codeHash: "0x7366a61534fa7c7e6225ecc0d828ea3b5366adec2b58206f2ee84995fe030075", hashType: "data1", role: "type" },
+  "type-id": { label: "Type ID", codeHash: "0x00000000000000000000000000000000000000000000000000545950455f4944", hashType: "type", role: "type" },
+  dao: { label: "Nervos DAO", codeHash: "0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e", hashType: "type", role: "type" },
+  "unique-type": { label: "UniqueType", codeHash: "0x2c8c11c985da60b0a330c61a85507416d6382c130ba67f0c47ab071e00aec628", hashType: "data1", role: "type" },
+  "rgbpp-lock": { label: "RGB++ lock", codeHash: "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936", hashType: "type", role: "lock" },
+  "btc-time-lock": { label: "BTC time lock (RGB++)", codeHash: "0x70d64497a075bd651e98ac030455ea200637ee325a12ad08aff03f1a117e5a62", hashType: "type", role: "lock" },
+  "spv-client": { label: "Bitcoin SPV client (RGB++)", codeHash: "0xa76e227da81b97d23deabf0d8964aa41c042f4bcf2db2b8bd873fe8521de741d", hashType: "type", role: "type" },
+  "ickb-logic": { label: "iCKB logic", codeHash: "0x2a8100ab5990fa055ab1b50891702e1e895c7bd1df6322cd725c1a6115873bd3", hashType: "data1", role: "type" },
+  "ickb-limit-order": { label: "iCKB limit order", codeHash: "0x49dfb6afee5cc8ac4225aeea8cb8928b150caf3cd92fea33750683c74b13254a", hashType: "data1", role: "lock" },
+  "ickb-owned-owner": { label: "iCKB owned owner", codeHash: "0xacc79e07d107831feef4c70c9e683dac5644d5993b9cb106dca6e74baa381bd0", hashType: "data1", role: "lock" },
+  "das-lock": { label: "d.id das-lock", codeHash: "0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137", hashType: "type", role: "lock" },
+  "did-account": { label: "d.id AccountCell type", codeHash: "0x4f170a048198408f4f4d36bdbcddcebe7a0ae85244d3ab08fd40a80cbfc70918", hashType: "type", role: "type" },
+};
+
+/**
+ * `--script` → a Target. The spec is a name from TARGETS (any case) or a raw
+ * code hash, optionally `codeHash:hashType:role`, then optionally `@<args
+ * prefix>` to narrow the search, e.g. `omnilock@0x01` for Omnilock's Ethereum
+ * auth. `opts` gives the defaults for what the spec leaves out (a raw code
+ * hash: hash type "type", role "type").
+ */
+export function resolveTarget(spec: string, opts: { hashType?: string; role?: string; args?: string } = {}): Target {
+  const at = spec.indexOf("@");
+  const base = at < 0 ? spec : spec.slice(0, at);
+  const args = (at < 0 ? opts.args : spec.slice(at + 1))?.toLowerCase();
+  if (args !== undefined && !/^0x([0-9a-f]{2})*$/.test(args)) throw new Error(`args must be whole bytes of hex, got ${args}`);
+  const withArgs = (t: Target): Target => (args && args !== "0x" ? { ...t, name: `${t.name}, args ${args}`, args } : t);
+  const checkRole = (role: string | undefined) => {
+    if (role !== undefined && role !== "lock" && role !== "type") throw new Error(`role must be lock or type, got ${role}`);
+    return role as "lock" | "type" | undefined;
+  };
+  const raw = /^(0x[0-9a-fA-F]{64})(?::([a-z0-9]+))?(?::([a-z]+))?$/.exec(base);
+  if (raw) {
+    const codeHash = raw[1].toLowerCase();
+    const hashType = raw[2] ?? opts.hashType ?? "type";
+    if (!["type", "data", "data1", "data2"].includes(hashType)) throw new Error(`hash type must be type, data, data1 or data2, got ${hashType}`);
+    const role = checkRole(raw[3] ?? opts.role) ?? "type";
+    const name = EXTRA_MAINNET_SCRIPTS[`${codeHash}:${hashType}`] ?? `${codeHash.slice(0, 10)}…${codeHash.slice(-4)} (${hashType})`;
+    return withArgs({ name, codeHash, hashType, role });
+  }
+  const known = TARGETS[base.toLowerCase()];
+  if (!known) throw new Error(`unknown script "${base}": use a code hash, or one of ${Object.keys(TARGETS).join(", ")}`);
+  const { label, ...t } = known;
+  const role = checkRole(opts.role);
+  return withArgs({ name: label, ...t, ...(role && { role }) });
+}
+
+/** The `--script` spec that resolves to a target again: its TARGETS name when it has one. */
+export function targetSpec(t: Target): string {
+  const name = Object.keys(TARGETS).find((k) => {
+    const x = TARGETS[k];
+    return x.codeHash === t.codeHash && x.hashType === t.hashType && x.role === t.role;
+  });
+  return `${name ?? `${t.codeHash}:${t.hashType}:${t.role}`}${t.args ? `@${t.args}` : ""}`;
+}
+
+/** One transaction from the indexer's get_transactions, grouped by transaction. */
+export interface IndexerTx {
+  tx_hash: string;
+  block_number: string;
+  tx_index: string;
+  /** Where the searched script is: ["input" | "output", index]. */
+  cells: [string, string][];
+}
+
+/**
+ * The most recent `n` transactions in which the target actually ran: a lock
+ * only runs for the inputs it guards (an output's lock runs nothing), a type
+ * for inputs and outputs. Newest block first, then latest in the block.
+ */
+export function selectRecent(objects: readonly IndexerTx[], role: "lock" | "type", n: number): { hash: string; block: number }[] {
+  const byHash = new Map<string, IndexerTx>();
+  for (const o of objects) {
+    const prior = byHash.get(o.tx_hash);
+    byHash.set(o.tx_hash, prior ? { ...prior, cells: [...prior.cells, ...o.cells] } : o);
+  }
+  return [...byHash.values()]
+    .filter((o) => role === "type" || o.cells.some(([io]) => io === "input"))
+    .sort((a, b) => Number(b.block_number) - Number(a.block_number) || Number(b.tx_index) - Number(a.tx_index))
+    .slice(0, n)
+    .map((o) => ({ hash: o.tx_hash, block: Number(o.block_number) }));
+}
+
+export type TargetRow = Omit<ScriptRow, "share">;
+
+/**
+ * One target's sample: how it was found, and its replays aggregated as in the
+ * random sample, but without shares (the transactions were picked by script).
+ */
+export interface TargetedSample {
+  target: Target;
+  query: {
+    /** Blocks searched, inclusive. */
+    fromBlock: number;
+    toBlock: number;
+    /** Transactions in that window in which the target ran. */
+    found: number;
+  };
+  summary: Atlas["summary"];
+  txCycles: Distribution;
+  /** The target's own rows (several for Omnilock, one per auth mode). */
+  targetRows: TargetRow[];
+  /** Every script in these transactions, the target included. */
+  scripts: TargetRow[];
+  combinations: Atlas["combinations"];
+  excluded: Atlas["excluded"];
+  transactions: TxRecord[];
+}
+
+export interface TargetedRun {
+  meta: {
+    rpcUrl: string;
+    chain: string;
+    debugger: string;
+    /** Highest block searched; each target looks back from here. */
+    toBlock: number;
+    /** Transactions replayed per target, at most. */
+    maxTxs: number;
+    startedAt: string;
+    finishedAt: string;
+    toolCommit?: string;
+  };
+  samples: TargetedSample[];
+}
+
+/** A target's sample from its replays; only matches are aggregated, as in `aggregate`. */
+export function aggregateTargeted(target: Target, query: TargetedSample["query"], records: TxRecord[]): TargetedSample {
+  const s = summarize(records);
+  const scripts = s.scripts.map(({ share: _share, ...row }) => row);
+  return {
+    target,
+    query,
+    summary: s.summary,
+    txCycles: s.txCycles,
+    targetRows: scripts.filter((r) => r.codeHash === target.codeHash && r.hashType === target.hashType && r.role === target.role),
+    scripts,
+    combinations: s.combinations,
+    excluded: s.excluded,
+    transactions: records,
+  };
+}
+
 /* ------------------------------------------------------------- aggregation */
 
 /** Nearest-rank percentile of sorted values: always a value that was observed. */
@@ -239,6 +460,10 @@ function distribution(values: bigint[]): Distribution {
  * its own row), and sorted by total cycles, largest first.
  */
 export function aggregate(meta: AtlasMeta, records: TxRecord[]): Atlas {
+  return { meta, ...summarize(records) };
+}
+
+function summarize(records: TxRecord[]): Omit<Atlas, "meta" | "targeted"> {
   const matched = records.filter((r) => r.verdict === "match");
   const grandTotal = matched.reduce((s, r) => s + BigInt(r.measuredCycles), 0n);
 
@@ -294,7 +519,6 @@ export function aggregate(meta: AtlasMeta, records: TxRecord[]): Atlas {
     }));
 
   return {
-    meta,
     summary: {
       sampled: records.length,
       matched: matched.length,
@@ -351,8 +575,107 @@ const pct = (x: number) => (x > 0 && x < 0.0001 ? "<0.01%" : `${(x * 100).toFixe
 const shortHash = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
 const txLink = (h: string) => `[${shortHash(h)}](https://explorer.nervos.org/transaction/${h})`;
 
+/**
+ * The "Targeted samples" section: one sample per `--script` target, kept apart
+ * from the random sample (no shares, no shared totals).
+ */
+export function renderTargeted(run: TargetedRun): string[] {
+  const m = run.meta;
+  const lines: string[] = [];
+  lines.push("## Targeted samples");
+  lines.push("");
+  lines.push(
+    "A second, separate sample. The random sample above saw too few transactions of some well-known scripts to say " +
+      "what they cost, so for each script below the node's indexer (`get_transactions`) was asked for the most recent " +
+      "mainnet transactions in which that script ran, and up to " +
+      `${m.maxTxs} of them were replayed the same way, with the same check against the node's total. These ` +
+      "transactions were picked because of the script, so they show what the script costs when it runs, not how " +
+      "much of mainnet it is: there are no shares here, and none of them is counted in the random sample above.",
+  );
+  lines.push("");
+  lines.push("| | |");
+  lines.push("|---|---|");
+  lines.push(`| Node | ${m.rpcUrl} (chain \`${m.chain}\`) |`);
+  lines.push(`| Searched back from | block ${m.toBlock} |`);
+  lines.push(`| ckb-debugger | ${m.debugger} |`);
+  lines.push(`| Run | ${m.startedAt} to ${m.finishedAt}${m.toolCommit ? `, ckb-cycle-tools ${m.toolCommit.slice(0, 7)}` : ""} |`);
+  lines.push("");
+  lines.push(
+    "Cost of the searched script per group. Found: transactions in the searched window in which the script ran; " +
+      "the most recent of them were replayed. Only replays that matched the node's total count toward the costs; " +
+      "the rest are listed under each script.",
+  );
+  lines.push("");
+  lines.push("| Script | Blocks searched | Found | Replayed | Matched | Groups | Min | Median | p90 | Max |");
+  lines.push("|---|---|--:|--:|--:|--:|--:|--:|--:|--:|");
+  for (const s of run.samples) {
+    const q = `${s.query.fromBlock} to ${s.query.toBlock}`;
+    const head = `${s.query.found} | ${s.summary.sampled} | ${s.summary.matched}`;
+    if (!s.targetRows.length) {
+      lines.push(`| ${s.target.name} | ${q} | ${head} | 0 | | | | |`);
+      continue;
+    }
+    for (const r of s.targetRows) {
+      const label = s.targetRows.length > 1 || r.label !== s.target.name ? `${s.target.name}: ${r.label}` : r.label;
+      lines.push(`| ${label} | ${q} | ${head} | ${r.groups} | ${num(r.min)} | ${num(r.median)} | ${num(r.p90)} | ${num(r.max)} |`);
+    }
+  }
+  lines.push("");
+  for (const s of run.samples) {
+    const t = s.target;
+    lines.push(`### ${t.name}`);
+    lines.push("");
+    lines.push(
+      `Searched for ${t.role} script \`${t.codeHash}\` (${t.hashType})${t.args ? `, args starting ${t.args}` : ""} in blocks ` +
+        `${s.query.fromBlock} to ${s.query.toBlock}: ${s.query.found} transaction${s.query.found === 1 ? "" : "s"} ran it, ` +
+        `${s.summary.sampled} replayed, ${s.summary.matched} matched the node.`,
+    );
+    lines.push("");
+    if (!s.summary.sampled) {
+      lines.push("No transaction in the window ran this script, so there is nothing to measure.");
+      lines.push("");
+      continue;
+    }
+    if (s.targetRows.length) {
+      lines.push("| Script | Role | Groups | Min | Median | p90 | Max | Example |");
+      lines.push("|---|---|--:|--:|--:|--:|--:|---|");
+      for (const r of s.targetRows) {
+        lines.push(`| ${r.label} | ${r.role} | ${r.groups} | ${num(r.min)} | ${num(r.median)} | ${num(r.p90)} | ${num(r.max)} | ${txLink(r.exampleTx)} |`);
+      }
+      lines.push("");
+      const cell = s.targetRows.find((r) => r.codeCell)?.codeCell;
+      if (cell) {
+        lines.push(`Code loaded from ${txLink(cell.split(":")[0])} output ${cell.split(":")[1]}.`);
+        lines.push("");
+      }
+    }
+    const c = s.txCycles;
+    if (c.count) {
+      lines.push(`Whole transactions: median ${num(c.median)} cycles, p90 ${num(c.p90)}, min ${num(c.min)}, max ${num(c.max)}. What ran with it:`);
+      lines.push("");
+      lines.push("| Scripts | Transactions | Median cycles |");
+      lines.push("|---|--:|--:|");
+      for (const k of s.combinations.slice(0, 5)) lines.push(`| ${k.scripts} | ${k.transactions} | ${num(k.medianCycles)} |`);
+      if (s.combinations.length > 5) lines.push(`| ${s.combinations.length - 5} other combinations | ${s.combinations.slice(5).reduce((n, k) => n + k.transactions, 0)} | |`);
+      lines.push("");
+    }
+    if (s.excluded.length) {
+      lines.push("Excluded:");
+      lines.push("");
+      lines.push("| Transaction | Block | Verdict | Node | Measured | Reason |");
+      lines.push("|---|--:|---|--:|--:|---|");
+      for (const e of s.excluded) lines.push(excludedRow(e));
+      lines.push("");
+    }
+  }
+  return lines;
+}
+
+const excludedRow = (e: Atlas["excluded"][number]) =>
+  `| ${txLink(e.hash)} | ${e.block} | ${e.verdict} | ${e.nodeCycles === null ? "-" : num(e.nodeCycles)} | ${num(e.measuredCycles)} | ${(e.reason ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 200)} |`;
+
 /** The markdown report for an atlas. Plain text and tables, no emoji. */
-export function renderMarkdown(a: Atlas, opts: { reproduce?: string } = {}): string {
+export function renderMarkdown(a: Atlas, opts: { reproduce?: string; reproduceTargeted?: string } = {}): string {
   const m = a.meta;
   const s = a.summary;
   const range = m.stride === 1 ? `${m.fromBlock} to ${m.toBlock}` : `${m.fromBlock} to ${m.toBlock}, every ${m.stride}th block`;
@@ -410,7 +733,9 @@ export function renderMarkdown(a: Atlas, opts: { reproduce?: string } = {}): str
     const k = `${r.codeHash}:${r.hashType}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    const labels = [...new Set(a.scripts.filter((x) => `${x.codeHash}:${x.hashType}` === k).map((x) => x.label.replace(/ \(.*\)$/, "")))];
+    // Several rows of one script (Omnilock's modes) share a line under the name without the mode.
+    const all = [...new Set(a.scripts.filter((x) => `${x.codeHash}:${x.hashType}` === k).map((x) => x.label))];
+    const labels = all.length > 1 ? [...new Set(all.map((l) => l.replace(/ \(.*\)$/, "")))] : all;
     const cell = r.codeCell ? `, code in ${txLink(r.codeCell.split(":")[0])} output ${r.codeCell.split(":")[1]}` : "";
     lines.push(`- ${labels.join(", ")}: \`${r.codeHash}\` (${r.hashType})${cell}`);
   }
@@ -433,13 +758,10 @@ export function renderMarkdown(a: Atlas, opts: { reproduce?: string } = {}): str
   } else {
     lines.push("| Transaction | Block | Verdict | Node | Measured | Reason |");
     lines.push("|---|--:|---|--:|--:|---|");
-    for (const e of a.excluded) {
-      lines.push(
-        `| ${txLink(e.hash)} | ${e.block} | ${e.verdict} | ${e.nodeCycles === null ? "-" : num(e.nodeCycles)} | ${num(e.measuredCycles)} | ${(e.reason ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 200)} |`,
-      );
-    }
+    for (const e of a.excluded) lines.push(excludedRow(e));
   }
   lines.push("");
+  if (a.targeted) lines.push(...renderTargeted(a.targeted));
   lines.push("## Method and limits");
   lines.push("");
   lines.push(
@@ -453,9 +775,19 @@ export function renderMarkdown(a: Atlas, opts: { reproduce?: string } = {}): str
       "mainnet in that window, not all of mainnet history. A different window will give different shares.",
   );
   lines.push(
-    "- Names come from CCC's mainnet table of known scripts, plus Spore and Cluster from @ckb-ccc/spore. Scripts it " +
-      "does not know show as unknown with their code hash; Omnilock's mode is read from the first byte of its args.",
+    "- Names come from CCC's mainnet table of known scripts, plus a short table in scripts/atlas-lib.ts of scripts " +
+      "whose code hash is published elsewhere (Spore and Cluster from @ckb-ccc/spore; d.id, RGB++ and iCKB from " +
+      "their own repositories, each with its source). Scripts in neither show as unknown with their code hash; " +
+      "Omnilock's mode is read from the first byte of its args.",
   );
+  if (a.targeted) {
+    lines.push(
+      "- A targeted sample is the most recent transactions in which one script ran (a lock only counts where it " +
+        "guards an input, since an output's lock does not run), found with the indexer RPC in a window that widens " +
+        "until enough are found. Busy scripts are searched one first args byte at a time, which finds the same " +
+        "transactions in smaller requests.",
+    );
+  }
   lines.push("- The raw per-transaction results are in data.json next to this file.");
   if (opts.reproduce) {
     lines.push("");
@@ -464,6 +796,14 @@ export function renderMarkdown(a: Atlas, opts: { reproduce?: string } = {}): str
     lines.push("```");
     lines.push(opts.reproduce);
     lines.push("```");
+    if (opts.reproduceTargeted) {
+      lines.push("");
+      lines.push("The targeted samples, into the same folder:");
+      lines.push("");
+      lines.push("```");
+      lines.push(opts.reproduceTargeted);
+      lines.push("```");
+    }
   }
   lines.push("");
   return lines.join("\n");

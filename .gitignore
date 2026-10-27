@@ -44,3 +44,4 @@ e2e/playwright-report/
 # mainnet cycle atlas: a run's scratch state (data.json and report.md are kept)
 atlas/**/progress.jsonl
 atlas/**/run.json
+atlas/**/targeted-progress.jsonl

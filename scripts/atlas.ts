@@ -11,6 +11,15 @@
  * Usage: npm run atlas -- [--rpc <url>] [--max-txs <n>] [--to <block>] [--blocks <n>]
  *                         [--stride <n>] [--delay <ms>] [--out <dir>] [--debugger <path>]
  *                         [--resume] [--report-only <dir>]
+ *
+ * Targeted samples, added to an existing atlas folder (`--out`) as their own
+ * report section: for each `--script` (a name such as xudt, omnilock, spore,
+ * or a code hash with --hash-type and --role), the most recent transactions in
+ * which it ran, found through the indexer RPC, up to --max-txs (default 40):
+ *
+ *        npm run atlas -- --out <dir> --script <name|code hash> [--script ...]
+ *                         [--args <prefix>] [--hash-type <t>] [--role lock|type]
+ *                         [--to <block>] [--max-window <blocks>] [--resume]
  */
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -24,13 +33,30 @@ import { checkDebuggerPath, resolveDebugger } from "../src/debugger.js";
 import { buildMockTransaction, httpRpc, isCellbase, nodeConsensus, scriptVersionAt, type MockTransaction, type Rpc, type RpcTransaction } from "../src/mock.js";
 import { runNativeDebugger } from "../src/profile.js";
 import { groupsOf, PUBLIC_RPC, replayGroups, type ReplayPlan } from "../src/replay.js";
-import { aggregate, nameGroup, renderMarkdown, verdictOf, type AtlasMeta, type TxRecord } from "./atlas-lib.js";
+import {
+  aggregate,
+  aggregateTargeted,
+  nameGroup,
+  relabel,
+  renderMarkdown,
+  resolveTarget,
+  selectRecent,
+  targetSpec,
+  verdictOf,
+  type Atlas,
+  type AtlasMeta,
+  type IndexerTx,
+  type Target,
+  type TargetedRun,
+  type TargetedSample,
+  type TxRecord,
+} from "./atlas-lib.js";
 
 const { values: flags } = parseArgs({
   options: {
     rpc: { type: "string", default: PUBLIC_RPC.mainnet },
     mainnet: { type: "string" },
-    "max-txs": { type: "string", default: "500" },
+    "max-txs": { type: "string" },
     to: { type: "string" },
     blocks: { type: "string", default: "20000" },
     stride: { type: "string", default: "1" },
@@ -40,6 +66,11 @@ const { values: flags } = parseArgs({
     debugger: { type: "string" },
     resume: { type: "boolean", default: false },
     "report-only": { type: "string" },
+    script: { type: "string", multiple: true },
+    args: { type: "string" },
+    "hash-type": { type: "string" },
+    role: { type: "string" },
+    "max-window": { type: "string", default: "1000000" },
   },
 });
 
@@ -48,16 +79,38 @@ const today = new Date().toLocaleDateString("en-CA");
 const reproduceCommand = (m: { rpcUrl: string; fromBlock: number; toBlock: number; stride: number }, maxTxs: number) =>
   `npm ci\nnpm run atlas -- --rpc ${m.rpcUrl} --to ${m.toBlock} --blocks ${m.toBlock - m.fromBlock + 1} --stride ${m.stride} --max-txs ${maxTxs}`;
 
+const reproduceTargeted = (run: TargetedRun, dir: string) =>
+  `npm run atlas -- --out ${dir.replace(/\\/g, "/")} --rpc ${run.meta.rpcUrl} --to ${run.meta.toBlock} --max-txs ${run.meta.maxTxs} \\\n  ` +
+  run.samples.map((s) => `--script ${targetSpec(s.target)}`).join(" ");
+
+/** Writes data.json and report.md for an atlas, with its targeted samples when it has them. */
+async function writeAtlas(dir: string, atlas: Atlas) {
+  await writeFile(join(dir, "data.json"), JSON.stringify(atlas, null, 1) + "\n");
+  await writeFile(
+    join(dir, "report.md"),
+    renderMarkdown(atlas, {
+      reproduce: reproduceCommand(atlas.meta, atlas.summary.sampled),
+      ...(atlas.targeted && { reproduceTargeted: reproduceTargeted(atlas.targeted, dir) }),
+    }),
+  );
+  console.log(`wrote ${join(dir, "report.md")} and data.json`);
+}
+
 /**
  * Rebuilds data.json's aggregates and report.md from its recorded transactions,
- * e.g. after a change to the report layout. Nothing is replayed or fetched.
+ * e.g. after a change to the report layout, or to name scripts identified since
+ * the run. Nothing is replayed or fetched.
  */
 async function reportOnly(dir: string) {
-  const data = JSON.parse(await readFile(join(dir, "data.json"), "utf8"));
-  const atlas = aggregate(data.meta, data.transactions);
-  await writeFile(join(dir, "data.json"), JSON.stringify(atlas, null, 1) + "\n");
-  await writeFile(join(dir, "report.md"), renderMarkdown(atlas, { reproduce: reproduceCommand(data.meta, data.summary.sampled) }));
-  console.log(`wrote ${join(dir, "report.md")} and data.json`);
+  const data = JSON.parse(await readFile(join(dir, "data.json"), "utf8")) as Atlas;
+  const atlas = aggregate(data.meta, relabel(data.transactions));
+  if (data.targeted) {
+    atlas.targeted = {
+      meta: data.targeted.meta,
+      samples: data.targeted.samples.map((s) => aggregateTargeted(s.target, s.query, relabel(s.transactions))),
+    };
+  }
+  await writeAtlas(dir, atlas);
 }
 
 /**
@@ -131,21 +184,25 @@ function codeCellOf(mock: MockTransaction, codeHash: string, hashType: string, m
   return undefined;
 }
 
-async function main() {
-  if (flags["report-only"]) return reportOnly(flags["report-only"]);
+/** What every replay needs: the node, the debugger, and the script names. */
+interface ReplayContext {
+  rpc: Rpc;
+  rpcUrl: string;
+  consensus: Awaited<ReturnType<typeof nodeConsensus>>;
+  exec: (args: string[]) => ReturnType<typeof runNativeDebugger>;
+  version: string;
+  known: Map<string, string>;
+  toolCommit?: string;
+  /** Data hashes of cell deps, by out point. */
+  memo: Map<string, string>;
+  txFile: string;
+}
 
-  const rpcUrl = flags.mainnet ?? flags.rpc!;
-  const maxTxs = Number(flags["max-txs"]);
-  const stride = Math.max(1, Number(flags.stride));
-  const maxBlocks = Number(flags.blocks);
-  const gapMs = Number(flags.delay);
-  const outDir = flags.out ?? join("atlas", today);
-  const rpc = politeRpc(rpcUrl, Number(flags.timeout) * 1000, gapMs);
-
+async function replayContext(rpcUrl: string, txFile: string): Promise<ReplayContext> {
+  const rpc = politeRpc(rpcUrl, Number(flags.timeout) * 1000, Number(flags.delay));
   // The node, not a flag, says which chain it serves: the atlas is mainnet only.
   const consensus = await nodeConsensus(rpc);
   if (consensus.network !== "mainnet") throw new Error(`${rpcUrl} serves ${consensus.network}, not mainnet`);
-
   const debuggerPath = flags.debugger ? checkDebuggerPath(flags.debugger) : resolveDebugger();
   const exec = (args: string[]) => runNativeDebugger(debuggerPath, args);
   const version = await exec(["--version"]).then((r) => r.stdout.trim() || "unknown");
@@ -156,6 +213,224 @@ async function main() {
   } catch {
     // Not a checkout: the report just leaves it out.
   }
+  return { rpc, rpcUrl, consensus, exec, version, known, toolCommit, memo: new Map(), txFile };
+}
+
+/**
+ * Replays one transaction group by group and compares the sum with the node.
+ * The CKB-VM version is the one of the transaction's epoch unless given.
+ * Never throws: a failure is an "error" record with its reason.
+ */
+async function replayOne(ctx: ReplayContext, hash: string, blockNumber: number, scriptVersion?: 0 | 1 | 2): Promise<TxRecord> {
+  try {
+    const { mock, cycles, status, epoch } = await buildMockTransaction(ctx.rpc, hash);
+    const version = scriptVersion ?? (epoch === undefined ? undefined : scriptVersionAt(ctx.consensus.vmEpochs, epoch));
+    if (version === undefined) throw new Error(`transaction ${hash} is not committed (${status})`);
+    const groups = groupsOf(mock);
+    const cells = groups.map((g) => codeCellOf(mock, g.codeHash, g.hashType, ctx.memo));
+    groups.forEach((g, i) => (g.name = nameGroup(g, ctx.known, cells[i]?.binaryHash)));
+    const plan: ReplayPlan = {
+      hash,
+      status,
+      ...(cycles !== undefined && { nodeCycles: cycles }),
+      mock,
+      groups,
+      scriptVersion: version,
+      network: "mainnet",
+      rpcUrl: ctx.rpcUrl,
+    };
+    await writeFile(ctx.txFile, JSON.stringify(mock));
+    const profile = await replayGroups(plan, ctx.exec, { txFile: ctx.txFile, debugger: ctx.version });
+    // replayGroups names Type ID itself; keep the atlas's name for it.
+    const named = profile.groups.map((g, i) => ({ ...g, name: groups[i].name! }));
+    return {
+      hash,
+      block: blockNumber,
+      nodeCycles: cycles === undefined ? null : String(cycles),
+      measuredCycles: String(profile.measuredCycles),
+      ...verdictOf(cycles, named),
+      groups: named.map((g, i) => ({
+        role: g.role,
+        codeHash: g.codeHash,
+        hashType: g.hashType,
+        label: g.name,
+        cycles: String(g.cycles),
+        result: g.result,
+        ...(g.error && { error: g.error }),
+        ...(cells[i] && { codeCell: cells[i].codeCell }),
+      })),
+    };
+  } catch (e) {
+    return { hash, block: blockNumber, nodeCycles: null, measuredCycles: "0", verdict: "error", reason: e instanceof Error ? e.message.split("\n")[0] : String(e), groups: [] };
+  }
+}
+
+/* ------------------------------------------------------- targeted samples */
+
+/**
+ * Every indexer transaction for a script in blocks [from, to]. One prefix
+ * query first; a busy script makes the indexer time out on that, so it is then
+ * asked one more args byte at a time (256 smaller queries, each split again if
+ * it still times out). The union is the same set of transactions either way.
+ */
+async function indexerTxs(rpc: Rpc, t: Target, from: number, to: number): Promise<IndexerTx[]> {
+  const page = async (args: string): Promise<IndexerTx[]> => {
+    const out: IndexerTx[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const res: { objects: IndexerTx[]; last_cursor: string } = await rpc("get_transactions", [
+        {
+          script: { code_hash: t.codeHash, hash_type: t.hashType, args },
+          script_type: t.role,
+          script_search_mode: "prefix",
+          group_by_transaction: true,
+          // The range's end is exclusive.
+          filter: { block_range: ["0x" + from.toString(16), "0x" + (to + 1).toString(16)] },
+        },
+        "desc",
+        "0x64",
+        cursor,
+      ]);
+      out.push(...res.objects);
+      if (res.objects.length < 100) return out;
+      cursor = res.last_cursor;
+    }
+  };
+  const search = async (args: string, depth: number): Promise<IndexerTx[]> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await page(args);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/timeout/i.test(msg)) throw e;
+        // Split a byte further; retry the narrowest queries a few times before giving up.
+        if (depth < 2) break;
+        if (attempt >= 4) throw new Error(`the indexer timed out on ${t.name} args ${args}: ${msg}`);
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
+      }
+    }
+    const results: IndexerTx[] = [];
+    const prefixes = Array.from({ length: 256 }, (_, i) => args + i.toString(16).padStart(2, "0"));
+    // A few at a time; politeRpc still paces every request.
+    for (let i = 0; i < prefixes.length; i += 4) {
+      const batch = await Promise.all(prefixes.slice(i, i + 4).map((p) => search(p, depth + 1)));
+      for (const b of batch) results.push(...b);
+    }
+    return results;
+  };
+  return search(t.args ?? "0x", 0);
+}
+
+/**
+ * The most recent `n` transactions in which a target ran, looking back from
+ * `toBlock` in a window that grows five-fold until there are enough or it
+ * reaches `maxWindow` blocks.
+ */
+async function findRecent(rpc: Rpc, t: Target, n: number, toBlock: number, maxWindow: number) {
+  for (let window = 20_000; ; window = Math.min(window * 5, maxWindow)) {
+    const fromBlock = Math.max(0, toBlock - window + 1);
+    const objects = await indexerTxs(rpc, t, fromBlock, toBlock);
+    const all = selectRecent(objects, t.role, Number.MAX_SAFE_INTEGER);
+    console.log(`  ${t.name}: ${all.length} transactions ran it in blocks ${fromBlock} to ${toBlock}`);
+    if (all.length >= n || window >= maxWindow || fromBlock === 0) {
+      return { selected: all.slice(0, n), query: { fromBlock, toBlock, found: all.length } };
+    }
+  }
+}
+
+async function runTargeted(specs: string[]) {
+  const rpcUrl = flags.mainnet ?? flags.rpc!;
+  const outDir = flags.out ?? join("atlas", today);
+  const dataFile = join(outDir, "data.json");
+  if (!existsSync(dataFile)) throw new Error(`${dataFile} not found: targeted samples are added to an existing atlas (pass --out <dir>)`);
+  const maxTxs = Number(flags["max-txs"] ?? 40);
+  const maxWindow = Number(flags["max-window"]);
+  const targets = specs.map((spec) =>
+    resolveTarget(spec, {
+      ...(flags["hash-type"] && { hashType: flags["hash-type"] }),
+      ...(flags.role && { role: flags.role }),
+      ...(flags.args && { args: flags.args }),
+    }),
+  );
+  const data = JSON.parse(await readFile(dataFile, "utf8")) as Atlas;
+
+  const dir = await mkdtemp(join(tmpdir(), "ckb-atlas-"));
+  const progressFile = join(outDir, "targeted-progress.jsonl");
+  const ctx = await replayContext(rpcUrl, join(dir, "tx.json"));
+  // Resuming keeps the replays already made, keyed by target and transaction.
+  const done = new Map<string, TxRecord>();
+  if (flags.resume && existsSync(progressFile)) {
+    for (const line of (await readFile(progressFile, "utf8")).split("\n").filter(Boolean)) {
+      const { target, record } = JSON.parse(line) as { target: string; record: TxRecord };
+      done.set(`${target}|${record.hash}`, record);
+    }
+    console.log(`resuming: ${done.size} targeted replays already made`);
+  } else {
+    await writeFile(progressFile, "");
+  }
+  const tip = Number(await ctx.rpc<string>("get_tip_block_number", []));
+  // Stay a few dozen blocks behind the tip, past any reorg.
+  const toBlock = flags.to !== undefined ? Number(flags.to) : (data.targeted?.meta.toBlock ?? tip - 24);
+  const startedAt = new Date().toISOString();
+  const samples: TargetedSample[] = [];
+  try {
+    for (const t of targets) {
+      console.log(`${t.name}: searching back from block ${toBlock}`);
+      const { selected, query } = await findRecent(ctx.rpc, t, maxTxs, toBlock, maxWindow);
+      const records: TxRecord[] = [];
+      for (const { hash, block } of selected) {
+        const key = `${t.name}|${hash}`;
+        let record = done.get(key);
+        if (!record) {
+          record = await replayOne(ctx, hash, block);
+          await appendFile(progressFile, JSON.stringify({ target: t.name, record }) + "\n");
+        }
+        records.push(record);
+        console.log(`  [${records.length}/${selected.length}] block ${block} ${hash.slice(0, 12)} ${record.verdict} ${record.measuredCycles} cycles`);
+      }
+      const sample = aggregateTargeted(t, query, records);
+      samples.push(sample);
+      const m = sample.summary;
+      console.log(`  ${t.name}: ${m.sampled} replayed, ${m.matched} matched, ${m.mismatched} mismatch, ${m.notRecorded} not recorded, ${m.errors} errors`);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  // Samples of other targets from an earlier run stay; one of the same name is replaced.
+  const names = new Set(samples.map((s) => s.target.name));
+  const kept = (data.targeted?.samples ?? []).filter((s) => !names.has(s.target.name));
+  const atlas: Atlas = { ...aggregate(data.meta, relabel(data.transactions)) };
+  atlas.targeted = {
+    meta: {
+      rpcUrl,
+      chain: ctx.consensus.chain,
+      debugger: ctx.version,
+      toBlock,
+      maxTxs,
+      startedAt: data.targeted && kept.length ? data.targeted.meta.startedAt : startedAt,
+      finishedAt: new Date().toISOString(),
+      ...(ctx.toolCommit && { toolCommit: ctx.toolCommit }),
+    },
+    samples: [...kept, ...samples],
+  };
+  await writeAtlas(outDir, atlas);
+}
+
+/* ---------------------------------------------------------- random sample */
+
+async function main() {
+  if (flags["report-only"]) return reportOnly(flags["report-only"]);
+  if (flags.script?.length) return runTargeted(flags.script);
+
+  const rpcUrl = flags.mainnet ?? flags.rpc!;
+  const maxTxs = Number(flags["max-txs"] ?? 500);
+  const stride = Math.max(1, Number(flags.stride));
+  const maxBlocks = Number(flags.blocks);
+  const outDir = flags.out ?? join("atlas", today);
+  const dir = await mkdtemp(join(tmpdir(), "ckb-atlas-"));
+  const ctx = await replayContext(rpcUrl, join(dir, "tx.json"));
+  const { rpc, consensus } = ctx;
 
   await mkdir(outDir, { recursive: true });
   const progressFile = join(outDir, "progress.jsonl");
@@ -182,10 +457,7 @@ async function main() {
   }
 
   const records: TxRecord[] = [];
-  const memo = new Map<string, string>();
   const versions = new Set<number>();
-  const dir = await mkdtemp(join(tmpdir(), "ckb-atlas-"));
-  const txFile = join(dir, "tx.json");
   let cellbaseSkipped = 0;
   let blocksSampled = 0;
   let fromBlock = run.toBlock;
@@ -213,7 +485,7 @@ async function main() {
           records.push(prior);
           continue;
         }
-        const record = await replayOne(rpc, tx.hash, n, scriptVersion, rpcUrl);
+        const record = await replayOne(ctx, tx.hash, n, scriptVersion);
         records.push(record);
         await appendFile(progressFile, JSON.stringify(record) + "\n");
         const rate = (Date.now() - started) / 1000 / Math.max(1, records.length - done.size);
@@ -226,39 +498,6 @@ async function main() {
     await rm(dir, { recursive: true, force: true });
   }
 
-  async function replayOne(rpc: Rpc, hash: string, blockNumber: number, scriptVersion: 0 | 1 | 2, rpcUrl: string): Promise<TxRecord> {
-    try {
-      const { mock, cycles, status } = await buildMockTransaction(rpc, hash);
-      const groups = groupsOf(mock);
-      const cells = groups.map((g) => codeCellOf(mock, g.codeHash, g.hashType, memo));
-      groups.forEach((g, i) => (g.name = nameGroup(g, known, cells[i]?.binaryHash)));
-      const plan: ReplayPlan = { hash, status, ...(cycles !== undefined && { nodeCycles: cycles }), mock, groups, scriptVersion, network: "mainnet", rpcUrl };
-      await writeFile(txFile, JSON.stringify(mock));
-      const profile = await replayGroups(plan, exec, { txFile, debugger: version });
-      // replayGroups names Type ID itself; keep the atlas's name for it.
-      const named = profile.groups.map((g, i) => ({ ...g, name: groups[i].name! }));
-      return {
-        hash,
-        block: blockNumber,
-        nodeCycles: cycles === undefined ? null : String(cycles),
-        measuredCycles: String(profile.measuredCycles),
-        ...verdictOf(cycles, named),
-        groups: named.map((g, i) => ({
-          role: g.role,
-          codeHash: g.codeHash,
-          hashType: g.hashType,
-          label: g.name,
-          cycles: String(g.cycles),
-          result: g.result,
-          ...(g.error && { error: g.error }),
-          ...(cells[i] && { codeCell: cells[i].codeCell }),
-        })),
-      };
-    } catch (e) {
-      return { hash, block: blockNumber, nodeCycles: null, measuredCycles: "0", verdict: "error", reason: e instanceof Error ? e.message.split("\n")[0] : String(e), groups: [] };
-    }
-  }
-
   const meta: AtlasMeta = {
     rpcUrl,
     chain: consensus.chain,
@@ -267,18 +506,16 @@ async function main() {
     stride,
     blocksSampled,
     cellbaseSkipped,
-    debugger: version,
+    debugger: ctx.version,
     scriptVersion: Math.max(...versions),
     startedAt: run.startedAt,
     finishedAt: new Date().toISOString(),
-    ...(toolCommit && { toolCommit }),
+    ...(ctx.toolCommit && { toolCommit: ctx.toolCommit }),
   };
   const atlas = aggregate(meta, records);
-  await writeFile(join(outDir, "data.json"), JSON.stringify(atlas, null, 1) + "\n");
-  await writeFile(join(outDir, "report.md"), renderMarkdown(atlas, { reproduce: reproduceCommand(meta, records.length) }));
+  await writeAtlas(outDir, atlas);
   const s = atlas.summary;
   console.log(`\n${s.sampled} transactions: ${s.matched} matched, ${s.mismatched} mismatch, ${s.notRecorded} not recorded, ${s.errors} errors`);
-  console.log(`wrote ${join(outDir, "report.md")} and data.json`);
 }
 
 main().then(

@@ -2,13 +2,21 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   aggregate,
+  aggregateTargeted,
   combinationOf,
+  EXTRA_MAINNET_SCRIPTS,
   nameGroup,
   omnilockMode,
   percentile,
+  relabel,
   renderMarkdown,
+  resolveTarget,
+  selectRecent,
+  TARGETS,
+  targetSpec,
   verdictOf,
   type AtlasMeta,
+  type IndexerTx,
   type TxRecord,
 } from "../scripts/atlas-lib.js";
 
@@ -185,5 +193,146 @@ describe("renderMarkdown", () => {
 
   it("is plain text: no emoji or pictographs", () => {
     expect(md).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+});
+
+describe("scripts identified after the first run", () => {
+  it("names the d.id time oracle, the RGB++ SPV client and d.id's account scripts by code hash and hash type", () => {
+    const t = (h: string, ht = "type") => nameGroup(group(h, ht, "0x01", "type"), known);
+    expect(t("0x3a468d53352eb855521dabed0dc7036929bfe72766ad58f801edfbae564f7b43")).toBe("d.id time oracle (index state)");
+    expect(t("0x9e537bf5b8ec044ca3f53355e879f3fd8832217e4a9b41d9994cf0c547241a79")).toBe("d.id time oracle (info)");
+    expect(t("0xa76e227da81b97d23deabf0d8964aa41c042f4bcf2db2b8bd873fe8521de741d")).toBe("Bitcoin SPV client (RGB++)");
+    expect(t("0x4f170a048198408f4f4d36bdbcddcebe7a0ae85244d3ab08fd40a80cbfc70918")).toBe("d.id AccountCell type");
+    expect(t("0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137")).toBe("d.id das-lock");
+    expect(t("0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936")).toBe("RGB++ lock");
+    // Same code hash, another hash type: not the same script.
+    expect(t("0x3a468d53352eb855521dabed0dc7036929bfe72766ad58f801edfbae564f7b43", "data1")).toMatch(/^unknown /);
+  });
+
+  it("relabels only groups recorded as unknown, and keeps every number", () => {
+    const rec: TxRecord = {
+      ...fixture.transactions[0],
+      groups: [
+        fixture.transactions[0].groups[0],
+        { role: "type", codeHash: "0x9e537bf5b8ec044ca3f53355e879f3fd8832217e4a9b41d9994cf0c547241a79", hashType: "type", label: "unknown 0x9e537bf5…1a79", cycles: "45174", result: 0 },
+        { role: "type", codeHash: "0x" + "ee".repeat(32), hashType: "type", label: "unknown 0xeeeeeeee…eeee", cycles: "7", result: 0 },
+      ],
+    };
+    const [out] = relabel([rec]);
+    expect(out.groups.map((g) => g.label)).toEqual(["secp256k1_blake160", "d.id time oracle (info)", "unknown 0xeeeeeeee…eeee"]);
+    expect(out.groups.map((g) => g.cycles)).toEqual(["1600000", "45174", "7"]);
+    expect(rec.groups[1].label).toBe("unknown 0x9e537bf5…1a79");
+  });
+
+  it("gives every naming-table entry a full lowercase code hash and a hash type", () => {
+    for (const key of Object.keys(EXTRA_MAINNET_SCRIPTS)) expect(key).toMatch(/^0x[0-9a-f]{64}:(type|data|data1|data2)$/);
+  });
+});
+
+describe("resolveTarget", () => {
+  it("knows common scripts by name, in any case", () => {
+    expect(resolveTarget("xUDT")).toEqual({ name: "xUDT", codeHash: TARGETS.xudt.codeHash, hashType: "data1", role: "type" });
+    expect(resolveTarget("omnilock").role).toBe("lock");
+  });
+
+  it("narrows by an args prefix, from the spec or the defaults", () => {
+    expect(resolveTarget("omnilock@0x01")).toMatchObject({ name: "Omnilock, args 0x01", args: "0x01" });
+    expect(resolveTarget("omnilock", { args: "0x12" }).args).toBe("0x12");
+    expect(resolveTarget("omnilock@0x").args).toBeUndefined();
+    expect(() => resolveTarget("omnilock@0x1")).toThrow(/whole bytes/);
+  });
+
+  it("takes a raw code hash, with hash type and role in the spec or as defaults", () => {
+    const h = "0x" + "AB".repeat(32);
+    expect(resolveTarget(h)).toMatchObject({ codeHash: h.toLowerCase(), hashType: "type", role: "type" });
+    expect(resolveTarget(`${h}:data2:lock@0xff`)).toMatchObject({ hashType: "data2", role: "lock", args: "0xff" });
+    expect(resolveTarget(h, { hashType: "data1", role: "lock" })).toMatchObject({ hashType: "data1", role: "lock" });
+    // A raw hash in the naming table gets its name.
+    expect(resolveTarget("0xa76e227da81b97d23deabf0d8964aa41c042f4bcf2db2b8bd873fe8521de741d").name).toBe("Bitcoin SPV client (RGB++)");
+    expect(() => resolveTarget(`${h}:data9`)).toThrow(/hash type/);
+    expect(() => resolveTarget(h, { role: "both" })).toThrow(/role/);
+  });
+
+  it("refuses an unknown name and lists the known ones", () => {
+    expect(() => resolveTarget("nope")).toThrow(/xudt, sudt, omnilock/);
+  });
+
+  it("round-trips through targetSpec, which the report's reproduce command uses", () => {
+    for (const spec of ["spore", "omnilock@0x01", `0x${"cd".repeat(32)}:data1:lock@0x00`]) {
+      const t = resolveTarget(spec);
+      expect(resolveTarget(targetSpec(t))).toEqual(t);
+    }
+  });
+});
+
+describe("selectRecent", () => {
+  const tx = (hash: string, block: number, index: number, ...cells: [string, string][]): IndexerTx => ({
+    tx_hash: hash,
+    block_number: "0x" + block.toString(16),
+    tx_index: "0x" + index.toString(16),
+    cells,
+  });
+  const objects = [
+    tx("0xa", 100, 1, ["output", "0x0"]),
+    tx("0xb", 300, 2, ["input", "0x0"]),
+    tx("0xc", 300, 5, ["output", "0x1"]),
+    tx("0xd", 200, 1, ["input", "0x2"], ["output", "0x0"]),
+    // The same transaction from a second args bucket: merged, not counted twice.
+    tx("0xa", 100, 1, ["input", "0x3"]),
+  ];
+
+  it("keeps a lock target only where it guards an input", () => {
+    expect(selectRecent(objects, "lock", 10).map((t) => t.hash)).toEqual(["0xb", "0xd", "0xa"]);
+  });
+
+  it("keeps every transaction for a type target, newest first, and takes n", () => {
+    expect(selectRecent(objects, "type", 10).map((t) => t.hash)).toEqual(["0xc", "0xb", "0xd", "0xa"]);
+    expect(selectRecent(objects, "type", 2)).toEqual([
+      { hash: "0xc", block: 300 },
+      { hash: "0xb", block: 300 },
+    ]);
+  });
+});
+
+describe("targeted samples", () => {
+  const target = resolveTarget("omnilock");
+  const sample = aggregateTargeted(target, { fromBlock: 1, toBlock: 102, found: 9 }, fixture.transactions);
+
+  it("aggregates like the random sample, but has no shares", () => {
+    expect(sample.summary).toEqual({ sampled: 5, matched: 3, mismatched: 1, notRecorded: 0, errors: 1 });
+    for (const r of sample.scripts) expect(r).not.toHaveProperty("share");
+    expect(sample.targetRows.map((r) => r.label)).toEqual(["Omnilock (Ethereum)"]);
+    expect(sample.excluded).toHaveLength(2);
+  });
+
+  it("renders as its own section, leaves the random sample's numbers alone, and lists its exclusions", () => {
+    const random = aggregate(fixture.meta, fixture.transactions);
+    const before = renderMarkdown(random);
+    const md = renderMarkdown(
+      {
+        ...random,
+        targeted: {
+          meta: { rpcUrl: "https://mainnet.ckb.dev/", chain: "ckb", debugger: "ckb-debugger 1.1.1", toBlock: 102, maxTxs: 40, startedAt: "a", finishedAt: "b" },
+          samples: [sample],
+        },
+      },
+      { reproduce: "npm run atlas", reproduceTargeted: "npm run atlas -- --script omnilock" },
+    );
+    const randomPart = (s: string) => s.slice(0, s.indexOf("## Excluded"));
+    expect(randomPart(md)).toBe(randomPart(before));
+    const targeted = md.slice(md.indexOf("## Targeted samples"), md.indexOf("## Method and limits"));
+    expect(targeted).toContain("| Omnilock: Omnilock (Ethereum) | 1 to 102 | 9 | 5 | 3 | 1 | 2,700,000 |");
+    expect(targeted).toContain("### Omnilock");
+    expect(targeted).toContain("measured 4990000 vs node 5000000 (-10000)");
+    expect(targeted).not.toMatch(/%/);
+    expect(md).toContain("npm run atlas -- --script omnilock");
+    expect(md).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it("says so when no transaction ran the script", () => {
+    const empty = aggregateTargeted(resolveTarget("ickb-logic"), { fromBlock: 1, toBlock: 2, found: 0 }, []);
+    const md = renderMarkdown({ ...aggregate(fixture.meta, []), targeted: { meta: { rpcUrl: "u", chain: "ckb", debugger: "d", toBlock: 2, maxTxs: 40, startedAt: "a", finishedAt: "b" }, samples: [empty] } });
+    expect(md).toContain("| iCKB logic | 1 to 2 | 0 | 0 | 0 | 0 | | | | |");
+    expect(md).toContain("No transaction in the window ran this script");
   });
 });
