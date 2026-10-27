@@ -13,6 +13,10 @@ const dir = mkdtempSync(join(tmpdir(), "pack-check-"));
 const app = join(dir, "app");
 const sh = (cmd, cwd) => execSync(cmd, { cwd, stdio: ["ignore", "pipe", "inherit"] }).toString();
 try {
+  // Repository-only material (the mainnet atlas and its data, maintenance scripts) stays out of the package.
+  const [listing] = JSON.parse(sh("npm pack --dry-run --json --ignore-scripts", process.cwd()));
+  const stray = listing.files.map((f) => f.path).filter((p) => /^(atlas|scripts|test|benchmarks|demo|action)\//.test(p));
+  if (stray.length) throw new Error(`the package would include repository-only files:\n  ${stray.join("\n  ")}`);
   sh(`npm pack --pack-destination "${dir}"`, process.cwd());
   const tgz = readdirSync(dir).find((f) => f.endsWith(".tgz"));
   mkdirSync(app);
