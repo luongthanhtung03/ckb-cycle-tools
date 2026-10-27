@@ -31,6 +31,9 @@ First stable release.
 - Function-level costs in the report: a binary's `symbols` build and `"functions": true`
   in cycles.json record each group's costliest functions (checked against the binary's
   cycles), and the comment folds in which functions changed.
+- Hardened for untrusted pull requests: `report --root` keeps the files a PR's
+  cycles.json names inside the checkout; names in the comment cannot mention,
+  link or break the table; the comment always fits GitHub's size limit.
 
 ### Web inspector
 - ckb-cycle-tools.vercel.app: paste a transaction hash, see its scripts and the
