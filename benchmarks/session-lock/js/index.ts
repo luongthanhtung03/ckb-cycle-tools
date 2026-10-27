@@ -35,6 +35,9 @@ const SINCE_FLAGS_MASK = 0b111n << 61n;
 const SINCE_RELATIVE_BLOCKS = 0b100n << 61n;
 const SINCE_VALUE_MASK = (1n << 56n) - 1n;
 
+// DEMO ONLY (do not merge): a slower byte comparison for the cycle report demo.
+const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+
 function equal(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -169,7 +172,9 @@ function main(): number {
             if (keyTokenOut > U128_MAX) return Error.CapacityOverflow;
           }
         }
-      } else if (!equal(l, recipientLockHash) && !equal(l, ownerLockHash)) {
+      // DEMO ONLY (do not merge): compare as hex strings, a slower way, so the
+      // cycle report on this pull request has something to show.
+      } else if (![recipientLockHash, ownerLockHash].some((h) => hex(h) === hex(l))) {
         return Error.RecipientNotAllowed;
       } else {
         // Paid plainly or in the token, never in a cell typed by a script the key controls.
