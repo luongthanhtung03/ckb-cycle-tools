@@ -37,6 +37,16 @@ There is no convenient way to answer the two questions people actually have:
   bare-name `child_process` spawn. That blocks every contract test on Windows, and
   the workaround should not have to be rediscovered by everyone who hits it.
 
+## Install
+
+```bash
+npm install -g ckb-cycle-tools   # the ckb-cycles command
+ckb-cycles <tx hash>             # or without installing: npx ckb-cycles <tx hash>
+```
+
+[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.0.0, ESM, Node 20 or
+later). It drives `ckb-debugger`, which must be on PATH or passed with `--debugger`.
+
 ## Try it
 
 ```bash

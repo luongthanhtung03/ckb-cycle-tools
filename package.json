@@ -12,7 +12,10 @@
   ],
   "license": "MIT",
   "author": "Luong Thanh Tung (https://github.com/luongthanhtung03)",
-  "repository": "github:luongthanhtung03/ckb-cycle-tools",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luongthanhtung03/ckb-cycle-tools.git"
+  },
   "homepage": "https://github.com/luongthanhtung03/ckb-cycle-tools#readme",
   "bugs": "https://github.com/luongthanhtung03/ckb-cycle-tools/issues",
   "type": "module",
