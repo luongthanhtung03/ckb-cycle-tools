@@ -1,0 +1,12 @@
+[package]
+name = "ckb-cycles-testtool"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Writes the transactions ckb-testtool tests verify as ckb-debugger mock transactions, for ckb-cycles"
+repository = "https://github.com/luongthanhtung03/ckb-cycle-tools"
+publish = false
+
+[dependencies]
+ckb-testtool = "1"
+serde_json = "1"
