@@ -65,7 +65,27 @@ export function parseFolded(text: string): Folded {
   return folded;
 }
 
-export const foldedTotal = (f: Folded): bigint => [...f.values()].reduce((s, v) => s + v, 0n);
+/**
+ * Renames each `func_0x<address>` frame (code the profiler found no line info
+ * for) to the function starting at that address in `names` (elf.ts), merging
+ * stacks that become the same. Frames it has no name for keep their address.
+ */
+export function nameAddresses(f: Folded, names: Map<bigint, string>): Folded {
+  if (!names.size) return f;
+  const out: Folded = new Map();
+  for (const [stack, v] of f) {
+    const renamed = splitStack(stack)
+      .map((frame) => {
+        const m = /^func_0x([0-9a-fA-F]+)$/.exec(frame);
+        return (m && names.get(BigInt(`0x${m[1]}`))) || frame;
+      })
+      .join(";");
+    out.set(renamed, (out.get(renamed) ?? 0n) + v);
+  }
+  return out;
+}
+
+export const foldedTotal =(f: Folded): bigint => [...f.values()].reduce((s, v) => s + v, 0n);
 
 /** Back to text, one merged stack per line, heaviest first: the format speedscope and inferno read. */
 export function formatFolded(f: Folded): string {

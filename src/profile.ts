@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { MockTransaction, RpcTransaction } from "./mock.js";
-import { parseFolded, type Folded } from "./flame.js";
+import { elfFunctionNames } from "./elf.js";
+import { nameAddresses, parseFolded, type Folded } from "./flame.js";
 import {
   debuggerArgs,
   parseDebuggerRun,
@@ -165,7 +166,9 @@ export async function flameTransaction(
         "--flamegraph-output",
         out,
       ]);
-      const folded = parseFolded(await options.readFile(out).catch(() => ""));
+      // Frames the profiler could not name from line info get their names from the build's symbol table.
+      const names = bin ? await readFile(bin).then(elfFunctionNames, () => new Map<bigint, string>()) : new Map<bigint, string>();
+      const folded = nameAddresses(parseFolded(await options.readFile(out).catch(() => "")), names);
       // Flamegraph mode leaves out loading the binary, so result and cycles come
       // from plain runs: with the build, and with the deployed binary to compare.
       const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(bin ? ["--bin", bin] : [])]));
