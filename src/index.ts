@@ -58,3 +58,5 @@ export {
 export type { CycleDiff, CycleReport, DiffOptions, DiffRow, FunctionDelta, FunctionResult, GroupResult, MarkdownOptions, ScenarioResult } from "./diff.js";
 export { formatReport, groupResults, parseCyclesConfig, runReport } from "./report.js";
 export type { BinaryConfig, CyclesConfig, ReportOptions, ScenarioConfig } from "./report.js";
+export { configFromMocks, formatScan, scanTestMocks } from "./scan.js";
+export type { ScanOptions, ScanResult, ScannedBinary, ScannedMock } from "./scan.js";

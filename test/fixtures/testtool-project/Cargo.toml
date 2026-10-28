@@ -1,0 +1,12 @@
+# A hand-made project in the shape `cargo generate` gives a ckb-script-templates
+# workspace: contracts/<name>, a tests crate on ckb-testtool, binaries in
+# build/release. Kept small and C-free so it builds without clang.
+[workspace]
+resolver = "2"
+members = ["contracts/args-loop", "tests"]
+
+[profile.release]
+overflow-checks = true
+strip = false
+codegen-units = 1
+debug = true

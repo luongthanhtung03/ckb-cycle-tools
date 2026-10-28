@@ -8,6 +8,7 @@ import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } f
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
 import { PUBLIC_RPC } from "./replay.js";
 import { formatReport, runReport } from "./report.js";
+import { formatScan, scanTestMocks } from "./scan.js";
 
 const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout <s>] [--debugger <path>]
                   [--json] [--name <code-hash>[:<hash-type>]=<label> ...]
@@ -18,6 +19,7 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
                   [--fail-on-result-change] [--title <s>] [--base-label <s>] [--head-label <s>]
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
                   [--timeout <s>]
+       ckb-cycles scan <mocks-dir> [--binaries <dir>] [-o <cycles.json>] [--functions]
        ckb-cycles flame <tx-hash> | --file <tx.json>  [-o <dir>] [--script <selector> ...]
                   [--bin <code-hash>=<elf> ...] [--top <n>] [--mainnet] [--rpc <url>] [--debugger <path>]
 
@@ -60,6 +62,12 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                flag is set
   mock         saves a transaction as a ckb-debugger mock transaction, every cell
                it touches included, so a scenario can replay it with no node
+  scan         writes a cycles.json from the mock transactions a test suite wrote
+               (ckb-testtool with CKB_CYCLES_MOCKS set, see integrations/ckb-testtool):
+               one scenario per file, and each file in --binaries (default
+               build/release) that a test deployed, matched by its data hash, with
+               <name>.debug as its symbols build. --functions records each group's
+               costliest functions. -o defaults to cycles.json
   flame        where inside each script the cycles go: ckb-debugger's flamegraph
                mode per script group. Prints the costliest functions and writes
                <dir>/<selector>.svg and .folded (for speedscope or inferno), in
@@ -215,6 +223,30 @@ async function mockCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+async function scanCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      binaries: { type: "string" },
+      out: { type: "string", short: "o" },
+      functions: { type: "boolean" },
+    },
+  });
+  if (positionals.length !== 1) {
+    console.log(USAGE);
+    return 2;
+  }
+  const binariesDir = values.binaries ?? "build/release";
+  const r = await scanTestMocks(positionals[0], {
+    binariesDir,
+    ...(values.out && { out: values.out }),
+    ...(values.functions && { functions: true }),
+  });
+  console.error(formatScan(r, binariesDir));
+  return 0;
+}
+
 /** `--bin 0xabc…=target/release/my-script` → flameTransaction's bins. */
 function parseBins(flags: string[]): Record<string, string> {
   const bins: Record<string, string> = {};
@@ -304,6 +336,7 @@ async function main(): Promise<number> {
   if (command === "diff") return diffCommand(rest);
   if (command === "mock") return mockCommand(rest);
   if (command === "flame") return flameCommand(rest);
+  if (command === "scan") return scanCommand(rest);
 
   const { values, positionals } = parseArgs({
     allowPositionals: true,

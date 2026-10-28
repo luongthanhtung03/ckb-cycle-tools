@@ -45,3 +45,6 @@ e2e/playwright-report/
 atlas/**/progress.jsonl
 atlas/**/run.json
 atlas/**/targeted-progress.jsonl
+
+# the testtool fixture project commits its stripped contract build
+!test/fixtures/testtool-project/build/
