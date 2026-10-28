@@ -504,6 +504,45 @@ from `--to`, widening five-fold from 20,000 blocks up to `--max-window`, and
 replays the newest `--max-txs` (default 40). The command that made the report's
 section is at the end of the report.
 
+## Across ckb-debugger versions
+
+Do the numbers depend on which ckb-debugger you have? `npm run compat` replays the
+same 35 frozen scenarios under every release in
+[compat/debuggers.json](compat/debuggers.json) and compares each script group
+with the reference, 1.1.1 (the release the CLI and CI pin):
+[compat/RESULTS.md](compat/RESULTS.md), raw runs in
+[results.json](compat/results.json).
+
+The scenarios are the six ckb-testtool fixture mocks, the five session-lock
+benchmark mocks (ckb-js-vm), the two recorded testnet transactions (one on VM 1),
+and 22 mainnet transactions from the atlas, one per script it sampled (xUDT,
+Omnilock, Spore, Type ID, JoyID, RGB++, iCKB, COTA, Nervos DAO and others). They
+are stored with every cell in
+[compat/scenarios.json.br](compat/scenarios.json.br), so every build reads the
+same bytes and the run needs no network.
+
+Measured on 28 Oct 2026 on Windows: native releases 0.121.0, 0.200.0, 0.200.1,
+0.200.2, 0.203.0, 1.0.0, 1.1.0 and 1.1.1, and the WebAssembly builds of 0.200.1
+to 1.1.1 (the web page's build in ckb-testtool is byte for byte the 0.200.1 one).
+All 455 scenario runs, 1,170 script groups, gave the reference's cycles and exit
+code, and every mainnet and testnet total matched the node. The same
+transactions on another CKB-VM version do cost differently (VM 2 is cheaper than
+VM 1, and VM 0 cannot run most of today's binaries); the results explain each
+case from the hardfork RFCs. That is why the replay takes the VM version from the
+block's epoch, not from the debugger.
+
+```bash
+npm ci
+npm run compat -- fetch    # downloads each release into .cache/, sha256 checked
+npm run compat             # runs everything (about 2.5 minutes), exits 1 on any mismatch
+```
+
+`--only 1.0.0,1.1.0` limits the releases, `--no-wasm` skips the WebAssembly
+builds, `--no-sweep` skips the VM 0/1/2 sweep, and `npm run compat -- record`
+rebuilds the scenario file (read-only RPC; needs `npm run bench:build` first).
+[.github/workflows/compat.yml](.github/workflows/compat.yml) runs the check with
+the Linux builds weekly and on demand; it has not run on GitHub yet.
+
 ## Limits
 
 - **It needs a node, or a saved transaction.** Rebuilding a transaction means
@@ -513,9 +552,10 @@ section is at the end of the report.
   charge its fixed 1,000,000 cycles and check its rules the way the node does.
 - **Two debugger builds.** The CLI uses the native ckb-debugger you install
   (1.1.1 here); the web page uses the WebAssembly build shipped in
-  `ckb-testtool` (0.200.1). They agree on every transaction checked, but a
-  future CKB-VM change could reach one before the other; each result names the
-  version it used.
+  `ckb-testtool` (0.200.1). They agree on every transaction checked, and so do
+  the releases in between ([Across ckb-debugger versions](#across-ckb-debugger-versions)),
+  but a future CKB-VM change could reach one before the other; each result names
+  the version it used.
 - **Flamegraphs need symbols.** On-chain binaries are stripped; `flame` names
   functions only with an unstripped build passed by `--bin` (or `symbols` in a
   cycles.json). The CLI draws the graphs, the PR comment lists the changed

@@ -1,0 +1,48 @@
+name: Cross-version check
+
+# The frozen scenarios in compat/scenarios.json.br replayed under every
+# ckb-debugger release in compat/debuggers.json (native Linux builds and their
+# WebAssembly builds), compared group by group with the reference release.
+# Weekly, and by hand; on pull requests only when the check itself changes.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1"
+  pull_request:
+    paths:
+      - "compat/**"
+      - "scripts/compat*.ts"
+      - "src/replay.ts"
+      - "src/wasm.ts"
+      - "src/profile.ts"
+      - ".github/workflows/compat.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Each tarball is checked against the sha256 in compat/debuggers.json
+      # (the one its release publishes) before anything is extracted.
+      - name: Fetch the ckb-debugger releases
+        run: npm run compat -- fetch
+      # Exits 1 on any group whose cycles or result differ from the reference.
+      - name: Replay every scenario under every build
+        run: npm run compat -- run --out compat-out/RESULTS.md
+      - name: Publish the results table
+        if: always()
+        run: test -f compat-out/RESULTS.md && cat compat-out/RESULTS.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: compat-results
+          path: compat-out/
+          if-no-files-found: ignore

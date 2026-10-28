@@ -48,3 +48,6 @@ atlas/**/targeted-progress.jsonl
 
 # the testtool fixture project commits its stripped contract build
 !test/fixtures/testtool-project/build/
+
+# ckb-debugger releases fetched by `npm run compat -- fetch`
+.cache/

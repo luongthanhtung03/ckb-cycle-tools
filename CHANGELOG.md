@@ -4,6 +4,11 @@ This project follows [semantic versioning](https://semver.org/).
 
 ## Unreleased
 
+- `npm run compat` (repository only): replays 35 frozen scenarios under every
+  ckb-debugger release from 0.121.0 to 1.1.1, native and WebAssembly, compares
+  each script group with 1.1.1, and writes compat/RESULTS.md; a weekly Linux CI
+  job runs it.
+
 - `ckb-cycles scan <mocks-dir>`: writes a cycles.json from the mock transactions
   a test suite wrote, with each freshly built binary in `build/release` mapped by
   its data hash and `<name>.debug` as its symbols build.
