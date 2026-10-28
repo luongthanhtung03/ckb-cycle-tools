@@ -94,7 +94,8 @@ A scenario is one of:
 - `mock`: a ckb-debugger mock transaction, every cell inline. Needs no node, so
   CI never depends on one. `ckb-cycles mock <tx-hash> -o file.json` (or
   `--file tx.json`) writes one from any transaction; ckb-testtool's
-  `Verifier.txFile()` writes one from a test.
+  `Verifier.txFile()` writes one from a test. For Rust ckb-testtool tests,
+  `ckb-cycles scan` writes the whole cycles.json (see the main README).
 - `file`: a transaction in RPC (or CCC) shape; its cells come from a node.
 - `tx`: a committed transaction hash.
 

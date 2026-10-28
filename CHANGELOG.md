@@ -2,6 +2,15 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+- `ckb-cycles scan <mocks-dir>`: writes a cycles.json from the mock transactions
+  a test suite wrote, with each freshly built binary in `build/release` mapped by
+  its data hash and `<name>.debug` as its symbols build.
+- `integrations/ckb-testtool`: a Rust crate whose `verify_tx` writes each
+  ckb-testtool transaction as a mock when `CKB_CYCLES_MOCKS` is set, for
+  ckb-script-templates projects.
+
 ## 1.0.0 (2026-10-27)
 
 First stable release.

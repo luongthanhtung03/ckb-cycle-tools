@@ -301,6 +301,93 @@ its cycles are not known on that side.
 A Rust build keeps its symbols with `CARGO_PROFILE_RELEASE_STRIP=false`; build
 it next to the stripped one, from the same commit.
 
+### From ckb-testtool tests (ckb-script-templates projects)
+
+A project made from
+[ckb-script-templates](https://github.com/nervosnetwork/ckb-script-templates)
+already has its scenarios: the Rust tests in `tests/`, on ckb-testtool. Each
+test can leave its transaction behind as a mock, and `ckb-cycles scan` writes
+the cycles.json from them, so nothing is written by hand.
+
+1. In the tests crate, add the helper in
+   [`integrations/ckb-testtool`](integrations/ckb-testtool/src/lib.rs) and call
+   it where a test calls `context.verify_tx`:
+
+   ```toml
+   # tests/Cargo.toml
+   [dependencies]
+   ckb-cycles-testtool = { git = "https://github.com/luongthanhtung03/ckb-cycle-tools" }
+   ```
+
+   ```rust
+   let cycles = ckb_cycles_testtool::verify_tx(&context, &tx, MAX_CYCLES).expect("pass verification");
+   ```
+
+   It returns what `context.verify_tx` returns. When `CKB_CYCLES_MOCKS` names a
+   directory, it also writes `context.dump_tx(&tx)` there, accepted or rejected,
+   named after the test: `tests::test_transfer` is `tests.test_transfer.json`, a
+   second transaction in the same test `tests.test_transfer-2.json`. Without the
+   variable it writes nothing. (It is about 40 lines; copying it into
+   `tests/src/lib.rs` works as well.)
+
+2. Add a target to the workspace Makefile:
+
+   ```make
+   CYCLES_MOCKS := target/ckb-cycles
+
+   cycles-config: build
+   	rm -rf $(CYCLES_MOCKS)
+   	CKB_CYCLES_MOCKS="$(abspath $(CYCLES_MOCKS))" cargo test
+   	npx ckb-cycles scan $(CYCLES_MOCKS) --binaries build/release --functions -o cycles.json
+
+   cycles: cycles-config
+   	npx ckb-cycles report cycles.json
+   ```
+
+`make cycles` then builds the contracts, runs the tests, and reports each
+test's script groups, with the costliest functions of your own contracts. The
+fixture project below, its two steps run by hand:
+
+```
+$ npx ckb-cycles scan mocks --binaries build/release --functions -o cycles.json
+cycles.json: 6 scenario(s), 1 binary (args-loop)
+code cells that are none of the binaries: 0xe683b041…3660d7
+$ npx ckb-cycles report cycles.json
+SCENARIO                          GROUP         SCRIPT           RESULT   CYCLES
+tests.test_beside_always_success  input.0.lock  args-loop        ok       95,392
+tests.test_beside_always_success  input.1.lock  0x91b570…218629  ok        2,107
+tests.test_empty_args_rejected    input.0.lock  args-loop        exit 5    2,186
+tests.test_heavy_spend            input.0.lock  args-loop        ok      468,128
+tests.test_light_spend            input.0.lock  args-loop        ok       25,504
+…
+tests.test_heavy_spend input.0.lock: costliest functions (self cycles): args_loop::work 440,320, _start 26,713, memset 230
+```
+
+`scan` makes one `"mock"` scenario per file, and one binary per file in
+`--binaries` (default `build/release`) that a test deployed, matched by its data
+hash, with `<name>.debug` (the template's unstripped copy) as its `symbols`. It
+says on stderr which files no test deployed and which code cells are none of
+the binaries (ckb-testtool's always-success, above). The code hashes are those of
+the build the tests ran against, so the cycles.json is regenerated after each
+build, not committed.
+
+ckb-testtool gives each deployed cell a Type ID type script and `build_script`
+uses `hash_type: "type"`, so swapping in another build changes only the code.
+On a pull request, make the head's mocks and cycles.json in a step before the
+Action, and let the Action build both sides (the base's tests may not have the
+helper yet):
+
+```yaml
+- run: make cycles-config
+- uses: luongthanhtung03/ckb-cycle-tools/action@<commit-sha>
+  with:
+    build: make build
+```
+
+[`test/fixtures/testtool-project`](test/fixtures/testtool-project) is a small
+project in the template's layout, with the output above; the design and its
+open questions are in [docs/design/testtool-integration.md](docs/design/testtool-integration.md).
+
 ## ckb-js-vm vs Rust: one lock, two implementations
 
 `benchmarks/session-lock` holds a TypeScript port of the
