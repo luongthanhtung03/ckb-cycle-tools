@@ -8,7 +8,7 @@ CARGO_TARGET_DIR ?= target
 # Where the tests write their transactions. Committed here, as test fixtures;
 # a real project would use target/ckb-cycles.
 CYCLES_MOCKS := mocks
-CKB_CYCLES ?= npx ckb-cycles
+CKB_CYCLES ?= npx -y -p ckb-cycle-tools ckb-cycles
 
 build:
 	cargo build -p args-loop --release --target riscv64imac-unknown-none-elf

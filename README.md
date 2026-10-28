@@ -292,7 +292,10 @@ ckb-debugger's flamegraph mode with `--bin <symbols>` and records the 15
 costliest functions (self and total cycles) in the report. It first checks that
 the symbols build costs exactly the cycles of the binary it stands for; if not,
 it is not the same code, and the group gets a warning instead of functions.
-`diff --markdown` then adds a folded block under the table for each changed
+Code the debugger has no line info for (ckb-std's `_start`, the allocator shims
+rustc adds) it calls `func_0x<address>`; those frames take their name from the
+build's ELF symbol table, so a function that moved between builds is not a
+removal and an addition in a diff. `diff --markdown` then adds a folded block under the table for each changed
 group: the functions whose self cycles changed, base, head and Δ, the ten
 largest changes first. A report without functions (an older base, or a
 config without `symbols`) still diffs as before; a function shows `—` where
@@ -323,6 +326,13 @@ the cycles.json from them, so nothing is written by hand.
    let cycles = ckb_cycles_testtool::verify_tx(&context, &tx, MAX_CYCLES).expect("pass verification");
    ```
 
+   The tests `make generate` writes call `context.verify_tx(&tx, 10_000_000)`
+   over two lines; one substitution changes them all:
+
+   ```
+   perl -0pi -e 's/context\s*\.verify_tx\(&tx,/ckb_cycles_testtool::verify_tx(&context, &tx,/g' tests/src/tests.rs
+   ```
+
    It returns what `context.verify_tx` returns. When `CKB_CYCLES_MOCKS` names a
    directory, it also writes `context.dump_tx(&tx)` there, accepted or rejected,
    named after the test: `tests::test_transfer` is `tests.test_transfer.json`, a
@@ -333,16 +343,23 @@ the cycles.json from them, so nothing is written by hand.
 2. Add a target to the workspace Makefile:
 
    ```make
+   CKB_CYCLES ?= npx -y -p ckb-cycle-tools ckb-cycles
    CYCLES_MOCKS := target/ckb-cycles
 
    cycles-config: build
    	rm -rf $(CYCLES_MOCKS)
-   	CKB_CYCLES_MOCKS="$(abspath $(CYCLES_MOCKS))" cargo test
-   	npx ckb-cycles scan $(CYCLES_MOCKS) --binaries build/release --functions -o cycles.json
+   	CKB_CYCLES_MOCKS="$(abspath $(CYCLES_MOCKS))" cargo test -p tests
+   	$(CKB_CYCLES) scan $(CYCLES_MOCKS) --binaries $(BUILD_DIR) --functions -o cycles.json
 
    cycles: cycles-config
-   	npx ckb-cycles report cycles.json
+   	$(CKB_CYCLES) report cycles.json
    ```
+
+   The npm package is `ckb-cycle-tools`; its command is `ckb-cycles`, so a
+   project with no package.json needs `npx -p ckb-cycle-tools` (a bare
+   `npx ckb-cycles` looks for a package of that name). `scan` is not in the
+   1.0.0 release yet: until the next one, point the variable at a checkout,
+   `make cycles CKB_CYCLES="node ../ckb-cycle-tools/dist/cli.js"`.
 
 `make cycles` then builds the contracts, runs the tests, and reports each
 test's script groups, with the costliest functions of your own contracts. The
@@ -387,6 +404,27 @@ helper yet):
 [`test/fixtures/testtool-project`](test/fixtures/testtool-project) is a small
 project in the template's layout, with the output above; the design and its
 open questions are in [docs/design/testtool-integration.md](docs/design/testtool-integration.md).
+
+[`scripts/templates-e2e.sh`](scripts/templates-e2e.sh) does all of this on a
+real project: it generates a workspace from ckb-script-templates (commit
+`f90b1e2`), adds two contracts with `make generate` (`alpha` from `contract`,
+`beta` from `contract-without-simulator`), applies the two steps above, runs
+`make cycles-config`, then makes `alpha` run a 1,000-step loop and runs it again.
+It fails unless each report agrees with the cycles ckb-testtool itself counted
+and only `alpha` changed. Its run on Linux (rustc 1.99, clang 19, ckb-debugger
+1.1.1):
+
+```
+SCENARIO          GROUP         SCRIPT   BASE    HEAD        Δ        Δ%
+tests.test_alpha  input.0.lock  alpha   7,156  19,174  +12,018  +167.94%
+tests.test_beta   input.0.lock  beta    7,156   7,156        0        0%
+
+functions in tests.test_alpha input.0.lock: __ckb_std_main +12,008
+```
+
+The base column is the base's binaries swapped into the head's mocks
+(`report --binaries-from`), the way the Action compares a pull request; it gives
+the same 7,156 as the base's own tests.
 
 ## ckb-js-vm vs Rust: one lock, two implementations
 

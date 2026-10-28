@@ -124,3 +124,45 @@ jobs:
       - name: Publish the results table
         if: always()
         run: cat benchmarks/session-lock/RESULTS.md >> "$GITHUB_STEP_SUMMARY"
+
+  # integrations/ckb-testtool and `scan` on a real ckb-script-templates
+  # project: scripts/templates-e2e.sh generates a workspace with two contracts,
+  # wires in the crate and the README's `cycles-config` target, reports, changes
+  # one contract and diffs. It fails unless every report matches the cycles
+  # ckb-testtool counted and only the changed contract got costlier.
+  templates-e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup target add riscv64imac-unknown-none-elf
+      # The template's scripts/find_clang looks for llvm-strip, or -19 to -22.
+      - run: sudo apt-get update && sudo apt-get install -y clang-19 llvm-19
+      - name: Install cargo-generate
+        run: |
+          version=v0.25.1
+          url="https://github.com/cargo-generate/cargo-generate/releases/download/${version}/cargo-generate-${version}-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "$url" -o /tmp/cargo-generate.tar.gz
+          # The archive as downloaded on 28 Oct 2026: a replaced asset fails here.
+          echo "6d2a2fb3a1892ef8befe2f9bea0db22f50a305086fa55f16b475bb595a6ee3d6  /tmp/cargo-generate.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.ckb-tools"
+          tar -xzf /tmp/cargo-generate.tar.gz -C "$HOME/.ckb-tools" cargo-generate
+          echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
+      - name: Install ckb-debugger
+        run: |
+          version=v1.1.1
+          url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${version}/ckb-debugger_${version}_x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL "$url" -o /tmp/ckb-debugger.tar.gz
+          # The checksum v1.1.1's release publishes: a replaced asset fails here.
+          echo "0dee02804af46386527c8bb94c2ee63592594ca1ec952ea42ffa9df07a9f005e  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.ckb-tools"
+          tar -xzf /tmp/ckb-debugger.tar.gz -C "$HOME/.ckb-tools"
+          echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: scripts/templates-e2e.sh "$RUNNER_TEMP/templates-e2e"
+      - name: Publish the diff
+        if: always()
+        run: cat "$RUNNER_TEMP/templates-e2e/diff.md" >> "$GITHUB_STEP_SUMMARY" || true

@@ -10,6 +10,14 @@ This project follows [semantic versioning](https://semver.org/).
 - `integrations/ckb-testtool`: a Rust crate whose `verify_tx` writes each
   ckb-testtool transaction as a mock when `CKB_CYCLES_MOCKS` is set, for
   ckb-script-templates projects.
+- Functions the profiler could not name from line info (`func_0x<address>`:
+  ckb-std's `_start`, rustc's allocator shims) are named from the symbols
+  build's ELF symbol table, so they no longer show in a diff as one address
+  removed and another added when code moves.
+- `scripts/templates-e2e.sh` and a CI job: the testtool integration on a
+  project generated from ckb-script-templates, two contracts, a change, a diff.
+- README: the Makefile target uses `npx -p ckb-cycle-tools ckb-cycles` (a bare
+  `npx ckb-cycles` names a package that does not exist) and `cargo test -p tests`.
 
 ## 1.0.0 (2026-10-27)
 

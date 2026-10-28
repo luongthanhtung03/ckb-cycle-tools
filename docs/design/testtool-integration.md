@@ -30,6 +30,37 @@ project already has, generate the mocks and the binary mapping behind
   (stripped) and `build/release/<name>.debug` (the same build before
   stripping).
 
+## Tried on a generated project (28 Oct)
+
+`scripts/templates-e2e.sh` runs the workflow below on a workspace generated
+from ckb-script-templates `f90b1e2` with cargo-generate 0.25.1 (rustc 1.99,
+clang 19, ckb-debugger 1.1.1, in a Docker container: rust:1.99.0-slim, Debian 13). What it showed:
+
+- The crate needed no change. `make generate` writes tests that call
+  `context.verify_tx(&tx, 10_000_000)` over two lines, deploy with
+  `deploy_cell_by_name` and print `consume cycles: N`; with the call swapped for
+  `ckb_cycles_testtool::verify_tx`, each test wrote its mock, and `report` gave
+  the same cycles the tests printed (7,156 per contract; 19,174 for `alpha`
+  after the change). The template's `ckb-testtool = "1.1"` and the crate's
+  `"1"` resolve to one ckb-testtool (1.1.1). The git dependency in the README
+  resolves from GitHub.
+- The template's contract Makefile already writes `build/release/<name>.debug`
+  (unstripped, about 20 MB with `debug = 2`), so `scan` finds the symbols
+  builds with no extra step.
+- The profiler names frames from DWARF line info only. ckb-std's `_start`
+  (assembly) and rustc's allocator shims have none and came out as
+  `func_0x130c4`; the shim moved between the two builds, so the diff showed
+  `func_0x13366 -3, func_0x1338e +3`. Fixed: such frames are named from the
+  build's ELF symbol table (src/elf.ts), and the diff now shows only
+  `__ckb_std_main +12,008`.
+- The README's Makefile used `npx ckb-cycles`. No npm package has that name
+  (the package is `ckb-cycle-tools`), and a template project has no
+  package.json to find the command in, so it now uses
+  `npx -y -p ckb-cycle-tools ckb-cycles` through a `CKB_CYCLES` variable. `scan`
+  is not in the 1.0.0 release yet.
+- `cargo test -p tests` instead of `cargo test`: the contract crates' own unit
+  tests have nothing to dump and only add build time.
+
 ## The workflow
 
 ```
