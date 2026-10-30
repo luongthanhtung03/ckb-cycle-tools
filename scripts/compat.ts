@@ -279,7 +279,7 @@ async function withRetry<T>(f: () => Promise<T>, what: string): Promise<T> {
     try {
       return await f();
     } catch (e) {
-      if (i === 6) throw e;
+      if (i === 3) throw e;
       console.log(`retry ${what}: ${e instanceof Error ? e.message : e}`);
       await new Promise((r) => setTimeout(r, 10_000 * i));
     }

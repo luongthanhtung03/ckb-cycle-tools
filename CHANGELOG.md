@@ -37,6 +37,7 @@ This project follows [semantic versioning](https://semver.org/).
   padded `wc -l` output no longer fails it.
 - Legacy Rust symbol names are demangled in full (`$RF$`, `$LP$`, `$u7b$` and
   the other escapes), so they read as `rustc-demangle` prints them.
+- `npm run compat -- record` tries a node three times, as it says, not six.
 
 ## 1.0.0 (2026-10-27)
 
