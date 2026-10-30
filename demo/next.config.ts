@@ -18,6 +18,23 @@ const config: NextConfig = {
   },
   outputFileTracingRoot: root,
   experimental: { externalDir: true },
+  poweredByHeader: false,
+  // No other site may frame the inspector (clickjacking). The CSP stops at
+  // frame-ancestors: a script-src would also have to allow the ckb-debugger
+  // WebAssembly worker ('wasm-unsafe-eval') and Next's inline scripts.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 export default config;
