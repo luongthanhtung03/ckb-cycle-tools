@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { diffFailed, diffReports, formatMarkdown, formatText, type CycleReport } from "./diff.js";
+import { diffFailed, diffReports, formatMarkdown, formatText, termLine, termLines, type CycleReport } from "./diff.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } from "./flame.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
@@ -49,7 +49,8 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                "functions" also records the group's costliest functions.
                --root <dir> (repeatable) refuses any file the config names
                outside those directories, symlinks resolved: for CI, where
-               the cycles.json comes from a pull request
+               the cycles.json comes from a pull request;
+               its "rpc" is then ignored (--rpc still applies)
                Exits 2 if a scenario could not run: a rejection is a result,
                not an error
   diff         compares two reports group by group: Δ cycles, Δ%, and any group
@@ -84,7 +85,7 @@ function table(p: Profile): string {
   const total = p.measuredCycles || 1n;
   const rows = p.groups.map((g) => [
     g.role,
-    g.name ?? short(g.codeHash),
+    termLine(g.name ?? short(g.codeHash)),
     g.selector,
     g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`,
     fmt(g.cycles),
@@ -104,10 +105,10 @@ function table(p: Profile): string {
   } else if (p.status === "committed") {
     out.push("reported by node          not recorded by this node (try another with --rpc)");
   }
-  out.push(`${p.env.debugger} · CKB-VM v${p.env.scriptVersion} for type scripts · ${p.env.network} · ${p.env.rpcUrl}`);
-  for (const g of p.groups.filter((g) => g.error)) out.push("", `${g.selector} stopped: ${g.error}`);
+  out.push(`${termLine(p.env.debugger)} · CKB-VM v${p.env.scriptVersion} for type scripts · ${p.env.network} · ${p.env.rpcUrl}`);
+  for (const g of p.groups.filter((g) => g.error)) out.push("", `${g.selector} stopped: ${termLine(g.error!)}`);
   for (const g of p.groups.filter((g) => g.logs.length)) {
-    out.push("", `${g.selector} logged:`, ...g.logs.map((l) => `  ${l}`));
+    out.push("", `${g.selector} logged:`, ...g.logs.map((l) => `  ${termLine(l)}`));
   }
   return out.join("\n");
 }
@@ -146,12 +147,13 @@ async function reportCommand(args: string[]): Promise<number> {
     ...(values.debugger && { debuggerPath: values.debugger }),
     ...(values["binaries-from"] && { binariesRoot: values["binaries-from"] }),
     ...(values.root && { roots: values.root }),
-    onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${s.name}`),
+    onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${termLine(s.name)}`),
   });
-  const { errors, ...data } = report;
+  const { errors, notices, ...data } = report;
   if (values.json) await writeFile(values.json, toJson(data) + "\n");
   console.log(formatReport(data));
-  for (const e of errors) console.error(`error: ${e}`);
+  for (const n of notices ?? []) console.error(`warning: ${termLine(n)}`);
+  for (const e of errors) console.error(`error: ${termLines(e)}`);
   return errors.length ? 2 : 0;
 }
 
@@ -302,14 +304,14 @@ async function flameCommand(args: string[]): Promise<number> {
   const out: string[] = [`tx ${plan.hash}  (${plan.status})`, ""];
   let bad = false;
   for (const g of groups) {
-    const label = g.name ?? short(g.codeHash);
+    const label = termLine(g.name ?? short(g.codeHash));
     const profiled = foldedTotal(g.folded);
     out.push(`${g.selector}  ${label}  ${g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`}  ${fmt(g.cycles)} cycles`);
     if (g.bin) {
       // Same cycles and the same verdict, and neither run stopped by the VM: two stopped
       // runs both report 0 cycles, which proves nothing (review, 27 Oct).
       const same = g.deployedCycles === g.cycles && g.deployedResult === g.result && !g.error && !g.deployedError;
-      out.push(`  --bin ${g.bin}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
+      out.push(`  --bin ${termLine(g.bin)}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
       bad ||= !same;
     }
     if (!g.folded.size) {
@@ -319,13 +321,13 @@ async function flameCommand(args: string[]): Promise<number> {
     const costs = functionCosts(g.folded);
     if (costs.length === 1) out.push("  one frame: the binary has no symbols. Pass an unstripped build with --bin <code-hash>=<elf>");
     out.push(`  profiled ${fmt(profiled)} cycles (loading the binary is not profiled)`, "  SELF        TOTAL       FUNCTION");
-    for (const c of costs.slice(0, top)) out.push(`  ${fmt(c.self).padStart(10)}  ${fmt(c.total).padStart(10)}  ${c.name}`);
+    for (const c of costs.slice(0, top)) out.push(`  ${fmt(c.self).padStart(10)}  ${fmt(c.total).padStart(10)}  ${termLine(c.name)}`);
     const base = join(dir, g.selector);
     await writeFile(`${base}.folded`, formatFolded(g.folded) + "\n");
     await writeFile(`${base}.svg`, renderFlameSvg(flameTree(g.folded, g.selector), { title: `${g.selector} · ${label}` }));
     out.push(`  → ${base}.svg, ${base}.folded`, "");
   }
-  out.push(`${version} · CKB-VM v${plan.scriptVersion} for type scripts · ${plan.network} · ${plan.rpcUrl}`);
+  out.push(`${termLine(version)} · CKB-VM v${plan.scriptVersion} for type scripts · ${plan.network} · ${plan.rpcUrl}`);
   console.log(out.join("\n"));
   return bad || groups.some((g) => g.result !== 0) ? 1 : 0;
 }
@@ -387,7 +389,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (e) => {
-    console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`error: ${termLines(e instanceof Error ? e.message : String(e))}`);
     process.exit(2);
   },
 );

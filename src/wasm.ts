@@ -8,7 +8,7 @@
  * directory at `/`, and stdout/stderr are collected as text.
  */
 import { ConsoleStdout, File, OpenFile, PreopenDirectory, WASI } from "@bjorn3/browser_wasi_shim";
-import type { RunDebugger } from "./replay.js";
+import { checkMockTransaction, type RunDebugger } from "./replay.js";
 
 export interface WasmRun {
   exitCode: number;
@@ -63,6 +63,11 @@ export const WASM_TX_FILE = "/tx.json";
  * WASM_TX_FILE: `replayGroups(plan, wasmRunner(module, tx), { txFile: WASM_TX_FILE, … })`.
  */
 export function wasmRunner(module: WebAssembly.Module, tx: Uint8Array): RunDebugger {
+  // The bytes the debugger reads, checked as they are: no `{{ … }}` directive
+  // anywhere in them, and a mock checkMockTransaction accepts.
+  const text = new TextDecoder().decode(tx);
+  if (text.includes("{{")) throw new Error(`mock transaction refused: contains "{{", a ckb-debugger template directive`);
+  checkMockTransaction(JSON.parse(text));
   // The whole run, exit code included: replayGroups checks the result lines against it.
   return (args) => runWasmDebugger(module, args, { "tx.json": tx });
 }

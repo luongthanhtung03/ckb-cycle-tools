@@ -341,3 +341,13 @@ describe("functions", () => {
     expect(out.slice(-2)).toEqual(["", "functions in s input.0.lock: a +4, c +1"]);
   });
 });
+
+describe("formatText: names in a terminal or CI log", () => {
+  it("keeps every name on one line, without controls, and never at a line start as ::", () => {
+    const evil = "::add-mask::x\n::error::forged\u001b[2J";
+    const r = report({ name: evil, groups: [g("input.0.lock", 10, 0, "\n::warning::s")] });
+    const out = formatText(diffReports(r, r));
+    expect(out.split("\n").some((l) => l.trimStart().startsWith("::"))).toBe(false);
+    expect(out).not.toMatch(/\u001b/);
+  });
+});

@@ -15,6 +15,7 @@
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { ccc } from "@ckb-ccc/core";
+import { termLine } from "./diff.js";
 import type { MockTransaction } from "./mock.js";
 import type { BinaryConfig, CyclesConfig } from "./report.js";
 
@@ -148,12 +149,12 @@ export function formatScan(r: ScanResult & { out: string }, binariesDir: string)
   const short = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
   const lines = [
     `${basename(r.out)}: ${r.config.scenarios.length} scenario(s), ${r.matched.length} binar${r.matched.length === 1 ? "y" : "ies"}` +
-      (r.matched.length ? ` (${r.matched.join(", ")})` : ""),
+      (r.matched.length ? ` (${r.matched.map(termLine).join(", ")})` : ""),
   ];
   if (!r.matched.length) {
     lines.push(`no file in ${binariesDir} is deployed by any test: the report cannot swap in another build (rebuild, then rerun the tests?)`);
   }
-  if (r.unused.length) lines.push(`not deployed by any test: ${r.unused.join(", ")}`);
+  if (r.unused.length) lines.push(`not deployed by any test: ${r.unused.map(termLine).join(", ")}`);
   if (r.others.length) lines.push(`code cells that are none of the binaries: ${r.others.map(short).join(", ")}`);
   return lines.join("\n");
 }

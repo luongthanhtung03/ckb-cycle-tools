@@ -17,7 +17,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
-import { FUNCTION_LIMIT, resultLabel } from "./diff.js";
+import { FUNCTION_LIMIT, resultLabel, termLine, termLines } from "./diff.js";
 import { functionCosts } from "./flame.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile, type ProfileOptions } from "./profile.js";
@@ -162,17 +162,26 @@ export function groupResults(p: Profile): GroupResult[] {
  * with its error rather than ending the report, so one broken scenario does not
  * hide the others' numbers.
  */
-export async function runReport(configPath: string, options: ReportOptions = {}): Promise<CycleReport & { errors: string[] }> {
+export async function runReport(
+  configPath: string,
+  options: ReportOptions = {},
+): Promise<CycleReport & { errors: string[]; notices?: string[] }> {
   const config = parseCyclesConfig(await readFile(configPath, "utf8"));
   const dir = dirname(resolve(configPath));
   const binDir = options.binariesRoot ? resolve(options.binariesRoot) : dir;
   // Only a network the config names is checked against the node; otherwise the
   // node says which chain it serves, and its own hardfork epochs are used.
   const network = config.network;
-  const rpcUrl = options.rpcUrl ?? config.rpc;
+  const roots = options.roots?.length ? await Promise.all(options.roots.map((r) => realpath(resolve(r)))) : undefined;
+  // With roots the config is untrusted (a pull request's): it does not choose
+  // the host the runner sends requests to. Only --rpc, or the public node.
+  const notices: string[] = [];
+  if (roots && config.rpc !== undefined && options.rpcUrl === undefined) {
+    notices.push(`cycles.json "rpc" ignored under --root: the config does not choose the node; pass --rpc to use another`);
+  }
+  const rpcUrl = options.rpcUrl ?? (roots ? undefined : config.rpc);
   const baseNames = parseNames(Object.entries(config.names ?? {}).map(([k, v]) => `${k}=${v}`));
 
-  const roots = options.roots?.length ? await Promise.all(options.roots.map((r) => realpath(resolve(r)))) : undefined;
   const inside = (file: string) => confine(file, roots);
 
   const binaries = new Map<string, Promise<BinarySubstitution>>();
@@ -312,6 +321,7 @@ export async function runReport(configPath: string, options: ReportOptions = {})
     ...(debuggerVersion && { debugger: debuggerVersion }),
     scenarios,
     errors,
+    ...(notices.length && { notices }),
   };
 }
 
@@ -417,33 +427,38 @@ async function realParent(p: string): Promise<string> {
   }
 }
 
-/** The report for a terminal: one block per scenario. */
+/**
+ * The report for a terminal: one block per scenario. Every name, warning and
+ * error from the config, the build or the debugger goes through termLine (or
+ * termLines), so none can start a log line of its own.
+ */
 export function formatReport(report: CycleReport): string {
   const fmt = (n: number) => n.toLocaleString("en-US");
+  const t = termLine;
   const rows = report.scenarios.flatMap((s) =>
     s.error
-      ? [[s.name, "", "", "error", ""]]
-      : s.groups.map((g) => [s.name, g.selector, g.script, resultLabel(g), fmt(g.cycles)]),
+      ? [[t(s.name), "", "", "error", ""]]
+      : s.groups.map((g) => [t(s.name), t(g.selector), t(g.script), t(resultLabel(g)), fmt(g.cycles)]),
   );
   const head = ["SCENARIO", "GROUP", "SCRIPT", "RESULT", "CYCLES"];
   const widths = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
   const line = (cells: string[]) =>
     cells.map((c, i) => (i === 4 ? c.padStart(widths[i]) : c.padEnd(widths[i]))).join("  ").trimEnd();
   const out = [line(head), ...rows.map(line)];
-  for (const s of report.scenarios) if (s.error) out.push("", `${s.name}: ${s.error}`);
-  for (const s of report.scenarios) for (const w of s.warnings ?? []) out.push("", `${s.name}: warning: ${w}`);
+  for (const s of report.scenarios) if (s.error) out.push("", `${t(s.name)}: ${termLines(s.error)}`);
+  for (const s of report.scenarios) for (const w of s.warnings ?? []) out.push("", `${t(s.name)}: warning: ${t(w)}`);
   for (const s of report.scenarios) {
-    for (const g of s.groups.filter((g) => g.error)) out.push("", `${s.name} ${g.selector} stopped: ${g.error}`);
+    for (const g of s.groups.filter((g) => g.error)) out.push("", `${t(s.name)} ${t(g.selector)} stopped: ${t(g.error!)}`);
   }
   for (const s of report.scenarios) {
     for (const g of s.groups) {
-      if (g.functionsWarning) out.push("", `${s.name} ${g.selector}: functions not recorded: ${g.functionsWarning}`);
+      if (g.functionsWarning) out.push("", `${t(s.name)} ${t(g.selector)}: functions not recorded: ${t(g.functionsWarning)}`);
       else if (g.functions?.length) {
-        const top = g.functions.slice(0, 3).map((f) => `${f.name} ${fmt(f.self)}`);
-        out.push("", `${s.name} ${g.selector}: costliest functions (self cycles): ${top.join(", ")}`);
+        const top = g.functions.slice(0, 3).map((f) => `${t(f.name)} ${fmt(f.self)}`);
+        out.push("", `${t(s.name)} ${t(g.selector)}: costliest functions (self cycles): ${top.join(", ")}`);
       }
     }
   }
-  if (report.debugger) out.push("", report.debugger);
+  if (report.debugger) out.push("", t(report.debugger));
   return out.join("\n");
 }

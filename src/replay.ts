@@ -198,8 +198,47 @@ export interface ReplayPlan {
   rpcUrl: string;
 }
 
-/** The script groups that run for a mock transaction, in first-appearance order. A cellbase runs none. */
+/** The string fields of a mock transaction that are names, not hex. */
+const NAME_FIELDS: Record<string, RegExp> = { hash_type: /^(type|data[0-9]*)$/, dep_type: /^(code|dep_group)$/ };
+
+/**
+ * Refuses a mock transaction that ckb-debugger would read as more than data.
+ * The debugger expands `{{ data <path> }}`, `{{ hash <path> }}`, `{{ def_type … }}`
+ * and `{{ ref_type … }}` in a tx file before parsing it (mock_tx_embed.rs), so
+ * such a string embeds any file on the machine that runs it, past `--root`.
+ * Every string must be hex (`0x…`), except `hash_type` and `dep_type`, which
+ * must be one of their names. Called on every mock before it is written for a
+ * debugger (groupsOf, so planReplay, profile, flame and report; wasmRunner).
+ */
+export function checkMockTransaction(mock: unknown): void {
+  const refuse = (path: string, why: string): never => {
+    throw new Error(`mock transaction refused: ${path} ${why}`);
+  };
+  const walk = (v: unknown, path: string, key: string): void => {
+    if (typeof v === "string") {
+      if (v.includes("{{")) {
+        refuse(path, `contains "{{", a ckb-debugger template directive that reads files from the machine running it`);
+      }
+      const name = NAME_FIELDS[key];
+      if (name ? !name.test(v) : !/^0x[0-9a-fA-F]*$/.test(v)) refuse(path, name ? `is not a ${key}` : "is not 0x-prefixed hex");
+    } else if (Array.isArray(v)) {
+      v.forEach((x, i) => walk(x, `${path}[${i}]`, key));
+    } else if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) {
+        if (k.includes("{{")) refuse(path, `has a key containing "{{", a ckb-debugger template directive`);
+        walk(x, /^[A-Za-z_]\w*$/.test(k) ? `${path}.${k}` : `${path}[${JSON.stringify(k)}]`, k);
+      }
+    }
+  };
+  walk(mock, "mock", "");
+}
+
+/**
+ * The script groups that run for a mock transaction, in first-appearance order.
+ * A cellbase runs none. A mock checkMockTransaction refuses is an error.
+ */
 export function groupsOf(mock: MockTransaction): ScriptGroup[] {
+  checkMockTransaction(mock);
   if (isCellbase(mock.tx as RpcTransaction)) return [];
   return groupScripts(
     mock.mock_info.inputs.map((c) => ({ lock: toScript(c.output.lock), type: c.output.type && toScript(c.output.type) })),

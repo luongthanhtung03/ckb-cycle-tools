@@ -307,6 +307,17 @@ const oneLine = (s: string) => {
 };
 
 /**
+ * Text from a config, a build or a node (scenario, script and function names,
+ * warnings) for a terminal or a CI log: oneLine, and never `::` at the start of
+ * a line, which GitHub Actions would run as a workflow command (`::error::`,
+ * `::add-mask::`, `::stop-commands::`); a zero-width space breaks it.
+ */
+export const termLine = (s: string) => oneLine(s).replace(/^(\s*):(?=:)/, "$1:\u200b");
+
+/** termLine for text that keeps its line breaks (a debugger's output in an error): each line cleaned the same way. */
+export const termLines = (s: string) => String(s).split(/\r?\n|\r/).map(termLine).join("\n");
+
+/**
  * Text from the PR's own files (scenario and script names, the title, error
  * messages) as inert markdown: one clipped line, no table breaks, no
  * formatting, no mentions, no links.
@@ -449,16 +460,18 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
 /** The same table for a terminal. */
 export function formatText(diff: CycleDiff): string {
   const header = ["SCENARIO", "GROUP", "SCRIPT", "BASE", "HEAD", "Δ", "Δ%", ""];
-  const rows = diff.rows.map((r) => [
-    r.scenario,
-    r.group,
-    r.script,
-    cell(r.base),
-    cell(r.head),
-    r.delta === undefined ? "" : signed(r.delta),
-    pct(r.percent),
-    note(r, diff.threshold),
-  ]);
+  const rows = diff.rows.map((r) =>
+    [
+      r.scenario,
+      r.group,
+      r.script,
+      cell(r.base),
+      cell(r.head),
+      r.delta === undefined ? "" : signed(r.delta),
+      pct(r.percent),
+      note(r, diff.threshold),
+    ].map(termLine),
+  );
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
   const right = new Set([3, 4, 5, 6]);
   const line = (cells: string[]) =>
@@ -469,12 +482,12 @@ export function formatText(diff: CycleDiff): string {
   // Under the table, one line per group that recorded functions: the largest changes.
   const functions: string[] = [];
   for (const r of diff.rows.filter((r) => r.kind !== "same")) {
-    const where = `${r.scenario} ${r.group}`;
-    if (r.functionsWarning) functions.push(`functions in ${where} not recorded: ${r.functionsWarning}`);
+    const where = `${termLine(r.scenario)} ${termLine(r.group)}`;
+    if (r.functionsWarning) functions.push(`functions in ${where} not recorded: ${termLine(r.functionsWarning)}`);
     else if (r.functions?.length) {
       const top = r.functions
         .slice(0, 5)
-        .map((f) => (f.delta !== undefined ? `${f.name} ${signed(f.delta)}` : `${f.name} ${fnText(f.base)} → ${fnText(f.head)}`));
+        .map((f) => `${termLine(f.name)} ${f.delta !== undefined ? signed(f.delta) : `${fnText(f.base)} → ${fnText(f.head)}`}`);
       const more = r.functions.length - top.length;
       functions.push(`functions in ${where}: ${top.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
     }

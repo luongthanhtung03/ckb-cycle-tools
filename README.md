@@ -246,6 +246,11 @@ this repo's five are written by `benchmarks/session-lock/mocks.mjs`, and
 `ckb-cycles mock <tx-hash> -o file.json` saves any transaction that way.
 `binaries` swaps the deployed code for the one just built (the rules for
 `type` vs `data*` hash types are in the [Action's README](action/README.md#cyclesjson)).
+For a cycles.json from a pull request, `--root <dir>` (repeatable) refuses any
+file it names outside those directories, and ignores its `"rpc"` (with a
+warning; `--rpc` still applies). Mocks with ckb-debugger template directives
+(`{{ data <path> }}`, `{{ hash <path> }}`, …), or a field that should be hex and is not, are
+refused, with or without `--root`.
 
 Here the ckb-js-vm session lock was changed to allow one shannon more than its
 limit and to do extra work per recipient check:

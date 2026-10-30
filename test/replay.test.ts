@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { MockTransaction } from "../src/mock.js";
 import {
+  checkMockTransaction,
   debuggerArgs,
   groupsOf,
   nodeVerdict,
@@ -45,6 +46,23 @@ const plan = (mock: MockTransaction, extra: Partial<ReplayPlan> = {}): ReplayPla
   network: "testnet",
   rpcUrl: "(test)",
   ...extra,
+});
+
+describe("checkMockTransaction", () => {
+  it("accepts a plain mock, and refuses template directives and non-hex fields anywhere", () => {
+    const ok = mockOf([cell(counter)], [cell()]);
+    expect(() => checkMockTransaction(ok)).not.toThrow();
+    const bad = (edit: (m: MockTransaction) => void) => {
+      const m = structuredClone(ok);
+      edit(m);
+      return () => groupsOf(m);
+    };
+    expect(bad((m) => (m.mock_info.inputs[0].data = "{{ data /etc/passwd }}"))).toThrow(/mock_info\.inputs\[0\]\.data contains "\{\{"/);
+    expect(bad((m) => (m.tx.outputs_data[0] = "0x{{ hash ../key }}"))).toThrow(/\{\{/);
+    expect(bad((m) => ((m.tx as unknown as Record<string, unknown>)["{{ def_type x }}"] = "0x"))).toThrow(/\{\{/);
+    expect(bad((m) => (m.tx.version = "0xzz"))).toThrow(/tx\.version is not 0x-prefixed hex/);
+    expect(bad((m) => (m.tx.outputs[0].lock.hash_type = "data9 "))).toThrow(/is not a hash_type/);
+  });
 });
 
 describe("groupsOf", () => {

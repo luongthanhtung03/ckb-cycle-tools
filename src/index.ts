@@ -13,6 +13,7 @@ export {
 } from "./mock.js";
 export type { HttpRpcOptions, MockTransaction, NodeConsensus, Rpc, RpcOutPoint, RpcTransaction, VmEpochs } from "./mock.js";
 export {
+  checkMockTransaction,
   checkTypeId,
   debuggerArgs,
   groupsOf,

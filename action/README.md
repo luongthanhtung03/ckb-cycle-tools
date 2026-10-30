@@ -65,7 +65,14 @@ anyone else that starts with the marker is left alone.
 - The PR's `cycles.json` decides which files the report reads. The Action
   passes `--root` with the checkouts, so a path outside them (absolute, `..`,
   or a symlink) is an error row, not read. Names and errors from it are
-  escaped in the comment: no mentions, links, HTML or table breaks.
+  escaped in the comment: no mentions, links, HTML or table breaks. In the
+  job log they are kept to one line without control characters, so none can
+  start a workflow command (`::`).
+- A mock or transaction with a ckb-debugger template directive
+  (`{{ data <path> }}`, `{{ hash <path> }}`, …) or a non-hex field is refused
+  before it reaches the debugger, which would otherwise embed any file on the
+  runner, past `--root`. Under `--root` the config's `"rpc"` is ignored (with a
+  warning): only the CLI's `--rpc`, or the public node, is asked.
 - `timeout-minutes` on the job bounds a script that runs forever (ckb-debugger
   stops it only at its cycle limit).
 - The comment is a review aid, not a gate against a hostile PR: a pull request

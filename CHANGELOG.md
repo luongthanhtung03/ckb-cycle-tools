@@ -6,6 +6,25 @@ This project follows [semantic versioning](https://semver.org/).
 
 Cycle reports from ckb-testtool tests, and a check across ckb-debugger releases.
 
+### Security
+- Every mock transaction is checked before it is written for ckb-debugger
+  (native and WebAssembly; plain replay, `--file`, `report`, `flame`, `scan`
+  scenarios, mocks built from a node): a string containing `{{` anywhere in it,
+  or a field that should be hex and is not, is refused with an error that names
+  the field. ckb-debugger expands `{{ data <path> }}`, `{{ hash <path> }}`,
+  `{{ def_type … }}` and `{{ ref_type … }}` in a tx file, so a pull request's
+  mock could embed any file on the runner, past `--root`.
+  `checkMockTransaction` is exported from `.` and `./replay`.
+- `report --root` ignores the config's `"rpc"` and says so in a warning: a pull
+  request's cycles.json no longer chooses the host the runner sends requests to.
+  `--rpc` still applies; otherwise the public node is asked.
+- Names from a cycles.json, a build or a node (scenario, script, binary and
+  function names, warnings) are printed to the terminal and the CI log on one
+  line, without control or bidi characters, and never with `::` at the start
+  of a line (errors keep their lines, each cleaned the same way), so a name
+  cannot forge a GitHub Actions workflow command or drive the terminal:
+  `report`, `diff`, `flame`, `scan` and plain replay.
+
 ### CLI: `ckb-cycles`
 - `scan <mocks-dir>`: writes a cycles.json from the mock transactions a test
   suite wrote, one scenario per file, with each freshly built binary in
