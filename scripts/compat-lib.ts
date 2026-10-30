@@ -40,6 +40,15 @@ export function checkSha256(bytes: Uint8Array, expected: string, what: string): 
   if (got !== expected.toLowerCase()) throw new Error(`${what}: sha256 ${got}, the release publishes ${expected.toLowerCase()}`);
 }
 
+export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/**
+ * The file a native run reads a scenario's mock from. Every build of a run
+ * shares it, so it carries a hash of the id: two ids that slug alike
+ * (`a_b`, `a-b`) must not replay the same transaction.
+ */
+export const txFileName = (id: string) => `${slug(id)}-${createHash("sha256").update(id).digest("hex").slice(0, 8)}.json`;
+
 /** Where a scenario came from. */
 export type Source = "testtool" | "benchmark" | "testnet" | "mainnet";
 

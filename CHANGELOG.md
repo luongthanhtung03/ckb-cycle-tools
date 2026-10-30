@@ -25,6 +25,8 @@ This project follows [semantic versioning](https://semver.org/).
   `npx ckb-cycles` names a package that does not exist) and `cargo test -p tests`.
 - `npm run compat`: a scenario the reference debugger could not run is a
   mismatch for every other build, not a match.
+- `npm run compat`: each scenario's transaction file carries a hash of its id,
+  so two ids that slug alike no longer replay the same transaction.
 
 ## 1.0.0 (2026-10-27)
 

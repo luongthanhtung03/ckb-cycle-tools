@@ -9,6 +9,7 @@ import {
   packScenarios,
   renderCompat,
   shortFailure,
+  txFileName,
   unpackScenarios,
   type Manifest,
   type Run,
@@ -150,6 +151,13 @@ describe("renderCompat", () => {
     const md = renderCompat({ scenarios, runs, debuggers: ["ref", "x"], about, platform: "p", startedAt: "t" });
     expect(md).toContain("| s | input.0.lock secp | 2 | 100 | ≠ 120 |");
     expect(md).toContain("- x, s, VM 2: differs. input.0.lock: 120 cycles, reference 100");
+  });
+});
+
+describe("txFileName", () => {
+  it("gives two scenario ids that slug alike their own files", () => {
+    expect(txFileName("testtool/test_a-b")).not.toBe(txFileName("testtool/test-a_b"));
+    expect(txFileName("mainnet/xudt")).toMatch(/^mainnet-xudt-[0-9a-f]{8}\.json$/);
   });
 });
 

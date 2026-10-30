@@ -39,6 +39,8 @@ import {
   compareAll,
   packScenarios,
   renderCompat,
+  slug,
+  txFileName,
   unpackScenarios,
   type Manifest,
   type Run,
@@ -174,8 +176,6 @@ const MAINNET: { hash: string; title: string }[] = [
   { hash: "0xd08befa554eb0975fb4aeeaaafeb8ac93844e89181db197fd41b832bccf23ae4", title: "Omnilock, args 0x06 (older block)" },
   { hash: "0xa1a96c2f2f540b824fb767de0b059a6226327e13545370cea89b1683dba4143c", title: "UniqueType (older block)" },
 ];
-
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 async function record(): Promise<void> {
   const scenarios: Scenario[] = [];
@@ -334,7 +334,7 @@ async function nativeBuild(version: string, dir: string): Promise<Build> {
     reported,
     origin: `GitHub release v${version}, ${platform}`,
     async replay(s, sv) {
-      const txFile = join(dir, `${slug(s.id)}.json`);
+      const txFile = join(dir, txFileName(s.id));
       if (!existsSync(txFile)) await writeFile(txFile, JSON.stringify(s.mock));
       const legacy = manifest.releases.find((r) => r.version === version)?.legacyCli;
       return replayWith(label, reported, s, sv, (args) => runNativeDebugger(path, legacy ? legacyArgs(args) : args), txFile);
