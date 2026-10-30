@@ -75,7 +75,7 @@ test ! -e target/ckb-cycles || fail "mocks written without CKB_CYCLES_MOCKS"
 
 step "make cycles-config (base)"
 make cycles-config CKB_CYCLES="$CKB_CYCLES" 2>&1 | tee "$WORK/cycles-base.log"
-test "$(ls target/ckb-cycles | wc -l)" = 2 || fail "expected 2 mocks: $(ls target/ckb-cycles)"
+test "$(ls target/ckb-cycles | wc -l)" -eq 2 || fail "expected 2 mocks: $(ls target/ckb-cycles)"
 $CKB_CYCLES report cycles.json --json "$WORK/base.json"
 rm -rf "$WORK/base-checkout" && mkdir -p "$WORK/base-checkout/build"
 cp -r build/release "$WORK/base-checkout/build/"

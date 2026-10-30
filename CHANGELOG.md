@@ -33,6 +33,8 @@ This project follows [semantic versioning](https://semver.org/).
 - Action: when the sticky comment exists but updating it fails, the step
   retries the update (three tries) and then warns; it no longer posts a second
   report comment beside the first.
+- `scripts/templates-e2e.sh` compares the mock count as a number, so macOS's
+  padded `wc -l` output no longer fails it.
 
 ## 1.0.0 (2026-10-27)
 
