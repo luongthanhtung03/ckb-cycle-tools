@@ -1,0 +1,101 @@
+name: CKB cycle report comment
+description: >
+  Posts or updates the sticky cycle-report comment on a pull request from the
+  markdown the main Action wrote. For a second job that runs no pull-request
+  code, so the token that can comment never shares a runner with the PR's build.
+author: Luong Thanh Tung
+
+inputs:
+  markdown:
+    description: >
+      Path to the markdown file: the main Action's `markdown` output, downloaded
+      from the first job. Must be a regular file (not a symlink).
+    required: true
+  pr:
+    description: Number of the pull request to comment on.
+    default: ${{ github.event.pull_request.number }}
+  github-token:
+    description: Token for the comment. Needs pull-requests write.
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the comment's tools
+      id: tools
+      shell: bash
+      run: |
+        gh=$(command -v gh || true)
+        case $gh in /*) ;; *) gh= ;; esac
+        clean() { printf '%s' "${1//[$'\r\n']/}"; }
+        {
+          echo "gh=$gh"
+          echo "https-proxy=$(clean "${HTTPS_PROXY:-${https_proxy:-}}")"
+          echo "http-proxy=$(clean "${HTTP_PROXY:-${http_proxy:-}}")"
+          echo "no-proxy=$(clean "${NO_PROXY:-${no_proxy:-}}")"
+          echo "ssl-cert-file=$(clean "${SSL_CERT_FILE:-}")"
+          echo "ssl-cert-dir=$(clean "${SSL_CERT_DIR:-}")"
+        } >> "$GITHUB_OUTPUT"
+
+    # No pull-request code runs in this job, but the steps before this one in it could
+    # have written $GITHUB_ENV or $GITHUB_PATH: the same precautions as in the main Action.
+    - name: Post the sticky comment
+      if: inputs.pr != ''
+      shell: /bin/bash --noprofile --norc -p -eo pipefail {0}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH: ${{ steps.tools.outputs.gh }}
+        REPO: ${{ github.repository }}
+        PR: ${{ inputs.pr }}
+        BODY: ${{ inputs.markdown }}
+        RETRY_DELAY: "5"
+        PROXY_HTTPS: ${{ steps.tools.outputs.https-proxy }}
+        PROXY_HTTP: ${{ steps.tools.outputs.http-proxy }}
+        PROXY_NO: ${{ steps.tools.outputs.no-proxy }}
+        CERT_FILE: ${{ steps.tools.outputs.ssl-cert-file }}
+        CERT_DIR: ${{ steps.tools.outputs.ssl-cert-dir }}
+        BASH_ENV: ""
+        ENV: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+      run: |
+        export PATH=/usr/bin:/bin
+        if [ -z "$GH" ]; then echo "::warning::gh is not on PATH; the report is in the job summary"; exit 0; fi
+        case $PR in '' | *[!0-9]*) echo "::warning::no pull request number; the report is in the job summary"; exit 0 ;; esac
+        if [ ! -f "$BODY" ] || [ -L "$BODY" ]; then echo "::warning::no report at $BODY; nothing to post"; exit 0; fi
+        case $RETRY_DELAY in '' | *[!0-9]*) RETRY_DELAY=5 ;; esac
+        # gh gets these variables and nothing else from the job, and an empty config directory.
+        cfg=$(mktemp -d /tmp/ckb-gh.XXXXXXXX)
+        trap 'rm -rf "$cfg"' EXIT
+        gh() {
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$cfg" GH_CONFIG_DIR="$cfg" GH_TOKEN="$GH_TOKEN" \
+            GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+            HTTPS_PROXY="$PROXY_HTTPS" https_proxy="$PROXY_HTTPS" HTTP_PROXY="$PROXY_HTTP" http_proxy="$PROXY_HTTP" \
+            NO_PROXY="$PROXY_NO" no_proxy="$PROXY_NO" SSL_CERT_FILE="$CERT_FILE" SSL_CERT_DIR="$CERT_DIR" \
+            "$GH" "$@"
+        }
+        marker='<!-- ckb-cycles-report -->'
+        # Only a comment this token posted is ours to update: anyone can write one that
+        # starts with the marker. The workflow token cannot read /user; it is the bot.
+        login=$(gh api user --jq .login 2>/dev/null) || login='github-actions[bot]'
+        # All the matches first, then the first of them: `| head` could cut gh off mid-page.
+        ids=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq ".[] | select(.user.login == \"$login\" and (.body | startswith(\"$marker\"))) | .id") || {
+          # Unknown whether ours exists: posting now could put a second one beside it.
+          echo "::warning::could not list the pull request's comments; the report is in the job summary"
+          exit 0
+        }
+        id=${ids%%$'\n'*}
+        # A pull request from a fork gets a read-only token: the summary still has the table.
+        if [ -z "$id" ]; then
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
+            || echo "::warning::could not post the cycle report comment (read-only token?)"
+          exit 0
+        fi
+        # Our comment exists: update it, retrying, and never post a second one beside it.
+        for try in 1 2 3; do
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$BODY" >/dev/null && exit 0
+          [ "$try" = 3 ] || sleep $((try * RETRY_DELAY))
+        done
+        echo "::warning::could not update the cycle report comment $id (read-only token?)"

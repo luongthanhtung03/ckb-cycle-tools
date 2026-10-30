@@ -24,6 +24,31 @@ Cycle reports from ckb-testtool tests, and a check across ckb-debugger releases.
   of a line (errors keep their lines, each cleaned the same way), so a name
   cannot forge a GitHub Actions workflow command or drive the terminal:
   `report`, `diff`, `flame`, `scan` and plain replay.
+- GitHub Action: the PR's `build` runs in the same job as the sticky-comment
+  step, which gets `github-token`, and could take that token by writing its own
+  `gh` to `$GITHUB_PATH`, or BASH_ENV, PATH and the like to `$GITHUB_ENV`. `gh`
+  is now located before the build runs; the comment step runs `/bin/bash -p`
+  (not the `bash` on PATH; no BASH_ENV, ENV or exported functions), sets PATH
+  itself, blanks LD_PRELOAD and the like, and runs `gh` with only the variables
+  it needs (the proxies and CA settings as they were before the build) and an
+  empty config directory. The comment file is read from the runner's temp
+  directory, never from a step output, and must be a regular file. This does
+  not stop a build that leaves a process running or replaces files on the
+  runner; the Action's README says so and shows a two-job setup for PRs you do
+  not trust with the token.
+- GitHub Action: `action/comment`, the sticky-comment step on its own, for that
+  second job: it posts a markdown file downloaded from the first job, with a
+  token the PR's build never shares a runner with. The first job runs the
+  Action with `comment: false` and a read-only token.
+- GitHub Action: the comment's markdown is written only when the diff ran, so a
+  second job never posts a failed diff's output; the base commit is fetched only
+  when the checkout does not have it (a private repository checked out with
+  `persist-credentials: false` and `fetch-depth: 0` then needs no credentials).
+- The README examples and this repository's cycle-report workflow check out
+  with `persist-credentials: false`, so no token is left in `.git/config` for
+  the PR's build, and the Action's README no longer says the build cannot get a
+  write token. GitHub-owned actions in this repository's workflows and the
+  README examples are pinned to commit SHAs, with the release as a comment.
 
 ### CLI: `ckb-cycles`
 - `scan <mocks-dir>`: writes a cycles.json from the mock transactions a test

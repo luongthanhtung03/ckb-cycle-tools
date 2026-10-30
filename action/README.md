@@ -21,7 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30             # a PR whose script loops still ends
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no token in .git/config for the PR's build
       - uses: luongthanhtung03/ckb-cycle-tools/action@<commit-sha>  # pin a commit, not @main
         with:
           build: make build         # whatever builds the binaries cycles.json names
@@ -29,8 +31,18 @@ jobs:
           fail-on-result-change: true
 ```
 
+This is the one-job setup: the PR's build and the comment share a job, so the
+build runs where a token that can comment is in reach. For pull requests you
+would not trust with that token, use the
+[two-job setup](#two-jobs-the-build-never-shares-a-runner-with-the-comment-token)
+below.
+
 On `ubuntu-latest` it installs ckb-debugger (v1.1.1, the release CI here uses) if
-it is not already on PATH. It needs Node 20 or later, which the runner has.
+it is not already on PATH. It needs Node 20 or later, which the runner has, and
+`/bin/bash` and `gh` for the comment (Linux and macOS runners have both). In a
+private repository, check out with `fetch-depth: 0` as well: with
+`persist-credentials: false` the Action's fetch of the base commit has no
+credentials, so the base must already be in the checkout.
 
 | Input | Default | |
 |---|---|---|
@@ -45,7 +57,10 @@ it is not already on PATH. It needs Node 20 or later, which the runner has.
 | `ckb-debugger-version` | `v1.1.1` | release installed when none is on PATH |
 | `ckb-debugger-sha256` | v1.1.1's | SHA-256 of that release's `x86_64-unknown-linux-gnu` tarball; required with another version |
 
-Outputs: `report` (head report JSON), `markdown` (the comment), `failed`.
+Outputs: `report` (head report JSON), `markdown` (the comment), `failed`. The
+comment's markdown is at `$RUNNER_TEMP/ckb-cycles/comment.md` whenever the
+diff ran, also when a threshold then fails the step (the step's outputs may not
+be set then, so a later step reads that path).
 
 The table also goes to the job summary, so a pull request from a fork (whose
 token cannot comment) still shows it. Only a comment posted by the token's own
@@ -56,12 +71,31 @@ anyone else that starts with the marker is left alone.
 
 - Use it under `pull_request`, as above, never `pull_request_target` or
   `workflow_run` with a checkout of the PR's head: `build` runs the PR's code,
-  which must not get a write token or your secrets.
+  which must not get your secrets or a token that writes to the repository's
+  contents.
+- In the one-job setup, the PR's build does run in the job that holds a token
+  with `pull-requests: write` (the comment's). Under `pull_request` GitHub gives
+  a PR from a fork a read-only token, so this matters for PRs from branches of
+  the repository itself (people with write access), for private repositories
+  that send write tokens to fork PRs, and for any token you pass as
+  `github-token`. The Action keeps that token away from what the build leaves
+  in the job's environment: `gh` is located before the build runs, and the
+  comment step runs `/bin/bash -p` (not the `bash` on PATH, no `BASH_ENV` or
+  `ENV`, no exported functions), sets PATH itself and gives `gh` only the
+  variables it needs, with an empty config directory. So a build that writes to
+  `$GITHUB_PATH` or `$GITHUB_ENV` (PATH, BASH_ENV, LD_PRELOAD, proxies, a CA
+  file, GH_HOST) does not get the token. It cannot stop a build that leaves a
+  process running for the rest of the job, or that replaces files on the
+  runner (hosted runners give it passwordless sudo): such a build can still
+  take the comment token. Where that matters, use the two-job setup below.
+- Check out with `persist-credentials: false`. By default `actions/checkout`
+  leaves the job's token in `.git/config`, where the PR's build can read it.
 - Leave `github-token` at the workflow token. A personal access token or an app
   token would be on a runner where the PR's build has already run. (An app
   token also cannot read `/user`, so the comment it posted is not recognised
   and each push adds another.)
-- Pin the Action to a commit SHA: it runs with a token that can comment.
+- Pin the Action, and the actions around it, to a commit SHA: it runs with a
+  token that can comment.
 - The PR's `cycles.json` decides which files the report reads. The Action
   passes `--root` with the checkouts, so a path outside them (absolute, `..`,
   or a symlink) is an error row, not read. Names and errors from it are
@@ -78,6 +112,66 @@ anyone else that starts with the marker is left alone.
 - The comment is a review aid, not a gate against a hostile PR: a pull request
   can change the workflow, the build and so the numbers. Treat the check as
   reliable for PRs from people with write access.
+
+### Two jobs: the build never shares a runner with the comment token
+
+The first job builds and reports with a read-only token and no comment; it
+uploads the markdown. The second job has `pull-requests: write`, checks out
+nothing and runs no code from the pull request: it downloads the markdown and
+posts it with `action/comment`, the same sticky-comment step as the main
+Action.
+
+```yaml
+# .github/workflows/cycles.yml
+name: Cycles
+on: pull_request
+permissions: {}
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read                # all the PR's build can get
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: luongthanhtung03/ckb-cycle-tools/action@<commit-sha>
+        with:
+          build: make build
+          comment: false
+          fail-above: 5
+          fail-on-result-change: true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}     # a failed threshold still gets its comment
+        with:
+          name: cycle-report
+          path: ${{ runner.temp }}/ckb-cycles/comment.md
+          if-no-files-found: ignore
+          retention-days: 1
+  comment:
+    needs: report
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cycle-report
+          path: ${{ runner.temp }}/cycle-report
+      - uses: luongthanhtung03/ckb-cycle-tools/action/comment@<commit-sha>
+        with:
+          markdown: ${{ runner.temp }}/cycle-report/comment.md
+```
+
+`action/comment` takes `markdown` (the file, required), `pr` (default: the
+event's pull request) and `github-token` (default: the workflow token). The
+markdown comes from a job the PR's code ran in, so a hostile PR can make it
+say anything (as in one job); it is posted as text and nothing in it runs. On self-hosted
+runners, the split helps only if the second job cannot land on a machine the
+first job's build could change: use ephemeral runners, or run the comment job
+on a GitHub-hosted one.
 
 ## cycles.json
 
