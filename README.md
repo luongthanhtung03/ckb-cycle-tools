@@ -41,7 +41,7 @@ There is no convenient way to answer the two questions people actually have:
 
 ```bash
 npm install -g ckb-cycle-tools   # the ckb-cycles command
-ckb-cycles <tx hash>             # or without installing: npx ckb-cycles <tx hash>
+ckb-cycles <tx hash>             # or without installing: npx -p ckb-cycle-tools ckb-cycles <tx hash>
 ```
 
 [ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.1.0, ESM, Node 20 or
@@ -172,7 +172,7 @@ of exactly its 100 CKB limit, edited to pay one shannon more
 ([`test/fixtures/session-lock-overspend.json`](test/fixtures/session-lock-overspend.json)):
 
 ```
-$ npx ckb-cycles --file session-lock-overspend.json
+$ npx -p ckb-cycle-tools ckb-cycles --file session-lock-overspend.json
 tx not on chain
 
 GROUP  SCRIPT             RUN AT        RESULT       CYCLES  SHARE
@@ -204,7 +204,7 @@ of the ckb-session-kit lock, with that lock built with symbols
 (`CARGO_PROFILE_RELEASE_STRIP=false cargo build --release`):
 
 ```
-$ npx ckb-cycles flame 0x50ae6df4…a03092 --script input.0.lock \
+$ npx -p ckb-cycle-tools ckb-cycles flame 0x50ae6df4…a03092 --script input.0.lock \
     --bin 0xab419466…4c08ce=target/riscv64imac-unknown-none-elf/release/session-lock
 input.0.lock  0xab4194…4c08ce  ok  20,999 cycles
   --bin …/session-lock: same cycles as the deployed binary
@@ -251,9 +251,9 @@ Here the ckb-js-vm session lock was changed to allow one shannon more than its
 limit and to do extra work per recipient check:
 
 ```
-$ npx ckb-cycles report cycles.json --json base.json
-$ npx ckb-cycles report cycles.json --binaries-from ../pr --json head.json
-$ npx ckb-cycles diff base.json head.json --fail-above 1
+$ npx -p ckb-cycle-tools ckb-cycles report cycles.json --json base.json
+$ npx -p ckb-cycle-tools ckb-cycles report cycles.json --binaries-from ../pr --json head.json
+$ npx -p ckb-cycle-tools ckb-cycles diff base.json head.json --fail-above 1
 1 result change, 1 over the 1% threshold, 5 of 10 script groups changed
 ```
 
@@ -366,10 +366,10 @@ test's script groups, with the costliest functions of your own contracts. The
 fixture project below, its two steps run by hand:
 
 ```
-$ npx ckb-cycles scan mocks --binaries build/release --functions -o cycles.json
+$ npx -p ckb-cycle-tools ckb-cycles scan mocks --binaries build/release --functions -o cycles.json
 cycles.json: 6 scenario(s), 1 binary (args-loop)
 code cells that are none of the binaries: 0xe683b041…3660d7
-$ npx ckb-cycles report cycles.json
+$ npx -p ckb-cycle-tools ckb-cycles report cycles.json
 SCENARIO                          GROUP         SCRIPT           RESULT   CYCLES
 tests.test_beside_always_success  input.0.lock  args-loop        ok       95,392
 tests.test_beside_always_success  input.1.lock  0x91b570…218629  ok        2,107

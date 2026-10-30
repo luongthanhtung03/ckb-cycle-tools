@@ -136,10 +136,10 @@ What the swap changes depends on how your script points at its code:
 ## Locally
 
 ```bash
-npx ckb-cycles report cycles.json --json head.json
-npx ckb-cycles report cycles.json --binaries-from ../base-checkout --json base.json
+npx -p ckb-cycle-tools ckb-cycles report cycles.json --json head.json
+npx -p ckb-cycle-tools ckb-cycles report cycles.json --binaries-from ../base-checkout --json base.json
 # --root <dir> (repeatable): read no file the config names outside these
-npx ckb-cycles diff base.json head.json --markdown --fail-above 5
+npx -p ckb-cycle-tools ckb-cycles diff base.json head.json --markdown --fail-above 5
 ```
 
 Exit codes: `report` 2 when a scenario could not run (a rejection is a result,

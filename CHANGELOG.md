@@ -30,6 +30,8 @@ Cycle reports from ckb-testtool tests, and a check across ckb-debugger releases.
   ckb-script-templates, two contracts, a change, a diff.
 - README: the Makefile target uses `npx -p ckb-cycle-tools ckb-cycles` (a bare
   `npx ckb-cycles` names a package that does not exist) and `cargo test -p tests`.
+  Every other `npx` line in the READMEs and the demo page now names the package
+  the same way.
 
 ### Library
 - `scanTestMocks`, `configFromMocks` and `formatScan` (and their types) from `.`.

@@ -63,7 +63,7 @@ export function Flame() {
       <Prompt path="~">cycles flame {profile ? profile.name : "<file.folded>"}</Prompt>
       <p className="hint">
         # where inside a script the cycles go. Make the profile with the CLI:{" "}
-        <code>npx ckb-cycles flame &lt;tx-hash&gt; --bin &lt;code-hash&gt;=&lt;unstripped elf&gt;</code>, then drop
+        <code>npx -p ckb-cycle-tools ckb-cycles flame &lt;tx-hash&gt; --bin &lt;code-hash&gt;=&lt;unstripped elf&gt;</code>, then drop
         its <code>.folded</code> file here. Drawn in this browser; nothing is uploaded.
       </p>
       <div className="row">
