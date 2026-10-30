@@ -30,6 +30,9 @@ This project follows [semantic versioning](https://semver.org/).
 - ELF names skip absolute symbols, labels outside executable sections and
   linker section markers (`__text_start`, `_etext`), so a marker at `_start`'s
   address no longer renames the root frame.
+- Action: when the sticky comment exists but updating it fails, the step
+  retries the update (three tries) and then warns; it no longer posts a second
+  report comment beside the first.
 
 ## 1.0.0 (2026-10-27)
 

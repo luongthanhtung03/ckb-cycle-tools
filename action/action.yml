@@ -184,11 +184,17 @@ runs:
           --jq ".[] | select(.user.login == \"$login\" and (.body | startswith(\"$marker\"))) | .id") || ids=""
         id=${ids%%$'\n'*}
         # A pull request from a fork gets a read-only token: the summary still has the table.
-        if [ -n "$id" ] && gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$BODY" >/dev/null; then
+        if [ -z "$id" ]; then
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
+            || echo "::warning::could not post the cycle report comment (read-only token?)"
           exit 0
         fi
-        gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
-          || echo "::warning::could not post the cycle report comment (read-only token?)"
+        # Our comment exists: update it, retrying, and never post a second one beside it.
+        for try in 1 2 3; do
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$BODY" >/dev/null && exit 0
+          [ "$try" = 3 ] || sleep $((try * 5))
+        done
+        echo "::warning::could not update the cycle report comment $id (read-only token?)"
 
     - name: Fail on the thresholds
       if: steps.diff.outputs.failed == 'true'
