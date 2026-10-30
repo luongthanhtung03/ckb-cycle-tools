@@ -38,6 +38,8 @@ This project follows [semantic versioning](https://semver.org/).
 - Legacy Rust symbol names are demangled in full (`$RF$`, `$LP$`, `$u7b$` and
   the other escapes), so they read as `rustc-demangle` prints them.
 - `npm run compat -- record` tries a node three times, as it says, not six.
+- `flameTransaction` reads and parses each symbols build once, not once per
+  script group that runs it.
 
 ## 1.0.0 (2026-10-27)
 

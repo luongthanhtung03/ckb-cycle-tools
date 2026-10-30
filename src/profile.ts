@@ -152,6 +152,13 @@ export async function flameTransaction(
     const txFile = join(dir, "tx.json");
     await writeFile(txFile, JSON.stringify(plan.mock));
     const groups: FlameGroup[] = [];
+    // Frames the profiler could not name from line info get their names from the build's symbol table,
+    // read and parsed once per build however many groups run it.
+    const symbols = new Map<string, Promise<Map<bigint, string>>>();
+    const namesOf = (bin: string) => {
+      if (!symbols.has(bin)) symbols.set(bin, readFile(bin).then(elfFunctionNames, () => new Map<bigint, string>()));
+      return symbols.get(bin)!;
+    };
     for (const g of plan.groups) {
       const selector = selectorFor(g);
       if (options.scripts && !options.scripts.includes(selector)) continue;
@@ -166,8 +173,7 @@ export async function flameTransaction(
         "--flamegraph-output",
         out,
       ]);
-      // Frames the profiler could not name from line info get their names from the build's symbol table.
-      const names = bin ? await readFile(bin).then(elfFunctionNames, () => new Map<bigint, string>()) : new Map<bigint, string>();
+      const names = bin ? await namesOf(bin) : new Map<bigint, string>();
       const folded = nameAddresses(parseFolded(await options.readFile(out).catch(() => "")), names);
       // Flamegraph mode leaves out loading the binary, so result and cycles come
       // from plain runs: with the build, and with the deployed binary to compare.
