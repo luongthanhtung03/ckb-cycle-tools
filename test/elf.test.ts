@@ -61,11 +61,22 @@ describe("demangle", () => {
     expect(demangle("_ZN4core9panicking5panic17h0123456789abcdefE")).toBe("core::panicking::panic");
   });
 
+  it("decodes every legacy escape, as rustc-demangle does", () => {
+    const legacy = (...parts: string[]) => `_ZN${parts.map((p) => `${p.length}${p}`).join("")}17h0123456789abcdefE`;
+    expect(demangle(legacy("_$LT$$RF$T$u20$as$u20$core..fmt..Debug$GT$", "fmt"))).toBe("<&T as core::fmt::Debug>::fmt");
+    expect(demangle(legacy("core", "ptr", "drop_in_place$LT$std..rt..lang_start$LT$$LP$$RP$$GT$..$u7b$$u7b$closure$u7d$$u7d$$GT$"))).toBe(
+      "core::ptr::drop_in_place<std::rt::lang_start<()>::{{closure}}>",
+    );
+    expect(demangle(legacy("alloc", "fn$LP$$BP$const$u20$u8$C$$u20$usize$RP$$SP$x.y"))).toBe("alloc::fn(*const u8, usize)@x.y");
+  });
+
   it("leaves what it does not follow as it is", () => {
     const impl = "_RNvMs0_NtCsbaiYuaNGxW8_11buddy_alloc10fast_allocNtB5_9FastAlloc3new";
     expect(demangle(impl)).toBe(impl);
     expect(demangle("_start")).toBe("_start");
     expect(demangle("_ZN3foo")).toBe("_ZN3foo");
+    expect(demangle("_ZN11a$u110000$bE")).toBe("_ZN11a$u110000$bE");
+    expect(demangle("_ZN6a$XY$bE")).toBe("_ZN6a$XY$bE");
   });
 });
 

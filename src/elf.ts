@@ -92,7 +92,42 @@ function demangleLegacy(name: string): string | undefined {
   }
   if (name[i] !== "E" || !parts.length) return undefined;
   if (parts.length > 1 && /^h[0-9a-f]{16}$/.test(parts[parts.length - 1])) parts.pop();
-  return parts.join("::").replace(/\$LT\$/g, "<").replace(/\$GT\$/g, ">").replace(/\$u20\$/g, " ").replace(/\.\./g, "::");
+  const out: string[] = [];
+  for (const p of parts) {
+    const s = unescapeLegacy(p);
+    if (s === undefined) return undefined;
+    out.push(s);
+  }
+  return out.join("::");
+}
+
+const LEGACY_ESCAPES: Record<string, string> = { SP: "@", BP: "*", RF: "&", LT: "<", GT: ">", LP: "(", RP: ")", C: "," };
+
+/** One legacy path element: `$RF$`, `$u7b$` and the rest decoded, `..` as `::`. Undefined on an escape it does not know. */
+function unescapeLegacy(part: string): string | undefined {
+  // An element that would start with `$` is written `_$`.
+  let s = part.startsWith("_$") ? part.slice(1) : part;
+  let out = "";
+  while (s) {
+    if (s.startsWith("..")) {
+      out += "::";
+      s = s.slice(2);
+    } else if (s[0] === "$") {
+      const end = s.indexOf("$", 1);
+      if (end < 0) return undefined;
+      const esc = s.slice(1, end);
+      const code = /^u[0-9a-f]{1,6}$/.test(esc) ? parseInt(esc.slice(1), 16) : -1;
+      const ch = LEGACY_ESCAPES[esc] ?? (code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : undefined);
+      if (ch === undefined) return undefined;
+      out += ch;
+      s = s.slice(end + 1);
+    } else {
+      const m = /^[^$.]+|^\./.exec(s)!;
+      out += m[0];
+      s = s.slice(m[0].length);
+    }
+  }
+  return out;
 }
 
 function demangleV0(name: string): string | undefined {

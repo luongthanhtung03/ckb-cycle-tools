@@ -35,6 +35,8 @@ This project follows [semantic versioning](https://semver.org/).
   report comment beside the first.
 - `scripts/templates-e2e.sh` compares the mock count as a number, so macOS's
   padded `wc -l` output no longer fails it.
+- Legacy Rust symbol names are demangled in full (`$RF$`, `$LP$`, `$u7b$` and
+  the other escapes), so they read as `rustc-demangle` prints them.
 
 ## 1.0.0 (2026-10-27)
 
