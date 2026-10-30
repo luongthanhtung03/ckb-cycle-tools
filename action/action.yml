@@ -57,6 +57,25 @@ outputs:
 runs:
   using: composite
   steps:
+    # Before the PR's build runs. What that build writes to $GITHUB_PATH or $GITHUB_ENV
+    # applies to every later step of the job, so it must not decide which gh receives
+    # the token or where gh sends it.
+    - name: Resolve the comment's tools
+      id: tools
+      shell: bash
+      run: |
+        gh=$(command -v gh || true)
+        case $gh in /*) ;; *) gh= ;; esac
+        clean() { printf '%s' "${1//[$'\r\n']/}"; }
+        {
+          echo "gh=$gh"
+          echo "https-proxy=$(clean "${HTTPS_PROXY:-${https_proxy:-}}")"
+          echo "http-proxy=$(clean "${HTTP_PROXY:-${http_proxy:-}}")"
+          echo "no-proxy=$(clean "${NO_PROXY:-${no_proxy:-}}")"
+          echo "ssl-cert-file=$(clean "${SSL_CERT_FILE:-}")"
+          echo "ssl-cert-dir=$(clean "${SSL_CERT_DIR:-}")"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Install ckb-debugger
       shell: bash
       env:
@@ -116,7 +135,9 @@ runs:
           echo '{"tool":"ckb-cycles","version":1,"scenarios":[]}' > "$out/base.json"
           exit 0
         fi
-        git fetch --no-tags --depth=1 origin "$BASE"
+        # Already there with fetch-depth: 0, which a private repository checked out with
+        # persist-credentials: false needs (the fetch has no credentials then).
+        if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then git fetch --no-tags --depth=1 origin "$BASE"; fi
         git worktree add --detach "$out/base" "$BASE"
         # A base whose build fails has nothing to compare: every scenario is recorded as
         # a base error, which the diff reports and fails on when a threshold is set.
@@ -154,12 +175,14 @@ runs:
         if [ -n "$FAIL_ABOVE" ]; then args+=(--fail-above "$FAIL_ABOVE"); fi
         if [ "$FAIL_ON_RESULT_CHANGE" = true ]; then args+=(--fail-on-result-change); fi
         set +e
-        node "$CKB_CYCLES" diff "$out/base.json" "$out/head.json" "${args[@]}" > "$out/comment.md"
+        node "$CKB_CYCLES" diff "$out/base.json" "$out/head.json" "${args[@]}" > "$out/diff.md"
         code=$?
         set -e
         # 0 and 1 are verdicts; anything else (2: bad arguments or reports), or no output,
         # is the diff itself failing.
-        if [ "$code" -gt 1 ] || [ ! -s "$out/comment.md" ]; then cat "$out/comment.md"; exit 2; fi
+        if [ "$code" -gt 1 ] || [ ! -s "$out/diff.md" ]; then cat "$out/diff.md"; exit 2; fi
+        # Only a diff that ran is the comment (a second job may post this file).
+        mv "$out/diff.md" "$out/comment.md"
         cat "$out/comment.md" >> "$GITHUB_STEP_SUMMARY"
         {
           echo "report=$out/head.json"
@@ -167,20 +190,56 @@ runs:
           echo "failed=$([ "$code" = 1 ] && echo true || echo false)"
         } >> "$GITHUB_OUTPUT"
 
+    # The PR's build ran earlier in this job and may have written $GITHUB_ENV and
+    # $GITHUB_PATH. So: bash by absolute path (`shell: bash` is looked up on PATH), -p (no
+    # BASH_ENV or ENV file, no functions from the environment), the step's env (which wins
+    # over $GITHUB_ENV) blanks what the dynamic loader reads, PATH is set in the
+    # script (the runner puts $GITHUB_PATH in front of a step's PATH), and gh, resolved
+    # before the build, runs with only the variables it needs. This cannot stop a build
+    # that left a process running or replaced files on the runner: for a PR you do not
+    # trust, post from a second job (action/README.md, "Security").
     - name: Post the sticky comment
       if: inputs.comment == 'true' && github.event.pull_request.number
-      shell: bash
+      shell: /bin/bash --noprofile --norc -p -eo pipefail {0}
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        GH: ${{ steps.tools.outputs.gh }}
+        REPO: ${{ github.repository }}
         PR: ${{ github.event.pull_request.number }}
-        BODY: ${{ steps.diff.outputs.markdown }}
+        BODY: ${{ runner.temp }}/ckb-cycles/comment.md
+        RETRY_DELAY: "5"
+        PROXY_HTTPS: ${{ steps.tools.outputs.https-proxy }}
+        PROXY_HTTP: ${{ steps.tools.outputs.http-proxy }}
+        PROXY_NO: ${{ steps.tools.outputs.no-proxy }}
+        CERT_FILE: ${{ steps.tools.outputs.ssl-cert-file }}
+        CERT_DIR: ${{ steps.tools.outputs.ssl-cert-dir }}
+        BASH_ENV: ""
+        ENV: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
       run: |
+        export PATH=/usr/bin:/bin
+        if [ -z "$GH" ]; then echo "::warning::gh is not on PATH; the report is in the job summary"; exit 0; fi
+        case $PR in '' | *[!0-9]*) echo "::warning::no pull request number; the report is in the job summary"; exit 0 ;; esac
+        if [ ! -f "$BODY" ] || [ -L "$BODY" ]; then echo "::warning::no report at $BODY; nothing to post"; exit 0; fi
+        case $RETRY_DELAY in '' | *[!0-9]*) RETRY_DELAY=5 ;; esac
+        # gh gets these variables and nothing else from the job, and an empty config directory.
+        cfg=$(mktemp -d /tmp/ckb-gh.XXXXXXXX)
+        trap 'rm -rf "$cfg"' EXIT
+        gh() {
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$cfg" GH_CONFIG_DIR="$cfg" GH_TOKEN="$GH_TOKEN" \
+            GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+            HTTPS_PROXY="$PROXY_HTTPS" https_proxy="$PROXY_HTTPS" HTTP_PROXY="$PROXY_HTTP" http_proxy="$PROXY_HTTP" \
+            NO_PROXY="$PROXY_NO" no_proxy="$PROXY_NO" SSL_CERT_FILE="$CERT_FILE" SSL_CERT_DIR="$CERT_DIR" \
+            "$GH" "$@"
+        }
         marker='<!-- ckb-cycles-report -->'
         # Only a comment this token posted is ours to update: anyone can write one that
         # starts with the marker. The workflow token cannot read /user; it is the bot.
         login=$(gh api user --jq .login 2>/dev/null) || login='github-actions[bot]'
         # All the matches first, then the first of them: `| head` could cut gh off mid-page.
-        ids=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+        ids=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
           --jq ".[] | select(.user.login == \"$login\" and (.body | startswith(\"$marker\"))) | .id") || {
           # Unknown whether ours exists: posting now could put a second one beside it.
           echo "::warning::could not list the pull request's comments; the report is in the job summary"
@@ -189,14 +248,14 @@ runs:
         id=${ids%%$'\n'*}
         # A pull request from a fork gets a read-only token: the summary still has the table.
         if [ -z "$id" ]; then
-          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$BODY" >/dev/null \
             || echo "::warning::could not post the cycle report comment (read-only token?)"
           exit 0
         fi
         # Our comment exists: update it, retrying, and never post a second one beside it.
         for try in 1 2 3; do
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$BODY" >/dev/null && exit 0
-          [ "$try" = 3 ] || sleep $((try * 5))
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$BODY" >/dev/null && exit 0
+          [ "$try" = 3 ] || sleep $((try * RETRY_DELAY))
         done
         echo "::warning::could not update the cycle report comment $id (read-only token?)"
 

@@ -267,6 +267,15 @@ That table (with `--markdown`) is what the PR comment shows; unchanged groups
 fold away below it. This repo runs the Action on its own pull requests
 ([`.github/workflows/cycle-report.yml`](.github/workflows/cycle-report.yml)).
 
+The PR's build is the PR's code. In the Action's one-job setup it runs in the
+job that also holds the comment's token (`pull-requests: write`; read-only for
+a PR from a fork): the Action keeps what the build writes to `$GITHUB_PATH` and
+`$GITHUB_ENV` away from that token, but a build that leaves a process running
+or replaces files on the runner can still take it. For pull requests you would
+not trust with it, the [two-job setup](action/README.md#two-jobs-the-build-never-shares-a-runner-with-the-comment-token)
+builds with a read-only token and posts from a second job that runs no PR code
+(`action/comment`). Check out with `persist-credentials: false` either way.
+
 ### Which functions changed
 
 A row says a group got 3% dearer; the flamegraph mode can say where. Give a
