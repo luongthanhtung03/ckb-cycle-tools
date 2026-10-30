@@ -23,6 +23,8 @@ This project follows [semantic versioning](https://semver.org/).
   project generated from ckb-script-templates, two contracts, a change, a diff.
 - README: the Makefile target uses `npx -p ckb-cycle-tools ckb-cycles` (a bare
   `npx ckb-cycles` names a package that does not exist) and `cargo test -p tests`.
+- `npm run compat`: a scenario the reference debugger could not run is a
+  mismatch for every other build, not a match.
 
 ## 1.0.0 (2026-10-27)
 

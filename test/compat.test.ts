@@ -110,6 +110,11 @@ describe("compareRun", () => {
   it("reports a build that could not run the scenario as failed", () => {
     expect(compareRun(run("x", [], { failure: "unknown flag --script" }), ref)).toEqual({ verdict: "failed", diffs: ["unknown flag --script"] });
   });
+
+  it("does not call a build the same when the reference itself could not run the scenario", () => {
+    const broken = run("ref", [], { failure: "panicked" });
+    expect(compareRun(run("x", [["input.0.lock", "100"]]), broken)).toEqual({ verdict: "differs", diffs: ["reference could not run: panicked"] });
+  });
 });
 
 describe("compareAll", () => {

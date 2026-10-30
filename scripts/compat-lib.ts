@@ -134,6 +134,8 @@ export type Verdict = "same" | "differs" | "failed";
 
 export function compareRun(run: Run, ref: Run): { verdict: Verdict; diffs: string[] } {
   if (run.failure) return { verdict: "failed", diffs: [run.failure] };
+  // A failed reference has no groups to check against: say so rather than call the build the same.
+  if (ref.failure) return { verdict: "differs", diffs: [`reference could not run: ${ref.failure}`] };
   const diffs: string[] = [];
   const bySel = new Map(run.groups.map((g) => [g.selector, g]));
   for (const want of ref.groups) {
