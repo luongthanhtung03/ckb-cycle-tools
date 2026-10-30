@@ -12,6 +12,12 @@ export interface CycleReport {
   /** ckb-debugger's `--version`, so two reports can be checked for comparability. */
   debugger?: string;
   scenarios: ScenarioResult[];
+  /**
+   * What made `report` exit 2, beyond the scenarios' own errors: a binary that
+   * matched no cell dep in any scenario, so nothing measured it. A gated diff
+   * fails on these, from either side.
+   */
+  errors?: string[];
 }
 
 export interface ScenarioResult {
@@ -21,12 +27,19 @@ export interface ScenarioResult {
   groups: GroupResult[];
   /** Warnings from binary substitution, kept so a reader can tell why a result changed. */
   warnings?: string[];
+  /** The binaries swapped into this scenario. */
+  substituted?: string[];
+  /** Binaries offered to this scenario (it lists none) that match none of its cell deps. */
+  unmatched?: string[];
   /**
-   * The scenario could not run because a binary it needs does not exist where
-   * `--binaries-from` points. On the base of a pull request, that is a scenario
-   * whose code is new in the head: its groups count as new, not as a base error.
+   * A binary the scenario was offered does not exist where `--binaries-from`
+   * points (`missingBinaries` names them). The scenario ran with the others;
+   * the groups whose code is a missing one carry `missingBinary` and are not
+   * compared. (A report before 1.1.0 set this with `error` instead, and no
+   * groups: then every head group of the scenario counts as new.)
    */
   binaryMissing?: boolean;
+  missingBinaries?: string[];
 }
 
 export interface GroupResult {
@@ -40,7 +53,13 @@ export interface GroupResult {
   /** The script's exit code: 0 accepts. -1 with `error` when the VM stopped it. */
   result: number;
   error?: string;
+  /** Cycles; 0 when the VM stopped the script (`error`), whose count is not a cost. */
   cycles: number;
+  /**
+   * The binary this group's code stands for was not in the checkout (the base):
+   * its numbers are the mock's code, not that build's, so it is not compared.
+   */
+  missingBinary?: string;
   /**
    * The costliest functions of the run, heaviest self first (at most
    * FUNCTION_LIMIT). Only for a group whose binary has a `symbols` build.
@@ -96,6 +115,8 @@ export interface DiffRow {
   functions?: FunctionDelta[];
   /** The head's reason for not recording functions. */
   functionsWarning?: string;
+  /** Why the base side of this group was not compared (its binary was not in the base checkout). */
+  notCompared?: string;
 }
 
 export interface CycleDiff {
@@ -110,6 +131,20 @@ export interface CycleDiff {
   overThreshold: number;
   /** Scenarios the base could not run: their head groups had nothing to be compared with. */
   baseErrors: number;
+  /**
+   * Base groups with nothing in the head to be compared with: removed, renamed
+   * or moved (another scenario name or selector), or measured without their
+   * binary (`notCompared`). A gated diff fails on them unless `allowRemoved`.
+   */
+  removed: number;
+  /** Head groups with no base group. Reported, never a failure on their own. */
+  newGroups: number;
+  /** Either report's own errors (`base: ...`, `head: ...`): a gated diff fails on them. */
+  reportErrors: string[];
+  /** The head's scenario warnings, for the comment. */
+  warnings: { scenario: string; text: string }[];
+  /** Set when the two reports name different ckb-debugger versions. */
+  debuggers?: { base: string; head: string };
   threshold?: number;
 }
 
@@ -118,14 +153,33 @@ export interface DiffOptions {
   failAbove?: number;
   /** A changed outcome makes `failed` true. */
   failOnResultChange?: boolean;
+  /** Removed, renamed or uncompared base groups do not fail a gated diff. */
+  allowRemoved?: boolean;
 }
+
+/** The message for a binary no scenario's cell deps match, in a report's `errors` and the diff. */
+export const unmatchedError = (name: string) =>
+  `binary "${name}" matched no cell dep in any scenario: check its outPoint / codeHash`;
 
 /** The base side of a new group that does not accept: compared with "did not run". */
 const NOT_RUN = "not run";
 
-/** `ok`, `exit 12`, or `error` (the VM stopped the script). */
+/**
+ * `ok`, `exit 12`, or `error: <kind>` when the VM stopped the script: the
+ * debugger's message without its `key=value` details (a pc, an instruction),
+ * so "invalid instruction" and "max cycles exceeded" are different results.
+ */
 export function resultLabel(g: Pick<GroupResult, "result" | "error">): string {
-  return g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`;
+  return g.error ? `error: ${errorKind(g.error)}` : g.result === 0 ? "ok" : `exit ${g.result}`;
+}
+
+function errorKind(error: string): string {
+  const kind = error
+    .replace(/\s*\b\w+=\S*/g, "")
+    .replace(/\b0x[0-9a-fA-F]+\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (kind || "vm").slice(0, 80);
 }
 
 export function diffReports(base: CycleReport, head: CycleReport, options: DiffOptions = {}): CycleDiff {
@@ -141,8 +195,9 @@ export function diffReports(base: CycleReport, head: CycleReport, options: DiffO
       return;
     }
     // A base that could not run the scenario has nothing to compare against, so
-    // every group is new. Unless the scenario's binary is new in the head, that
-    // is the base being broken, and the gate must not pass over it in silence.
+    // every group is new. That is the base being broken, and the gate must not
+    // pass over it in silence. (Only a report before 1.1.0 records a missing
+    // binary as a scenario error with binaryMissing; its groups count as new.)
     if (h && b?.error && !b.binaryMissing) {
       rows.push({ scenario: name, group: "", script: "", kind: "base-error", overThreshold: false, note: `base: ${b.error}` });
     }
@@ -157,17 +212,41 @@ export function diffReports(base: CycleReport, head: CycleReport, options: DiffO
   for (const h of head.scenarios) scenarioRows(h, baseByName.get(h.name));
   for (const b of base.scenarios) if (!headNames.has(b.name)) scenarioRows(undefined, b);
 
+  const groups = rows.filter((r) => r.kind !== "error" && r.kind !== "base-error");
   return {
     rows,
     resultChanges: rows.filter((r) => r.kind === "result").length,
     overThreshold: rows.filter((r) => r.overThreshold).length,
     baseErrors: rows.filter((r) => r.kind === "base-error").length,
+    removed: groups.filter((r) => r.kind === "removed" || r.notCompared).length,
+    newGroups: groups.filter((r) => r.kind !== "removed" && (!r.base || r.base.result === NOT_RUN)).length,
+    reportErrors: [...reportErrors("base", base), ...reportErrors("head", head)],
+    warnings: head.scenarios.flatMap((s) => (s.warnings ?? []).map((text) => ({ scenario: s.name, text }))),
+    ...(base.debugger && head.debugger && base.debugger !== head.debugger && { debuggers: { base: base.debugger, head: head.debugger } }),
     ...(threshold !== undefined && { threshold }),
   };
 }
 
-function groupRow(scenario: string, b: GroupResult | undefined, h: GroupResult | undefined, threshold?: number): DiffRow {
+/**
+ * A report's errors other than its scenarios' own (those are rows already),
+ * and, from its scenarios, any binary offered but swapped in nowhere: a report
+ * written without its `errors` still says that nothing measured that binary.
+ */
+function reportErrors(side: "base" | "head", r: CycleReport): string[] {
+  const ofScenarios = new Set(r.scenarios.filter((s) => s.error).map((s) => `scenario "${s.name}": ${s.error}`));
+  const out = new Set((Array.isArray(r.errors) ? r.errors : []).map(String).filter((e) => !ofScenarios.has(e)));
+  // As the report does: only when every scenario ran (one that failed may be the one that uses it).
+  if (!ofScenarios.size) {
+    const swapped = new Set(r.scenarios.flatMap((s) => s.substituted ?? []));
+    for (const name of new Set(r.scenarios.flatMap((s) => s.unmatched ?? []))) if (!swapped.has(name)) out.add(unmatchedError(name));
+  }
+  return [...out].map((e) => `${side}: ${e}`);
+}
+
+function groupRow(scenario: string, measured: GroupResult | undefined, h: GroupResult | undefined, threshold?: number): DiffRow {
   const side = (g: GroupResult) => ({ result: resultLabel(g), cycles: g.cycles });
+  // Measured without its binary (not in the base checkout): the mock's code, not the base's build.
+  const b = h && measured?.missingBinary ? undefined : measured;
   const row: DiffRow = {
     scenario,
     group: (h ?? b)!.selector,
@@ -177,16 +256,25 @@ function groupRow(scenario: string, b: GroupResult | undefined, h: GroupResult |
     kind: !b ? "new" : !h ? "removed" : "same",
     overThreshold: false,
   };
+  if (measured?.missingBinary) row.notCompared = `binary "${measured.missingBinary}" is not in the base checkout`;
   if (b && h) {
     row.delta = h.cycles - b.cycles;
-    if (b.cycles > 0) row.percent = (row.delta / b.cycles) * 100;
-    row.kind = resultLabel(b) !== resultLabel(h) ? "result" : row.delta !== 0 ? "changed" : "same";
-    row.overThreshold =
-      threshold !== undefined && row.delta > 0 && (row.percent === undefined || row.percent > threshold);
+    const changed = resultLabel(b) !== resultLabel(h);
+    row.kind = changed ? "result" : row.delta !== 0 ? "changed" : "same";
+    // A run the VM stopped has no cost to compare: no percentage, no growth.
+    if (!b.error && !h.error) {
+      if (b.cycles > 0) row.percent = (row.delta / b.cycles) * 100;
+      row.overThreshold =
+        threshold !== undefined && row.delta > 0 && (row.percent === undefined || row.percent > threshold);
+    }
+    // The VM stopped the head (past the cycle limit, a bad instruction): its 0
+    // cycles are not a saving. Under --fail-above that is over any threshold.
+    if (h.error && changed && threshold !== undefined) row.overThreshold = true;
   } else if (h && resultLabel(h) !== "ok") {
     // A new group that does not accept: against "did not run", its result changed.
     row.kind = "result";
     row.base = { result: NOT_RUN };
+    if (h.error && threshold !== undefined) row.overThreshold = true;
   }
   if (h?.functions) row.functions = functionDeltas(b?.functions, h.functions);
   if (h?.functionsWarning) row.functionsWarning = h.functionsWarning;
@@ -218,8 +306,12 @@ export function functionDeltas(base: FunctionResult[] | undefined, head: Functio
 
 /**
  * Whether the diff should fail a check, per the options it was made with. A
- * scenario the head could not run always fails; one the base could not run
- * fails whenever a threshold is set, since nothing in it was checked.
+ * scenario the head could not run always fails. With a gate set (either
+ * option), so does anything that was not checked: a scenario the base could not
+ * run, an error in either report, and a base group with nothing to compare
+ * against (removed, renamed, moved, or measured without its binary) unless
+ * `allowRemoved`. A head group the VM stopped is a result change, and over any
+ * `failAbove` threshold.
  */
 export function diffFailed(diff: CycleDiff, options: DiffOptions = {}): boolean {
   const gated = options.failAbove !== undefined || options.failOnResultChange === true;
@@ -227,6 +319,8 @@ export function diffFailed(diff: CycleDiff, options: DiffOptions = {}): boolean 
     (options.failAbove !== undefined && diff.overThreshold > 0) ||
     (options.failOnResultChange === true && diff.resultChanges > 0) ||
     (gated && diff.baseErrors > 0) ||
+    (gated && (diff.reportErrors?.length ?? 0) > 0) ||
+    (gated && !options.allowRemoved && (diff.removed ?? 0) > 0) ||
     diff.rows.some((r) => r.kind === "error")
   );
 }
@@ -239,15 +333,16 @@ const cell = (s: { result: string; cycles?: number } | undefined) =>
   !s || s.result === NOT_RUN ? "—" : s.result === "ok" ? fmt(s.cycles ?? 0) : `${fmt(s.cycles ?? 0)} (${s.result})`;
 
 function note(r: DiffRow, threshold?: number): string {
+  const unpaired = r.notCompared ? ` (NOT COMPARED: ${r.notCompared})` : "";
   switch (r.kind) {
     case "result":
       return r.base!.result === NOT_RUN
-        ? `NEW, DOES NOT ACCEPT: ${r.head!.result}`
+        ? `NEW, DOES NOT ACCEPT: ${r.head!.result}${unpaired}`
         : `RESULT CHANGED: ${r.base!.result} → ${r.head!.result}`;
     case "new":
-      return "new";
+      return r.notCompared ? `NOT COMPARED: ${r.notCompared}` : "new";
     case "removed":
-      return "removed";
+      return "REMOVED: no head group to compare with";
     case "error":
       return r.note ?? "error";
     case "base-error":
@@ -257,8 +352,12 @@ function note(r: DiffRow, threshold?: number): string {
   }
 }
 
-/** One line saying what matters, for the top of a comment or terminal output. */
-export function summarize(diff: CycleDiff): string {
+/**
+ * One line saying what matters, for the top of a comment or terminal output.
+ * Text from the reports in it (debugger versions) goes through `clean`:
+ * termLine by default, the markdown escape in a comment.
+ */
+export function summarize(diff: CycleDiff, clean: (s: string) => string = termLine): string {
   const groups = diff.rows.filter((r) => r.kind !== "error" && r.kind !== "base-error");
   const changed = groups.filter((r) => r.kind !== "same").length;
   const errors = diff.rows.filter((r) => r.kind === "error").length;
@@ -274,6 +373,15 @@ export function summarize(diff: CycleDiff): string {
     `${changed} of ${groups.length} script group${groups.length === 1 ? "" : "s"} changed`,
     ...(unchecked
       ? [`${unchecked} new group${s(unchecked)} not checked against the ${diff.threshold}% threshold (no base to compare with)`]
+      : diff.newGroups
+        ? [`${diff.newGroups} new group${s(diff.newGroups)}`]
+        : []),
+    ...(diff.removed
+      ? [`${diff.removed} base group${s(diff.removed)} with nothing in the head to compare with (removed, renamed, moved or not built on the base)`]
+      : []),
+    ...(diff.reportErrors?.length ? [`${diff.reportErrors.length} report error${s(diff.reportErrors.length)}`] : []),
+    ...(diff.debuggers
+      ? [`the reports come from different debuggers (base ${clean(diff.debuggers.base)}, head ${clean(diff.debuggers.head)}): cycles can differ for that alone`]
       : []),
   ];
   return parts.join(", ");
@@ -411,18 +519,25 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
   const head = "| Scenario | Group | Script | Base | Head | Δ | Δ% | |\n|---|---|---|---:|---:|---:|---:|---|";
   const line = (r: DiffRow) => {
     const flag = note(r, diff.threshold);
-    const strong = r.kind === "result" || r.kind === "error" || r.kind === "base-error" || r.overThreshold;
+    const strong =
+      r.kind === "result" || r.kind === "error" || r.kind === "base-error" || r.kind === "removed" || r.overThreshold || !!r.notCompared;
     return (
-      `| ${md(r.scenario)} | ${r.group ? code(r.group) : ""} | ${md(r.script)} | ${cell(r.base)} | ${cell(r.head)}` +
+      `| ${md(r.scenario)} | ${r.group ? code(r.group) : ""} | ${md(r.script)} | ${md(cell(r.base))} | ${md(cell(r.head))}` +
       ` | ${r.delta === undefined ? "" : signed(r.delta)} | ${pct(r.percent)} | ${flag ? (strong ? `**${md(flag)}**` : md(flag)) : ""} |`
     );
   };
 
   const vs = options.baseLabel && options.headLabel ? ` (${code(options.baseLabel)} → ${code(options.headLabel)})` : "";
-  const top = [COMMENT_MARKER, `### ${md(options.title ?? "Cycle report")}`, "", `${summarize(diff)}${vs}.`, ""];
+  const top = [COMMENT_MARKER, `### ${md(options.title ?? "Cycle report")}`, "", `${summarize(diff, md)}${vs}.`, ""];
+  // A report's own errors fail a gated check: they go right under the summary.
+  const errors = diff.reportErrors?.length
+    ? [`**Report errors** (nothing measured what they name):`, "", ...diff.reportErrors.slice(0, 20).map((e) => `- ${md(e)}`), ...(diff.reportErrors.length > 20 ? [`- and ${diff.reportErrors.length - 20} more`] : []), ""]
+    : [];
+  top.push(...errors);
   const footer = ["<sub>Generated by ckb-cycles (ckb-cycle-tools): each scenario replayed in ckb-debugger, one run per script group.</sub>"];
   let table = shown.length ? [head, ...shown.map(line), ""] : ["No script group changed its cycles or its result.", ""];
   let blocks = functionBlocks(shown);
+  let warnings = diff.warnings?.length ? warningBlock(diff.warnings) : [];
   let unchanged = same.length
     ? [
         `<details><summary>${same.length} unchanged group${same.length === 1 ? "" : "s"}</summary>`,
@@ -438,8 +553,11 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
   // Over GitHub's limit the comment is refused, and the previous push's comment
   // would stay up with old numbers. Least useful first: the function details,
   // the unchanged groups, then the last (least important) changed rows.
-  const size = () => [...top, ...table, ...blocks, ...unchanged, ...footer].join("\n").length;
+  const size = () => [...top, ...table, ...blocks, ...warnings, ...unchanged, ...footer].join("\n").length;
   const s = (n: number) => (n === 1 ? "" : "s");
+  if (size() >= COMMENT_MAX && warnings.length) {
+    warnings = [`<sub>${diff.warnings.length} scenario warning${s(diff.warnings.length)} left out: the comment would pass GitHub's size limit.</sub>`, ""];
+  }
   if (size() >= COMMENT_MAX && blocks.length) {
     blocks = ["<sub>Function details left out: the comment would pass GitHub's size limit.</sub>", ""];
   }
@@ -454,7 +572,25 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
     const cut = rows.length - kept;
     table = [...table.slice(0, 2), ...rows.slice(0, kept), "", `<sub>${cut} more changed row${s(cut)} left out: the comment would pass GitHub's size limit.</sub>`, ""];
   }
-  return [...top, ...table, ...blocks, ...unchanged, ...footer].join("\n");
+  return [...top, ...table, ...blocks, ...warnings, ...unchanged, ...footer].join("\n");
+}
+
+/** How many scenario warnings a comment lists. */
+const WARNINGS_SHOWN = 50;
+
+/** The head's scenario warnings, folded: why a number may not be the build's (a binary no cell dep matched). */
+function warningBlock(warnings: { scenario: string; text: string }[]): string[] {
+  const n = warnings.length;
+  const shown = warnings.slice(0, WARNINGS_SHOWN);
+  return [
+    `<details><summary>${n} scenario warning${n === 1 ? "" : "s"}</summary>`,
+    "",
+    ...shown.map((w) => `- ${md(w.scenario)}: ${md(w.text)}`),
+    ...(n > shown.length ? [`- and ${n - shown.length} more`] : []),
+    "",
+    "</details>",
+    "",
+  ];
 }
 
 /** The same table for a terminal. */
@@ -492,7 +628,17 @@ export function formatText(diff: CycleDiff): string {
       functions.push(`functions in ${where}: ${top.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
     }
   }
-  return [summarize(diff), "", line(header), ...rows.map(line), ...(functions.length ? ["", ...functions] : [])].join("\n");
+  const errors = (diff.reportErrors ?? []).map((e) => `error: ${termLine(e)}`);
+  const warnings = (diff.warnings ?? []).map((w) => `${termLine(w.scenario)}: warning: ${termLine(w.text)}`);
+  return [
+    summarize(diff),
+    ...(errors.length ? ["", ...errors] : []),
+    "",
+    line(header),
+    ...rows.map(line),
+    ...(functions.length ? ["", ...functions] : []),
+    ...(warnings.length ? ["", ...warnings] : []),
+  ].join("\n");
 }
 
 const fnText = (n: number | undefined) => (n === undefined ? "?" : fmt(n));

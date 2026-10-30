@@ -252,6 +252,21 @@ warning; `--rpc` still applies). Mocks with ckb-debugger template directives
 (`{{ data <path> }}`, `{{ hash <path> }}`, …), or a field that should be hex and is not, are
 refused, with or without `--root`.
 
+With `--fail-above` or `--fail-on-result-change` set, `diff` fails on anything
+it could not check, not only on what it measured: a scenario either side could
+not run, an error in either report (a binary that matched no cell dep in any
+scenario is in the report JSON's `"errors"`), and a base group with nothing in
+the head to compare against (a scenario or group removed, renamed or moved, or
+measured without its binary); `--allow-removed` accepts the last. A group the VM
+stopped (past the cycle limit, a bad instruction) is a result change, and over
+any `--fail-above` threshold, never a -100% saving; two different VM errors are
+two different results. With `--binaries-from`, a binary missing from that
+checkout is left as the mock has it: only the groups whose code it is are not
+compared, and every other binary is still swapped in. A binary offered to a
+scenario that matches none of its cell deps is a warning on that scenario, in
+the comment too. The summary says when the two reports come from different
+ckb-debugger versions.
+
 Here the ckb-js-vm session lock was changed to allow one shannon more than its
 limit and to do extra work per recipient check:
 
@@ -437,8 +452,9 @@ functions in tests.test_alpha input.0.lock: __ckb_std_main +12,008
 ```
 
 The base column is the base's binaries swapped into the head's mocks
-(`report --binaries-from`), the way the Action compares a pull request; it gives
-the same 7,156 as the base's own tests.
+(`report --binaries-from`); it gives the same 7,156 as the base's own tests.
+(The Action measures the base with the base commit's own cycles.json and mocks,
+so a scenario a pull request deletes still shows up, as removed.)
 
 ## ckb-js-vm vs Rust: one lock, two implementations
 

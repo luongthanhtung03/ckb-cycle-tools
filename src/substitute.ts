@@ -84,18 +84,39 @@ export function substituteBinaries(
   return { mock: next, applied };
 }
 
+/** The code cell deps a substitution would replace: by out point, or by data hash or type script hash. */
+function targetsOf(mock: MockTransaction, sub: Pick<BinarySubstitution, "outPoint" | "codeHash">) {
+  const want = sub.codeHash?.toLowerCase();
+  return mock.mock_info.cell_deps.filter((d) => {
+    if (d.cell_dep.dep_type !== "code") return false;
+    if (sub.outPoint) return sameOutPoint(d.cell_dep.out_point, sub.outPoint);
+    return ccc.hashCkb(d.data) === want || (d.output.type != null && typeHash(d.output.type) === want);
+  });
+}
+
+/**
+ * The scripts (`codeHash:hashType` keys, lower case) that run the code a
+ * substitution would replace, in the mock as it is: for a binary that could
+ * not be read (absent from the base checkout), the groups whose numbers are
+ * the mock's code instead of that build's. Empty when it matches no cell dep.
+ */
+export function targetScriptKeys(mock: MockTransaction, sub: Pick<BinarySubstitution, "outPoint" | "codeHash">): string[] {
+  const keys = new Set<string>();
+  for (const d of targetsOf(mock, sub)) {
+    const dataHash = ccc.hashCkb(d.data).toLowerCase();
+    for (const t of DATA_HASH_TYPES) keys.add(`${dataHash}:${t}`);
+    if (d.output.type) keys.add(`${typeHash(d.output.type)}:type`.toLowerCase());
+  }
+  return [...keys];
+}
+
 function substituteOne(mock: MockTransaction, sub: BinarySubstitution, skipUnmatched: boolean): AppliedSubstitution | undefined {
   const label = sub.name ?? sub.codeHash ?? (sub.outPoint && `${sub.outPoint.tx_hash}:${Number(sub.outPoint.index)}`);
   if (!sub.outPoint === !sub.codeHash) throw new Error(`substitution ${label}: give an out point or a code hash, not both`);
   const data = ccc.hexFrom(sub.data);
   const newDataHash = ccc.hashCkb(data);
-  const want = sub.codeHash?.toLowerCase();
 
-  const targets = mock.mock_info.cell_deps.filter((d) => {
-    if (d.cell_dep.dep_type !== "code") return false;
-    if (sub.outPoint) return sameOutPoint(d.cell_dep.out_point, sub.outPoint);
-    return ccc.hashCkb(d.data) === want || (d.output.type != null && typeHash(d.output.type) === want);
-  });
+  const targets = targetsOf(mock, sub);
   if (!targets.length) {
     if (skipUnmatched) return undefined;
     throw new Error(`substitution ${label}: no code cell dep in this transaction matches it`);

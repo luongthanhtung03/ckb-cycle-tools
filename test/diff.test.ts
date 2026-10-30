@@ -54,7 +54,7 @@ describe("diffReports", () => {
     expect(d.rows.filter((r) => r.kind === "result").map((r) => `${r.base!.result} → ${r.head!.result}`)).toEqual([
       "ok → exit 5",
       "exit 12 → ok",
-      "ok → error",
+      "ok → error: invalid instruction",
     ]);
     expect(diffFailed(d)).toBe(false);
     expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
@@ -349,5 +349,86 @@ describe("formatText: names in a terminal or CI log", () => {
     const out = formatText(diffReports(r, r));
     expect(out.split("\n").some((l) => l.trimStart().startsWith("::"))).toBe(false);
     expect(out).not.toMatch(/\u001b/);
+  });
+});
+
+// Audit, 31 Oct: verdicts the gate got wrong (see also verdict-audit.test.ts).
+describe("gated verdicts", () => {
+  const one = (group: GroupResult, extra: Partial<CycleReport["scenarios"][number]> = {}) => report({ name: "s", groups: [group], ...extra });
+
+  it("tells VM errors apart: invalid instruction → max cycles exceeded is a result change", () => {
+    const d = diffReports(
+      one({ ...g("input.0.lock", 0), result: -1, error: "invalid instruction pc=0x10078 instruction=0x0" }),
+      one({ ...g("input.0.lock", 0), result: -1, error: "cycles error: max cycles exceeded" }),
+      { failAbove: 5 },
+    );
+    expect(d.rows[0]).toMatchObject({ kind: "result", overThreshold: true });
+    expect(d.rows[0].base!.result).toBe("error: invalid instruction");
+    // The same error at another pc is the same result.
+    const same = diffReports(
+      one({ ...g("input.0.lock", 0), result: -1, error: "invalid instruction pc=0x10078 instruction=0x0" }),
+      one({ ...g("input.0.lock", 0), result: -1, error: "invalid instruction pc=0x20000 instruction=0x0" }),
+    );
+    expect(same.rows[0].kind).toBe("same");
+  });
+
+  it("does not count a stopped base's 0 cycles as growth when the head runs again", () => {
+    const d = diffReports(
+      one({ ...g("input.0.lock", 0), result: -1, error: "cycles error: max cycles exceeded" }),
+      one(g("input.0.lock", 900_000)),
+      { failAbove: 5 },
+    );
+    expect(d.rows[0]).toMatchObject({ kind: "result", overThreshold: false });
+    expect(d.rows[0].percent).toBeUndefined();
+  });
+
+  it("fails a gated diff on a removed group unless --allow-removed", () => {
+    const d = diffReports(report({ name: "s", groups: [g("input.0.lock", 1), g("input.1.lock", 1)] }), one(g("input.0.lock", 1)));
+    expect(d.removed).toBe(1);
+    expect(diffFailed(d)).toBe(false);
+    expect(diffFailed(d, { failAbove: 5 })).toBe(true);
+    expect(diffFailed(d, { failAbove: 5, allowRemoved: true })).toBe(false);
+    expect(formatText(d).split("\n")[0]).toContain("1 base group with nothing in the head to compare with");
+  });
+
+  it("does not compare a base group measured without its binary, and does not fail on a new group", () => {
+    const d = diffReports(
+      one({ ...g("input.0.lock", 8_000), missingBinary: "lock" }, { binaryMissing: true, missingBinaries: ["lock"] }),
+      report({ name: "s", groups: [g("input.0.lock", 80_000), g("output.0.type", 5)] }),
+      { failAbove: 5 },
+    );
+    expect(d.rows.map((r) => [r.kind, r.notCompared])).toEqual([
+      ["new", 'binary "lock" is not in the base checkout'],
+      ["new", undefined],
+    ]);
+    expect(d.rows[0].base).toBeUndefined();
+    expect(d.newGroups).toBe(2);
+    expect(formatMarkdown(d)).toContain('**NOT COMPARED: binary "lock" is not in the base checkout**');
+    expect(diffFailed(d, { failAbove: 5 })).toBe(true);
+    expect(diffFailed(d, { failAbove: 5, allowRemoved: true })).toBe(false);
+  });
+
+  it("fails a gated diff on either report's errors, and lists them", () => {
+    const head = { ...one(g("input.0.lock", 1)), errors: ['binary "x" matched no cell dep in any scenario: check its outPoint / codeHash'] };
+    const d = diffReports(one(g("input.0.lock", 1)), head);
+    expect(d.reportErrors).toEqual(['head: binary "x" matched no cell dep in any scenario: check its outPoint / codeHash']);
+    expect(diffFailed(d)).toBe(false);
+    expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+    expect(formatMarkdown(d)).toContain('- head: binary "x" matched no cell dep');
+    // A scenario's own error is a row already, not a report error twice over.
+    const err = diffReports(one(g("input.0.lock", 1)), { ...report({ name: "s", error: "boom", groups: [] }), errors: ['scenario "s": boom'] });
+    expect(err.reportErrors).toEqual([]);
+  });
+
+  it("names both debuggers when they differ, escaped in the comment", () => {
+    const d = diffReports({ ...one(g("input.0.lock", 1)), debugger: "ckb-debugger 0.200.0" }, { ...one(g("input.0.lock", 1)), debugger: "ckb-debugger 1.1.1 *x*" });
+    expect(formatMarkdown(d)).toContain("(base ckb-debugger 0.200.0, head ckb-debugger 1.1.1 \\*x\\*)");
+    expect(diffReports(one(g("input.0.lock", 1)), one(g("input.0.lock", 1))).debuggers).toBeUndefined();
+  });
+
+  it("shows the head's scenario warnings in the comment", () => {
+    const d = diffReports(one(g("input.0.lock", 1)), one(g("input.0.lock", 1), { warnings: ['binary "lock" matches no cell dep in this scenario'] }));
+    expect(formatMarkdown(d)).toContain("<details><summary>1 scenario warning</summary>");
+    expect(formatText(d)).toContain('s: warning: binary "lock" matches no cell dep in this scenario');
   });
 });

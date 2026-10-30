@@ -17,12 +17,12 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
-import { FUNCTION_LIMIT, resultLabel, termLine, termLines } from "./diff.js";
+import { FUNCTION_LIMIT, resultLabel, termLine, termLines, unmatchedError } from "./diff.js";
 import { functionCosts } from "./flame.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile, type ProfileOptions } from "./profile.js";
 import { consensusOf, nodeVerdict, PUBLIC_RPC } from "./replay.js";
-import { substituteBinaries, type BinarySubstitution } from "./substitute.js";
+import { substituteBinaries, targetScriptKeys, type BinarySubstitution } from "./substitute.js";
 
 export interface BinaryConfig {
   /** The built binary, relative to the config file. */
@@ -184,7 +184,10 @@ export async function runReport(
 
   const inside = (file: string) => confine(file, roots);
 
-  const binaries = new Map<string, Promise<BinarySubstitution>>();
+  // A binary resolves to null when it is absent from another checkout (the
+  // base, --binaries-from): that binary is new there, not broken. Only it, and
+  // the groups whose code it is, count as new; every other binary still swaps in.
+  const binaries = new Map<string, Promise<BinarySubstitution | null>>();
   const binary = (name: string) => {
     let p = binaries.get(name);
     if (!p) {
@@ -192,17 +195,18 @@ export async function runReport(
       p = inside(resolve(binDir, b.path))
         .then((file) => readFile(file))
         .then(
-        (data) => ({
+        (data): BinarySubstitution => ({
           name,
           data: new Uint8Array(data),
           ...(b.outPoint && { outPoint: b.outPoint }),
           ...(b.codeHash && { codeHash: b.codeHash }),
         }),
         (e: NodeJS.ErrnoException) => {
-          const err = new Error(`binary "${name}": cannot read ${b.path} (${e.message}); build it first`);
-          // Absent from another checkout (the base): the scenario's code is new there, not broken.
-          if (options.binariesRoot && e.code === "ENOENT") missingBinary.add(err);
-          throw err;
+          if (options.binariesRoot && e.code === "ENOENT") {
+            missingNames.add(name);
+            return null;
+          }
+          throw new Error(`binary "${name}": cannot read ${b.path} (${e.message}); build it first`);
         },
       );
       binaries.set(name, p);
@@ -210,7 +214,7 @@ export async function runReport(
     return p;
   };
   const used = new Set<string>();
-  const missingBinary = new WeakSet<Error>();
+  const missingNames = new Set<string>();
 
   let debuggerVersion: string | undefined;
   const scenarios: ScenarioResult[] = [];
@@ -219,7 +223,13 @@ export async function runReport(
     try {
       const explicit = s.binaries !== undefined;
       const names = explicit ? s.binaries! : Object.keys(config.binaries ?? {});
-      const subs = await Promise.all(names.map(binary));
+      const loaded = await Promise.all(names.map(binary));
+      const subs = loaded.filter((b): b is BinarySubstitution => b !== null);
+      const missing = names.filter((_, i) => loaded[i] === null);
+      /** `codeHash:hashType` (lower case) → the missing binary that code stands for. */
+      const missingKeys = new Map<string, string>();
+      const substituted: string[] = [];
+      const unmatched: string[] = [];
       const profileOptions = {
         ...(network && { network }),
         ...(rpcUrl && { rpcUrl }),
@@ -232,7 +242,7 @@ export async function runReport(
       let profile: Profile;
       let groups: GroupResult[] | undefined;
       const warnings: string[] = [];
-      if (s.tx && !subs.length) {
+      if (s.tx && !subs.length && !missing.length) {
         // Nothing to swap: profile it as the CLI does, with the node's check.
         profile = await profileTransaction(s.tx, { ...profileOptions, scriptNames: baseNames });
       } else {
@@ -261,8 +271,23 @@ export async function runReport(
         const scriptNames: Record<string, string> = {};
         for (const a of applied) {
           used.add(a.name!);
+          substituted.push(a.name!);
           for (const k of a.scriptKeys) scriptNames[k] = a.name!;
           warnings.push(...a.warnings.map((w) => `${a.name}: ${w}`));
+        }
+        // Offered, and no cell dep here is its code: this scenario's scripts run
+        // the mock's own code, not this build (a mock dumped from an older build?).
+        for (const sub of subs) {
+          if (!substituted.includes(sub.name!)) {
+            unmatched.push(sub.name!);
+            warnings.push(
+              `binary "${sub.name}" matches no cell dep in this scenario: any script of it here runs the mock's code, not this build (check its outPoint / codeHash, or re-dump the mock)`,
+            );
+          }
+        }
+        // Left as the mock has it: those groups measure the mock's code, not the build.
+        for (const name of missing) {
+          for (const k of targetScriptKeys(swapped, config.binaries![name])) missingKeys.set(k, name);
         }
         Object.assign(scriptNames, baseNames);
         profile = await profileTransaction(swapped, {
@@ -291,14 +316,21 @@ export async function runReport(
       if (nodeVerdict(profile) === "mismatch") {
         warnings.push(`the groups add up to ${profile.measuredCycles} cycles, the node reported ${profile.nodeCycles}`);
       }
-      result = { name: s.name, groups: groups ?? groupResults(profile), ...(warnings.length && { warnings }) };
-    } catch (e) {
+      groups ??= groupResults(profile);
+      for (const g of groups) {
+        const name = missingKeys.get(`${g.codeHash}:${g.hashType}`.toLowerCase());
+        if (name) g.missingBinary = name;
+      }
       result = {
         name: s.name,
-        error: e instanceof Error ? e.message : String(e),
-        groups: [],
-        ...(e instanceof Error && missingBinary.has(e) && { binaryMissing: true }),
+        groups,
+        ...(warnings.length && { warnings }),
+        ...(substituted.length && { substituted }),
+        ...(unmatched.length && { unmatched }),
+        ...(missing.length && { binaryMissing: true, missingBinaries: missing }),
       };
+    } catch (e) {
+      result = { name: s.name, error: e instanceof Error ? e.message : String(e), groups: [] };
     }
     scenarios.push(result);
     options.onScenario?.(result);
@@ -311,8 +343,8 @@ export async function runReport(
   const offered =
     !errors.length && config.scenarios.some((s) => s.binaries === undefined) ? Object.keys(config.binaries ?? {}) : [];
   for (const name of offered) {
-    if (!used.has(name) && !config.scenarios.some((s) => s.binaries?.includes(name))) {
-      errors.push(`binary "${name}" matched no cell dep in any scenario: check its outPoint / codeHash`);
+    if (!used.has(name) && !missingNames.has(name) && !config.scenarios.some((s) => s.binaries?.includes(name))) {
+      errors.push(unmatchedError(name));
     }
   }
   return {
@@ -447,6 +479,12 @@ export function formatReport(report: CycleReport): string {
   const out = [line(head), ...rows.map(line)];
   for (const s of report.scenarios) if (s.error) out.push("", `${t(s.name)}: ${termLines(s.error)}`);
   for (const s of report.scenarios) for (const w of s.warnings ?? []) out.push("", `${t(s.name)}: warning: ${t(w)}`);
+  for (const s of report.scenarios) {
+    for (const b of s.missingBinaries ?? []) {
+      const n = s.groups.filter((g) => g.missingBinary === b).length;
+      out.push("", `${t(s.name)}: binary ${t(b)} is not in this checkout: ${n} group${n === 1 ? "" : "s"} ran the mock's code instead, and count as not compared`);
+    }
+  }
   for (const s of report.scenarios) {
     for (const g of s.groups.filter((g) => g.error)) out.push("", `${t(s.name)} ${t(g.selector)} stopped: ${t(g.error!)}`);
   }

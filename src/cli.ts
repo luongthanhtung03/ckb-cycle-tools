@@ -16,7 +16,8 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
        ckb-cycles report <cycles.json> [--json <out.json>] [--binaries-from <dir>]
                   [--root <dir> ...] [--rpc <url>] [--timeout <s>] [--debugger <path>]
        ckb-cycles diff <base.json> <head.json> [--markdown] [--fail-above <percent>]
-                  [--fail-on-result-change] [--title <s>] [--base-label <s>] [--head-label <s>]
+                  [--fail-on-result-change] [--allow-removed] [--title <s>]
+                  [--base-label <s>] [--head-label <s>]
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
                   [--timeout <s>]
        ckb-cycles scan <mocks-dir> [--binaries <dir>] [-o <cycles.json>] [--functions]
@@ -51,16 +52,23 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                outside those directories, symlinks resolved: for CI, where
                the cycles.json comes from a pull request;
                its "rpc" is then ignored (--rpc still applies)
-               Exits 2 if a scenario could not run: a rejection is a result,
-               not an error
+               Exits 2 if a scenario could not run, or a binary matched no
+               cell dep in any scenario (both also in the JSON's "errors"):
+               a rejection is a result, not an error. A binary missing from
+               --binaries-from is left as the mock has it: only the groups
+               whose code it is are marked, and not compared
   diff         compares two reports group by group: Δ cycles, Δ%, and any group
                whose result changed (ok → exit 12, or back). --fail-above exits 1
                when a group grows by more than that percentage (a new group
                has no base, so no percentage: it is never over the threshold),
                --fail-on-result-change when a result changed, including a new
-               group that does not accept. A scenario the head could not run
-               always exits 1; one the base could not run exits 1 when either
-               flag is set
+               group that does not accept, or a group the VM stopped (also
+               over any --fail-above). A scenario the head could not run
+               always exits 1. With either flag set, so does anything left
+               unchecked: a scenario the base could not run, an error in
+               either report, a base group with nothing in the head to
+               compare with (removed, renamed, moved, or its binary not built
+               on the base); --allow-removed accepts the last
   mock         saves a transaction as a ckb-debugger mock transaction, every cell
                it touches included, so a scenario can replay it with no node
   scan         writes a cycles.json from the mock transactions a test suite wrote
@@ -150,7 +158,9 @@ async function reportCommand(args: string[]): Promise<number> {
     onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${termLine(s.name)}`),
   });
   const { errors, notices, ...data } = report;
-  if (values.json) await writeFile(values.json, toJson(data) + "\n");
+  // The errors go in the JSON too: a gated diff fails on them, so a CI step that
+  // ignores this exit code (the Action's `|| true`) still gets the verdict.
+  if (values.json) await writeFile(values.json, toJson({ ...data, ...(errors.length && { errors }) }) + "\n");
   console.log(formatReport(data));
   for (const n of notices ?? []) console.error(`warning: ${termLine(n)}`);
   for (const e of errors) console.error(`error: ${termLines(e)}`);
@@ -171,6 +181,7 @@ async function diffCommand(args: string[]): Promise<number> {
       markdown: { type: "boolean" },
       "fail-above": { type: "string" },
       "fail-on-result-change": { type: "boolean" },
+      "allow-removed": { type: "boolean" },
       "base-label": { type: "string" },
       "head-label": { type: "string" },
       title: { type: "string" },
@@ -185,7 +196,11 @@ async function diffCommand(args: string[]): Promise<number> {
     console.error("error: --fail-above expects a percentage, e.g. 5");
     return 2;
   }
-  const options = { ...(failAbove !== undefined && { failAbove }), failOnResultChange: values["fail-on-result-change"] };
+  const options = {
+    ...(failAbove !== undefined && { failAbove }),
+    failOnResultChange: values["fail-on-result-change"],
+    allowRemoved: values["allow-removed"],
+  };
   const diff = diffReports(await readReport(positionals[0]), await readReport(positionals[1]), options);
   console.log(
     values.markdown

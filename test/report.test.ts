@@ -102,19 +102,23 @@ describe("formatReport", () => {
 });
 
 describe("runReport", () => {
-  it("records a scenario whose binary is missing, and goes on with the rest", async () => {
+  // Audit, 31 Oct: a missing binary used to make the whole scenario an error, so
+  // none of its groups was compared, those of the other binaries included.
+  it("runs a scenario whose binary is missing with the mock's code, and marks only that binary's groups", async () => {
     const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
     const seen: string[] = [];
     const r = await runReport("cycles.json", { binariesRoot: empty, onScenario: (s) => seen.push(s.name) });
     const config = parseCyclesConfig(readFileSync("cycles.json", "utf8"));
     expect(seen).toEqual(config.scenarios.map((s) => s.name));
     for (const s of r.scenarios) {
-      expect(s.groups).toEqual([]);
-      expect(s.error).toMatch(/cannot read .* build it first/);
-      // Absent from that checkout: diff counts its groups as new, not the base as broken.
-      expect(s.binaryMissing).toBe(true);
+      expect(s.error).toBeUndefined();
+      expect(s).toMatchObject({ binaryMissing: true, missingBinaries: Object.keys(config.binaries!) });
+      // The session lock runs ckb-js-vm, absent here; always-success is no binary of the config.
+      expect(s.groups.find((g) => g.selector === "input.0.lock")).toMatchObject({ missingBinary: "ckb-js-vm" });
+      expect(s.groups.find((g) => g.script === "always-success")?.missingBinary).toBeUndefined();
     }
-    expect(r.errors).toHaveLength(config.scenarios.length);
+    // Not "matched no cell dep": a binary that is not there was never offered.
+    expect(r.errors).toEqual([]);
   });
 
   // Security review, 27 Oct: in CI the cycles.json is the pull request's.

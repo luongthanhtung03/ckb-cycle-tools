@@ -121,7 +121,8 @@ export function parseDebuggerOutput(out: string): Omit<GroupRun, "selector"> {
   const logs = [...out.matchAll(/^Script log: (.*)$/gm)].map((m) => m[1].trim().replace(CONTROL, "�"));
   if (/^-?\d+$/.test(result) && cycles !== undefined) return { result: Number(result), cycles: BigInt(cycles), logs };
   // The VM stopped the script (invalid instruction, cycle limit, bad ELF…): a rejection, not a crash.
-  return { result: -1, error: result.replace(CONTROL, "�"), cycles: cycles === undefined ? 0n : BigInt(cycles), logs };
+  // Never its cycles: a stopped run's count is not what the script costs (0, or wherever the VM gave up).
+  return { result: -1, error: result.replace(CONTROL, "�"), cycles: 0n, logs };
 }
 
 /** One ckb-debugger run, as a RunDebugger returns it. */
