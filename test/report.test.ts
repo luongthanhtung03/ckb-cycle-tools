@@ -102,12 +102,18 @@ describe("formatReport", () => {
 });
 
 describe("runReport", () => {
+  /** A stand-in ckb-debugger, so these tests need none installed (CI's test jobs have none). */
+  const anyDebugger = async (args: string[]): Promise<DebuggerOutput> =>
+    args[0] === "--version"
+      ? { stdout: "ckb-debugger 1.1.1\n", stderr: "", exitCode: 0 }
+      : { stdout: "Run result: 0\nAll cycles: 539(0.0M)\n", stderr: "", exitCode: 0 };
+
   // Audit, 31 Oct: a missing binary used to make the whole scenario an error, so
   // none of its groups was compared, those of the other binaries included.
   it("runs a scenario whose binary is missing with the mock's code, and marks only that binary's groups", async () => {
     const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
     const seen: string[] = [];
-    const r = await runReport("cycles.json", { binariesRoot: empty, onScenario: (s) => seen.push(s.name) });
+    const r = await runReport("cycles.json", { binariesRoot: empty, runDebugger: anyDebugger, onScenario: (s) => seen.push(s.name) });
     const config = parseCyclesConfig(readFileSync("cycles.json", "utf8"));
     expect(seen).toEqual(config.scenarios.map((s) => s.name));
     for (const s of r.scenarios) {
@@ -162,7 +168,7 @@ describe("runReport", () => {
 
   it("with roots, still tells a binary missing from the base from one outside", async () => {
     const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
-    const r = await runReport("cycles.json", { binariesRoot: empty, roots: [".", empty] });
+    const r = await runReport("cycles.json", { binariesRoot: empty, roots: [".", empty], runDebugger: anyDebugger });
     for (const s of r.scenarios) expect(s.binaryMissing).toBe(true);
   });
 
