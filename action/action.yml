@@ -21,7 +21,13 @@ inputs:
     description: Fail when a script group grows by more than this percentage. Empty never fails on growth.
     default: ""
   fail-on-result-change:
-    description: Fail when a script group's result changed (ok to exit N, or back).
+    description: Fail when a script group's result changed (ok to exit N, or back, or a different VM error).
+    default: "false"
+  allow-removed:
+    description: >
+      With fail-above or fail-on-result-change set, do not fail on base script groups
+      with nothing in the head to compare against (a scenario or group the PR removed,
+      renamed or moved, or one whose binary the base did not build).
     default: "false"
   comment:
     description: Post (or update) the sticky PR comment. The table also goes to the job summary either way.
@@ -51,7 +57,8 @@ outputs:
   failed:
     description: >
       "true" when the diff failed the thresholds, a head scenario could not run, or (with
-      a threshold set) a base scenario could not run.
+      a threshold set) a base scenario could not run, either report has errors, or a base
+      group has nothing to compare against (unless allow-removed).
     value: ${{ steps.diff.outputs.failed }}
 
 runs:
@@ -120,6 +127,8 @@ runs:
       run: |
         if [ -n "$BUILD" ]; then bash -euo pipefail -c "$BUILD"; fi
         # A scenario that cannot run is in the report as an error row; the diff fails on it.
+        # The report's other errors (a binary no scenario uses) are in the JSON too, and a
+        # gated diff fails on them: hence `|| true`, the verdict is the diff's.
         # --root: the cycles.json is the PR's; it reads nothing outside the checkout.
         node "$CKB_CYCLES" report "$CONFIG" --root "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/ckb-cycles/head.json" || true
 
@@ -139,23 +148,33 @@ runs:
         # persist-credentials: false needs (the fetch has no credentials then).
         if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then git fetch --no-tags --depth=1 origin "$BASE"; fi
         git worktree add --detach "$out/base" "$BASE"
-        # A base whose build fails has nothing to compare: every scenario is recorded as
-        # a base error, which the diff reports and fails on when a threshold is set.
-        # (A binary that the build did not make because it is new in the PR is told
-        # apart by the report itself: its scenario counts as new.)
-        if [ -n "$BUILD" ] && ! (cd "$out/base" && bash -euo pipefail -c "$BUILD"); then
+        # The base is measured by the base commit's own cycles.json, mocks and binaries,
+        # not the PR's: a scenario or group the PR deletes, renames or moves is then a
+        # base group with nothing to compare against, which a gated diff fails on (the
+        # allow-removed input accepts it). The head's scenarios still run with the PR's
+        # config, as before.
+        if [ ! -f "$out/base/$CONFIG" ]; then
+          # No cycles.json on the base (the PR adds it): every head group is new.
+          echo '{"tool":"ckb-cycles","version":1,"scenarios":[]}' > "$out/base.json"
+        elif [ -n "$BUILD" ] && ! (cd "$out/base" && bash -euo pipefail -c "$BUILD"); then
+          # A base whose build fails has nothing to compare: every scenario is recorded as
+          # a base error, which the diff reports and fails on when a threshold is set.
           echo "::warning::the build failed on the base commit"
           node -e '
-            const [head, out] = process.argv.slice(1);
+            const [config, head, out] = process.argv.slice(1);
             const fs = require("fs");
-            const r = fs.existsSync(head) ? JSON.parse(fs.readFileSync(head, "utf8")) : { scenarios: [] };
-            const scenarios = r.scenarios.map((s) => ({ name: s.name, error: "the build failed on the base commit", groups: [] }));
+            const names = (file, pick) => { try { return pick(JSON.parse(fs.readFileSync(file, "utf8"))).map((s) => String(s.name)); } catch { return []; } };
+            const all = [...new Set([...names(config, (c) => c.scenarios), ...names(head, (r) => r.scenarios)])];
+            const scenarios = all.map((name) => ({ name, error: "the build failed on the base commit", groups: [] }));
             fs.writeFileSync(out, JSON.stringify({ tool: "ckb-cycles", version: 1, scenarios }));
-          ' "$out/head.json" "$out/base.json"
+          ' "$out/base/$CONFIG" "$out/head.json" "$out/base.json"
         else
-          # The head's scenarios, with the base's binaries: only the code differs.
-          # Binary paths are relative to the config's directory, in the base checkout too.
-          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base/$(dirname "$CONFIG")" --root "$GITHUB_WORKSPACE" --root "$out/base" --json "$out/base.json" || true
+          # Its errors (a binary no scenario uses) are in the JSON, and a gated diff fails on them.
+          # --root: the base's config reads nothing outside the base checkout.
+          node "$CKB_CYCLES" report "$out/base/$CONFIG" --root "$out/base" --json "$out/base.json" || true
+          if [ ! -s "$out/base.json" ]; then
+            echo '{"tool":"ckb-cycles","version":1,"scenarios":[],"errors":["the base report did not run (see the log): nothing on the base was measured"]}' > "$out/base.json"
+          fi
         fi
         git worktree remove --force "$out/base"
 
@@ -167,6 +186,7 @@ runs:
         HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         FAIL_ABOVE: ${{ inputs.fail-above }}
         FAIL_ON_RESULT_CHANGE: ${{ inputs.fail-on-result-change }}
+        ALLOW_REMOVED: ${{ inputs.allow-removed }}
         TITLE: ${{ inputs.title }}
       run: |
         out="$RUNNER_TEMP/ckb-cycles"
@@ -174,6 +194,7 @@ runs:
         if [ -n "$BASE" ]; then args+=(--base-label "${BASE:0:7}"); else args+=(--base-label "none"); fi
         if [ -n "$FAIL_ABOVE" ]; then args+=(--fail-above "$FAIL_ABOVE"); fi
         if [ "$FAIL_ON_RESULT_CHANGE" = true ]; then args+=(--fail-on-result-change); fi
+        if [ "$ALLOW_REMOVED" = true ]; then args+=(--allow-removed); fi
         set +e
         node "$CKB_CYCLES" diff "$out/base.json" "$out/head.json" "${args[@]}" > "$out/diff.md"
         code=$?

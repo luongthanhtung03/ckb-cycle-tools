@@ -51,6 +51,7 @@ credentials, so the base must already be in the checkout.
 | `base-ref` | the PR's base commit | empty: report the head alone (every group "new") |
 | `fail-above` | (never) | percent growth of any group that fails the job |
 | `fail-on-result-change` | `false` | fail when any group's result changed |
+| `allow-removed` | `false` | with a threshold set, do not fail on base groups with nothing in the head to compare against (removed, renamed, moved, or not built on the base) |
 | `comment` | `true` | post or update the sticky comment |
 | `title` | `Cycle report` | the comment's heading |
 | `github-token` | `github.token` | needs `pull-requests: write` |
@@ -96,9 +97,11 @@ anyone else that starts with the marker is left alone.
   and each push adds another.)
 - Pin the Action, and the actions around it, to a commit SHA: it runs with a
   token that can comment.
-- The PR's `cycles.json` decides which files the report reads. The Action
-  passes `--root` with the checkouts, so a path outside them (absolute, `..`,
-  or a symlink) is an error row, not read. Names and errors from it are
+- The PR's `cycles.json` decides which files the head's report reads. The
+  Action passes `--root` with the checkout, so a path outside it (absolute, `..`,
+  or a symlink) is an error row, not read. The base's report reads the base
+  commit's own `cycles.json`, under `--root` with the base checkout: the PR's
+  config changes only what the head runs. Names and errors from it are
   escaped in the comment: no mentions, links, HTML or table breaks. In the
   job log they are kept to one line without control characters, so none can
   start a workflow command (`::`).
@@ -202,9 +205,13 @@ A scenario is one of:
 
 `binaries` swaps a deployed script for the one just built. Each entry matches
 code cell deps by `codeHash` (the cell's data hash, or its type script hash) or
-by `outPoint`. Paths are relative to the config file; the base report reads them
-from the base checkout. A scenario without `"binaries"` is offered every binary
-and uses the ones that match; with a list, each listed one must match.
+by `outPoint`. Paths are relative to the config file. The base report uses the
+base commit's own `cycles.json` (its scenarios, mocks and binaries), so a
+scenario the PR deletes or renames is still listed, as removed. A scenario
+without `"binaries"` is offered every binary and uses the ones that match (one
+that matches none of its cell deps is a warning on that scenario, and one that
+matches no scenario at all is a report error); with a list, each listed one
+must match.
 
 To see which functions changed, not only by how much a group did:
 
@@ -243,21 +250,36 @@ npx -p ckb-cycle-tools ckb-cycles report cycles.json --binaries-from ../base-che
 npx -p ckb-cycle-tools ckb-cycles diff base.json head.json --markdown --fail-above 5
 ```
 
-Exit codes: `report` 2 when a scenario could not run (a rejection is a result,
-not an error); `diff` 1 when a threshold is crossed, a head scenario could not
-run, or (with `--fail-above` or `--fail-on-result-change`) a base scenario could
-not run; 2 for bad arguments or reports.
+With `--binaries-from`, a binary missing from that checkout is left as the mock
+has it: the groups whose code it is are not compared (a gated diff fails on
+them unless `--allow-removed`), and every other binary is still swapped in.
+
+Exit codes: `report` 2 when a scenario could not run or a binary matched no
+cell dep in any scenario (a rejection is a result, not an error; both are in
+the JSON's `"errors"` too); `diff` 1 when a threshold is crossed or a head
+scenario could not run, and, with `--fail-above` or `--fail-on-result-change`,
+when a base scenario could not run, either report has errors, or a base group
+has nothing in the head to compare against (unless `--allow-removed`); 2 for
+bad arguments or reports.
 
 ## Limits
 
 - One sticky comment per pull request: two runs of this Action on the same PR
   overwrite each other's comment.
 - Cycles are ckb-debugger's for the VM version you set (`scriptVersion`, default
-  the block's, or 2). Both sides use the same debugger, so the diff is exact.
-- A scenario whose binary does not exist on the base yet (new in the PR) shows
-  its groups as new. A scenario the base cannot run for any other reason (its
-  build failed, a node error) is a row of its own, "NOT COMPARED", and fails the
-  check when a threshold is set: nothing in it was compared.
+  the block's, or 2). Both sides use the same debugger, so the diff is exact;
+  two reports from different ckb-debugger versions are compared all the same,
+  and the summary says so.
+- A scenario that is new in the PR (not in the base's `cycles.json`) shows its
+  groups as new; so does a base without a `cycles.json`. A scenario the base
+  cannot run (its build failed, a binary it names was not built, a node error)
+  is a row of its own, "NOT COMPARED", and fails the check when a threshold is
+  set: nothing in it was compared.
+- A scenario or group the PR removes, renames, or moves to another selector
+  is listed as removed, and fails the check when a threshold is set, unless
+  `allow-removed` is true. New groups never fail it on their own.
+- A group the VM stopped (past the cycle limit, a bad instruction) is a result
+  change, and over any `fail-above` threshold: its 0 cycles are not a saving.
 - A new group has no base, so no percentage: `fail-above` cannot apply to it, and
   the summary line says how many new groups it skipped. A new group that does not
   accept counts as a result change (against "did not run") for

@@ -55,6 +55,8 @@ interface Job {
   /** Values of the `${{ … }}` expressions the steps use. */
   ctx: Record<string, string>;
   dir: string;
+  /** Where the step runs (default: this process's). */
+  cwd?: string;
 }
 
 /**
@@ -86,7 +88,7 @@ function runStep(file: string, name: string, job: Job, override: Record<string, 
     argv = s.shell.split(" ").map((a) => (a === "{0}" ? script : a));
     if (argv[0] === "/bin/bash") argv[0] = binBash;
   }
-  const r = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", env });
+  const r = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", env, ...(job.cwd && { cwd: job.cwd }) });
   const outputs: Record<string, string> = {};
   for (const l of readFileSync(output, "utf8").split("\n")) {
     const at = l.indexOf("=");
@@ -316,5 +318,83 @@ describe.skipIf(!bash)("action/comment: posting from a job that runs no PR code"
   it("posts the comment", () => {
     const j = job(fresh(), "", 0);
     expect(post(j, "action/comment/action.yml")).toMatchObject({ status: 0, verbs: ["POST"] });
+  });
+});
+
+/**
+ * The "Report the base" step on a real git repository, with a stand-in for the
+ * ckb-cycles CLI that records how it was called and writes a report naming the
+ * scenarios of the config it was given (audit, 31 Oct: the base used the PR's
+ * cycles.json, so a scenario the PR deleted was never compared or listed).
+ */
+describe.skipIf(!bash)("action.yml: the base report", { timeout: 60_000 }, () => {
+  const git = (cwd: string, ...args: string[]) => {
+    const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  function repo(baseConfig: string | undefined) {
+    const d = fresh();
+    const ws = join(d, "ws");
+    mkdirSync(ws);
+    git(ws, "init", "-q");
+    git(ws, "config", "user.email", "t@example.com");
+    git(ws, "config", "user.name", "t");
+    git(ws, "config", "core.autocrlf", "false");
+    writeFileSync(join(ws, "README"), "x\n");
+    if (baseConfig !== undefined) writeFileSync(join(ws, "cycles.json"), baseConfig);
+    git(ws, "add", ".");
+    git(ws, "commit", "-q", "-m", "base");
+    const base = git(ws, "rev-parse", "HEAD");
+    // The PR keeps one scenario and deletes the other.
+    writeFileSync(join(ws, "cycles.json"), JSON.stringify({ scenarios: [{ name: "kept", mock: "m.json" }] }));
+    git(ws, "add", ".");
+    git(ws, "commit", "-q", "-m", "head");
+    const cli = join(d, "fake-cli.mjs");
+    writeFileSync(
+      cli,
+      [
+        'import { appendFileSync, readFileSync, writeFileSync } from "node:fs";',
+        "const args = process.argv.slice(2);",
+        `appendFileSync(${JSON.stringify(join(d, "cli-calls"))}, JSON.stringify(args) + "\\n");`,
+        "const config = JSON.parse(readFileSync(args[1], \"utf8\"));",
+        "const scenarios = config.scenarios.map((s) => ({ name: s.name, groups: [] }));",
+        'writeFileSync(args[args.indexOf("--json") + 1], JSON.stringify({ tool: "ckb-cycles", version: 1, scenarios }));',
+      ].join("\n"),
+    );
+    mkdirSync(join(d, "ckb-cycles"));
+    const j: Job = {
+      dir: d,
+      cwd: ws,
+      path: [],
+      env: { ...process.env, RUNNER_TEMP: posix(d), GITHUB_WORKSPACE: posix(ws), CKB_CYCLES: posix(cli) },
+      ctx: { "inputs.build": "", "inputs.config": "cycles.json", "inputs.base-ref": base },
+    };
+    return { j, d };
+  }
+  const calls = (d: string) =>
+    existsSync(join(d, "cli-calls"))
+      ? readFileSync(join(d, "cli-calls"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[])
+      : [];
+
+  it("measures the base with the base commit's own cycles.json, inside the base checkout", () => {
+    const { j, d } = repo(JSON.stringify({ scenarios: [{ name: "kept", mock: "m.json" }, { name: "deleted", mock: "d.json" }] }));
+    const r = runStep("action/action.yml", "Report the base", j);
+    expect(r.status, r.out).toBe(0);
+    const base = JSON.parse(readFileSync(join(d, "ckb-cycles", "base.json"), "utf8"));
+    // The scenario the PR deleted is in the base report, so the diff lists it as removed.
+    expect(base.scenarios.map((s: { name: string }) => s.name)).toEqual(["kept", "deleted"]);
+    const [call] = calls(d);
+    expect(call.slice(0, 2)).toEqual(["report", `${posix(d)}/ckb-cycles/base/cycles.json`]);
+    expect(call).not.toContain("--binaries-from");
+    expect(call.filter((a, i) => call[i - 1] === "--root")).toEqual([`${posix(d)}/ckb-cycles/base`]);
+  });
+
+  it("writes an empty base report when the base has no cycles.json (the PR adds it)", () => {
+    const { j, d } = repo(undefined);
+    const r = runStep("action/action.yml", "Report the base", j);
+    expect(r.status, r.out).toBe(0);
+    expect(JSON.parse(readFileSync(join(d, "ckb-cycles", "base.json"), "utf8")).scenarios).toEqual([]);
+    expect(calls(d)).toEqual([]);
   });
 });
