@@ -30,7 +30,7 @@ import { parseArgs } from "node:util";
 import { brotliCompressSync, brotliDecompressSync, constants, gunzipSync } from "node:zlib";
 import type { MockTransaction } from "../src/mock.js";
 import { runNativeDebugger } from "../src/profile.js";
-import { groupsOf, planReplay, replayGroups, type ReplayPlan, type RunDebugger } from "../src/replay.js";
+import { groupsOf, planReplay, replayGroups, selectorFor, type ReplayPlan, type RunDebugger } from "../src/replay.js";
 import { substituteBinaries } from "../src/substitute.js";
 import { WASM_TX_FILE, wasmDebuggerVersion, wasmRunner } from "../src/wasm.js";
 import {
@@ -179,7 +179,7 @@ const MAINNET: { hash: string; title: string }[] = [
 
 async function record(): Promise<void> {
   const scenarios: Scenario[] = [];
-  const names = (plan: ReplayPlan) => Object.fromEntries(plan.groups.filter((g) => g.name).map((g) => [selectorOf(g), g.name!]));
+  const names = (plan: ReplayPlan) => Object.fromEntries(plan.groups.filter((g) => g.name).map((g) => [selectorFor(g), g.name!]));
 
   // 1. The ckb-testtool fixture project's mocks (what `ckb-cycles scan` reads).
   const ttDir = "test/fixtures/testtool-project/mocks";
@@ -207,7 +207,7 @@ async function record(): Promise<void> {
     const n: Record<string, string> = {};
     for (const g of plan.groups) {
       const name = cfg.names[`${g.codeHash}:${g.hashType}`];
-      if (name) n[selectorOf(g)] = name;
+      if (name) n[selectorFor(g)] = name;
     }
     scenarios.push({ id: `benchmark/${basename(sc.mock, ".json")}`, source: "benchmark", title: sc.name, scriptVersion: 2, names: n, mock });
   }
@@ -284,10 +284,6 @@ async function withRetry<T>(f: () => Promise<T>, what: string): Promise<T> {
       await new Promise((r) => setTimeout(r, 10_000 * i));
     }
   }
-}
-
-function selectorOf(g: { inputs: number[]; outputs: number[]; role: string }): string {
-  return g.inputs.length ? `input.${g.inputs[0]}.${g.role}` : `output.${g.outputs[0]}.${g.role}`;
 }
 
 // ---------------------------------------------------------------- run
