@@ -8,6 +8,9 @@
  * and another new. Plain TypeScript with no Node built-ins, like flame.ts.
  */
 
+/** `__text_start`, `__init_array_end`, `_etext`, `_stext`, `end` and the like: labels, not functions. */
+const LINKER_MARKER = /^(__\w*_(start|end)|_?_?(etext|edata|end|stext|ftext)|__executable_start|__ehdr_start|__global_pointer\$)$/;
+
 /** Start address → name (demangled when it can be), of every function symbol in `.symtab`. */
 export function elfFunctionNames(elf: Uint8Array): Map<bigint, string> {
   const names = new Map<bigint, string>();
@@ -26,9 +29,13 @@ export function elfFunctionNames(elf: Uint8Array): Map<bigint, string> {
   if (shentsize < 64 || !inside(shoff, shentsize * shnum)) return names;
   const section = (i: number) => {
     const o = shoff + i * shentsize;
-    return { type: u32(o + 4), offset: Number(u64(o + 0x18)), size: Number(u64(o + 0x20)), link: u32(o + 0x28), entsize: Number(u64(o + 0x38)) };
+    return { type: u32(o + 4), flags: u64(o + 8), offset: Number(u64(o + 0x18)), size: Number(u64(o + 0x20)), link: u32(o + 0x28), entsize: Number(u64(o + 0x38)) };
   };
   const SHT_SYMTAB = 2;
+  const SHF_EXECINSTR = 0x4n;
+  // SHN_LORESERVE and up: SHN_ABS, SHN_COMMON, SHN_XINDEX. Not an address in code.
+  const SHN_LORESERVE = 0xff00;
+  const inCode = (shndx: number) => shndx < shnum && (section(shndx).flags & SHF_EXECINSTR) !== 0n;
   for (let i = 0; i < shnum; i++) {
     const symtab = section(i);
     if (symtab.type !== SHT_SYMTAB || symtab.entsize < 24 || !inside(symtab.offset, symtab.size)) continue;
@@ -42,12 +49,16 @@ export function elfFunctionNames(elf: Uint8Array): Map<bigint, string> {
       const shndx = u16(o + 6);
       const value = u64(o + 8);
       const type = info & 0xf;
-      // STT_FUNC, or STT_NOTYPE for a global label in assembly (`_start`), defined in a section.
-      if (!(type === 2 || (type === 0 && info >> 4 !== 0)) || shndx === 0 || nameOff === 0 || nameOff >= strtab.size) continue;
+      // STT_FUNC, or STT_NOTYPE for a global label in assembly (`_start`) in an
+      // executable section, defined in a real section (not SHN_UNDEF or SHN_ABS).
+      if (!(type === 2 || (type === 0 && info >> 4 !== 0)) || shndx === 0 || shndx >= SHN_LORESERVE || nameOff === 0 || nameOff >= strtab.size) continue;
+      if (type === 0 && !inCode(shndx)) continue;
       let end = strtab.offset + nameOff;
       while (end < strtab.offset + strtab.size && elf[end] !== 0) end++;
       const raw = decoder.decode(elf.subarray(strtab.offset + nameOff, end));
       if (!raw || raw.startsWith("$") || raw.startsWith(".L")) continue;
+      // Section bounds the linker or a linker script defines; one can sit at `_start`'s address.
+      if (type === 0 && LINKER_MARKER.test(raw)) continue;
       // A function and a label at the same address: the function's name wins.
       if (type === 2 || !names.has(value)) names.set(value, demangle(raw));
     }
