@@ -2,47 +2,58 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.1.0 (2026-10-30)
 
-- `npm run compat` (repository only): replays 35 frozen scenarios under every
-  ckb-debugger release from 0.121.0 to 1.1.1, native and WebAssembly, compares
-  each script group with 1.1.1, and writes compat/RESULTS.md; a weekly Linux CI
-  job runs it.
+Cycle reports from ckb-testtool tests, and a check across ckb-debugger releases.
 
-- `ckb-cycles scan <mocks-dir>`: writes a cycles.json from the mock transactions
-  a test suite wrote, with each freshly built binary in `build/release` mapped by
-  its data hash and `<name>.debug` as its symbols build.
-- `integrations/ckb-testtool`: a Rust crate whose `verify_tx` writes each
-  ckb-testtool transaction as a mock when `CKB_CYCLES_MOCKS` is set, for
-  ckb-script-templates projects.
+### CLI: `ckb-cycles`
+- `scan <mocks-dir>`: writes a cycles.json from the mock transactions a test
+  suite wrote, one scenario per file, with each freshly built binary in
+  `--binaries` (default `build/release`) mapped by its data hash and
+  `<name>.debug` as its symbols build; `--functions` records each group's
+  costliest functions.
 - Functions the profiler could not name from line info (`func_0x<address>`:
   ckb-std's `_start`, rustc's allocator shims) are named from the symbols
   build's ELF symbol table, so they no longer show in a diff as one address
   removed and another added when code moves.
-- `scripts/templates-e2e.sh` and a CI job: the testtool integration on a
-  project generated from ckb-script-templates, two contracts, a change, a diff.
-- README: the Makefile target uses `npx -p ckb-cycle-tools ckb-cycles` (a bare
-  `npx ckb-cycles` names a package that does not exist) and `cargo test -p tests`.
-- `npm run compat`: a scenario the reference debugger could not run is a
-  mismatch for every other build, not a match.
-- `npm run compat`: each scenario's transaction file carries a hash of its id,
-  so two ids that slug alike no longer replay the same transaction.
 - ELF names skip absolute symbols, labels outside executable sections and
   linker section markers (`__text_start`, `_etext`), so a marker at `_start`'s
   address no longer renames the root frame.
-- Action: when the sticky comment exists but updating it fails, the step
-  retries the update (three tries) and then warns; it no longer posts a second
-  report comment beside the first.
-- `scripts/templates-e2e.sh` compares the mock count as a number, so macOS's
-  padded `wc -l` output no longer fails it.
 - Legacy Rust symbol names are demangled in full (`$RF$`, `$LP$`, `$u7b$` and
   the other escapes), so they read as `rustc-demangle` prints them.
-- `npm run compat -- record` tries a node three times, as it says, not six.
+
+### ckb-testtool integration
+- `integrations/ckb-testtool`: a Rust crate whose `verify_tx` writes each
+  ckb-testtool transaction as a mock when `CKB_CYCLES_MOCKS` is set, for
+  ckb-script-templates projects; with `scan`, `make cycles` reports every
+  test's script groups. Checked in CI on a project generated from
+  ckb-script-templates, two contracts, a change, a diff.
+- README: the Makefile target uses `npx -p ckb-cycle-tools ckb-cycles` (a bare
+  `npx ckb-cycles` names a package that does not exist) and `cargo test -p tests`.
+
+### Library
+- `scanTestMocks`, `configFromMocks` and `formatScan` (and their types) from `.`.
 - `flameTransaction` reads and parses each symbols build once, not once per
   script group that runs it.
 - `flameTransaction` takes `readBinary` beside `readFile`, so a caller whose
   debugger sees another file system gets frame names from the builds there
   too; it defaults to node:fs, as before.
+
+### GitHub Action
+- When the sticky comment exists but updating it fails, the step retries the
+  update (three tries) and then warns; it no longer posts a second report
+  comment beside the first.
+- When the pull request's comments cannot be listed, the step warns and posts
+  nothing (the report is in the job summary), since it cannot tell whether its
+  comment already exists.
+
+### Compatibility across ckb-debugger releases
+- `npm run compat` (repository only): replays 35 frozen scenarios under every
+  ckb-debugger release from 0.121.0 to 1.1.1, native and WebAssembly, compares
+  each script group with 1.1.1, and writes compat/RESULTS.md; a weekly Linux CI
+  job runs it. A scenario the reference debugger could not run counts as a
+  mismatch, and two scenario ids that slug alike no longer replay the same
+  transaction.
 
 ## 1.0.0 (2026-10-27)
 

@@ -44,7 +44,7 @@ npm install -g ckb-cycle-tools   # the ckb-cycles command
 ckb-cycles <tx hash>             # or without installing: npx ckb-cycles <tx hash>
 ```
 
-[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.0.0, ESM, Node 20 or
+[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.1.0, ESM, Node 20 or
 later). It drives `ckb-debugger`, which must be on PATH or passed with `--debugger`.
 
 ## Try it
@@ -357,8 +357,8 @@ the cycles.json from them, so nothing is written by hand.
 
    The npm package is `ckb-cycle-tools`; its command is `ckb-cycles`, so a
    project with no package.json needs `npx -p ckb-cycle-tools` (a bare
-   `npx ckb-cycles` looks for a package of that name). `scan` is not in the
-   1.0.0 release yet: until the next one, point the variable at a checkout,
+   `npx ckb-cycles` looks for a package of that name). `scan` needs 1.1.0 or
+   later; to run a checkout instead, point the variable at it,
    `make cycles CKB_CYCLES="node ../ckb-cycle-tools/dist/cli.js"`.
 
 `make cycles` then builds the contracts, runs the tests, and reports each
