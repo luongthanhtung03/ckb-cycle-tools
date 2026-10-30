@@ -40,6 +40,9 @@ This project follows [semantic versioning](https://semver.org/).
 - `npm run compat -- record` tries a node three times, as it says, not six.
 - `flameTransaction` reads and parses each symbols build once, not once per
   script group that runs it.
+- `flameTransaction` takes `readBinary` beside `readFile`, so a caller whose
+  debugger sees another file system gets frame names from the builds there
+  too; it defaults to node:fs, as before.
 
 ## 1.0.0 (2026-10-27)
 

@@ -138,11 +138,19 @@ export interface FlameGroup {
  * code hash to an unstripped build of that script, used instead of the
  * deployed (stripped) binary so the frames have names; each such group is also
  * run with the deployed binary, to check the build behaves the same.
- * `scripts` limits the run to those selectors (`input.0.lock`, …).
+ * `scripts` limits the run to those selectors (`input.0.lock`, …). `readFile`
+ * reads the folded stacks the debugger wrote, and `readBinary` (node:fs when
+ * not given) the builds, for their symbol tables: both see the files where
+ * `runDebugger` does.
  */
 export async function flameTransaction(
   target: string | RpcTransaction | MockTransaction,
-  options: ProfileOptions & { bins?: Record<string, string>; scripts?: string[]; readFile: (path: string) => Promise<string> },
+  options: ProfileOptions & {
+    bins?: Record<string, string>;
+    scripts?: string[];
+    readFile: (path: string) => Promise<string>;
+    readBinary?: (path: string) => Promise<Uint8Array>;
+  },
 ): Promise<{ plan: ReplayPlan; groups: FlameGroup[]; debugger: string }> {
   const { exec, version: debuggerVersion } = await debuggerOf(options);
   const plan = await planReplay(target, options);
@@ -154,9 +162,10 @@ export async function flameTransaction(
     const groups: FlameGroup[] = [];
     // Frames the profiler could not name from line info get their names from the build's symbol table,
     // read and parsed once per build however many groups run it.
+    const readBinary = options.readBinary ?? ((path: string) => readFile(path).then((b) => new Uint8Array(b)));
     const symbols = new Map<string, Promise<Map<bigint, string>>>();
     const namesOf = (bin: string) => {
-      if (!symbols.has(bin)) symbols.set(bin, readFile(bin).then(elfFunctionNames, () => new Map<bigint, string>()));
+      if (!symbols.has(bin)) symbols.set(bin, readBinary(bin).then(elfFunctionNames, () => new Map<bigint, string>()));
       return symbols.get(bin)!;
     };
     for (const g of plan.groups) {

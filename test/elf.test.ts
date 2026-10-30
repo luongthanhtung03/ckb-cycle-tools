@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { demangle, elfFunctionNames } from "../src/elf.js";
 import { nameAddresses, parseFolded } from "../src/flame.js";
+import type { MockTransaction } from "../src/mock.js";
+import { flameTransaction, type DebuggerOutput } from "../src/profile.js";
 
 /**
  * A minimal ELF64 little-endian file: a null section, .symtab, .strtab, .text
@@ -123,5 +126,35 @@ describe("nameAddresses", () => {
       ["_start", 5n],
       ["func_0x99", 1n],
     ]);
+  });
+});
+
+describe("flameTransaction", () => {
+  // The session lock's mock: input.0.lock runs ckb-js-vm, input.1.lock always-success.
+  const mock: MockTransaction = JSON.parse(readFileSync("benchmarks/session-lock/mocks/spend-exactly-max-per-tx.json", "utf8"));
+  const VM = "0xb95123c71a870e3f0f74a7ee1dab8268dbfbc1407b46733ebd1b41f854b4324a";
+  const SUCCESS = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5";
+  const run = async (args: string[]): Promise<DebuggerOutput> =>
+    args[0] === "--version"
+      ? { stdout: "ckb-debugger 1.1.1\n", stderr: "", exitCode: 0 }
+      : { stdout: "Run result: 0\nAll cycles: 100(0.0M)\n", stderr: "", exitCode: 0 };
+
+  it("names frames from the build read through the injected readers, once per build", async () => {
+    const read: string[] = [];
+    const { groups } = await flameTransaction(mock, {
+      runDebugger: run,
+      // Neither the folded stacks nor the build exist on disk.
+      bins: { [VM]: "virtual/shared.debug", [SUCCESS]: "virtual/shared.debug" },
+      readFile: async () => "??:func_0x130c4;main.rs:alpha::run 10",
+      readBinary: async (path) => {
+        read.push(path);
+        return elf([["_start", 0x130c4n, 0x10]]);
+      },
+    });
+    expect(groups.map((g) => [g.selector, [...g.folded]])).toEqual([
+      ["input.0.lock", [["_start;alpha::run", 10n]]],
+      ["input.1.lock", [["_start;alpha::run", 10n]]],
+    ]);
+    expect(read).toEqual(["virtual/shared.debug"]);
   });
 });
