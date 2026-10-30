@@ -23,7 +23,8 @@ afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
 
 /**
  * Runs the sticky-comment step with a fake `gh` (and `sleep`) on PATH: `ids` is
- * what the comment listing prints, and PATCH fails `patchFails` times.
+ * what the comment listing prints ("FAIL" makes the listing fail), and PATCH fails
+ * `patchFails` times.
  * Returns the gh calls made and the step's output.
  */
 function postComment(ids: string, patchFails: number) {
@@ -38,7 +39,7 @@ function postComment(ids: string, patchFails: number) {
       'echo "$*" >> "$FAKE_DIR/calls"',
       'case "$*" in',
       "  'api user'*) exit 1 ;;",
-      '  *--paginate*) printf "%s" "$FAKE_IDS" ;;',
+      '  *--paginate*) [ "$FAKE_IDS" != FAIL ] || exit 1; printf "%s" "$FAKE_IDS" ;;',
       '  *PATCH*) n=$(cat "$FAKE_DIR/patched" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_DIR/patched"; [ "$n" -ge "$FAKE_PATCH_FAILS" ] ;;',
       "esac",
     ].join("\n"),
@@ -76,5 +77,11 @@ describe.skipIf(!bash)("action.yml: the sticky comment", () => {
     const failed = postComment("11", 9);
     expect(failed.verbs).toEqual(["PATCH", "PATCH", "PATCH"]);
     expect(failed.out).toContain("::warning::could not update the cycle report comment 11");
+  });
+
+  it("posts nothing when the comments cannot be listed", () => {
+    const r = postComment("FAIL", 0);
+    expect(r).toMatchObject({ status: 0, verbs: [] });
+    expect(r.out).toContain("::warning::could not list the pull request's comments");
   });
 });

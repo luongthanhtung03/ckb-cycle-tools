@@ -181,7 +181,11 @@ runs:
         login=$(gh api user --jq .login 2>/dev/null) || login='github-actions[bot]'
         # All the matches first, then the first of them: `| head` could cut gh off mid-page.
         ids=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
-          --jq ".[] | select(.user.login == \"$login\" and (.body | startswith(\"$marker\"))) | .id") || ids=""
+          --jq ".[] | select(.user.login == \"$login\" and (.body | startswith(\"$marker\"))) | .id") || {
+          # Unknown whether ours exists: posting now could put a second one beside it.
+          echo "::warning::could not list the pull request's comments; the report is in the job summary"
+          exit 0
+        }
         id=${ids%%$'\n'*}
         # A pull request from a fork gets a read-only token: the summary still has the table.
         if [ -z "$id" ]; then
