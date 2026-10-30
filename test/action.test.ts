@@ -66,7 +66,8 @@ function postComment(ids: string, patchFails: number) {
   return { status: r.status, out: r.stdout, verbs: calls.map((c) => /-X (\w+)/.exec(c)?.[1]).filter(Boolean) };
 }
 
-describe.skipIf(!bash)("action.yml: the sticky comment", () => {
+// Each case starts bash a few times, which takes seconds on a Windows runner.
+describe.skipIf(!bash)("action.yml: the sticky comment", { timeout: 60_000 }, () => {
   it("posts a new comment when there is none", () => {
     expect(postComment("", 0)).toMatchObject({ status: 0, verbs: ["POST"] });
   });
