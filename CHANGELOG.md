@@ -49,6 +49,43 @@ Cycle reports from ckb-testtool tests, and a check across ckb-debugger releases.
   the PR's build, and the Action's README no longer says the build cannot get a
   write token. GitHub-owned actions in this repository's workflows and the
   README examples are pinned to commit SHAs, with the release as a comment.
+- Web inspector: every page is served with `Content-Security-Policy:
+  frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options:
+  nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`, and without
+  `X-Powered-By`, so no other site can frame it.
+
+### Fixed (audit, 31 Oct)
+Each of these could give a gated check the wrong verdict.
+- A binary missing from `--binaries-from` (a contract the PR adds) made every
+  scenario offered it a base error with no groups, so nothing in those
+  scenarios was compared, the other binaries' groups included. The scenario now
+  runs with the binaries that exist, the missing one left as the mock has it;
+  only the groups whose code it is are not compared (`missingBinary` on the
+  group, `missingBinaries` on the scenario), and a gated diff fails on them
+  unless `--allow-removed`.
+- A binary offered to a scenario that matches none of its cell deps (a mock
+  dumped from an older build) was measured as the mock's old code on both
+  sides and shown unchanged, with nothing said. It is now a warning on that
+  scenario, listed in the comment. A binary that matches no cell dep in any
+  scenario was a report error that only reached the log: `report` now writes
+  its errors into the JSON (`"errors"`), and a gated diff fails when either
+  report has any, so the Action's `|| true` no longer hides them.
+- A group the VM stopped (past the cycle limit) was recorded with 0 cycles and
+  read as a -100% saving, passing `--fail-above`. The cycles of a stopped run
+  are never used now; with `--fail-above` such a group is over the threshold,
+  and a result change for `--fail-on-result-change`. A result names the VM
+  error's kind (`error: invalid instruction`, `error: cycles error: max cycles
+  exceeded`), so one VM error turning into another is a result change.
+- GitHub Action: the base report ran the PR's cycles.json, so a scenario the PR
+  deleted was never measured or listed. The base is now measured with the base
+  commit's own cycles.json, mocks and binaries (an empty report when the base
+  has none); the head still runs the PR's.
+- A base group with nothing in the head to compare against (a scenario or group
+  removed, renamed, or moved to another selector) passed both gates. A gated
+  diff now fails on it unless `--allow-removed` (Action input `allow-removed`,
+  default false). The summary counts such groups and new groups.
+- Two reports from different ckb-debugger versions were compared without a
+  word: the summary now names both versions.
 
 ### CLI: `ckb-cycles`
 - `scan <mocks-dir>`: writes a cycles.json from the mock transactions a test
