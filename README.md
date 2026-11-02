@@ -571,7 +571,7 @@ npm run compat             # runs everything (about 2.5 minutes), exits 1 on any
 builds, `--no-sweep` skips the VM 0/1/2 sweep, and `npm run compat -- record`
 rebuilds the scenario file (read-only RPC; needs `npm run bench:build` first).
 [.github/workflows/compat.yml](.github/workflows/compat.yml) runs the check with
-the Linux builds weekly and on demand; it has not run on GitHub yet.
+the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) passed.
 
 ## Limits
 

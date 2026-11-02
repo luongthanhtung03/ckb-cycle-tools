@@ -242,9 +242,8 @@ every build agrees with the node.
 ## What this check does not cover
 
 - It ran on Windows (native builds for x86_64-pc-windows-msvc). The CI job in
-  `.github/workflows/compat.yml` runs the same check with the Linux builds; it
-  has not run on GitHub yet. The Linux tarballs were downloaded and checked
-  (sha256 and contents) but not executed here.
+  `.github/workflows/compat.yml` runs the same check with the Linux builds; its
+  first run on GitHub (2 Nov 2026, commit 3127518) passed with the same results.
 - macOS builds are not in the manifest.
 - The scenarios are frozen inputs. A future CKB-VM version would be a new
   `--script-version`, and the sweep would need it added.
