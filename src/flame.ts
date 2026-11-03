@@ -215,8 +215,28 @@ function colour(name: string): string {
   return `hsl(${hue} 75% ${light}%)`;
 }
 
-/** The `All cycles: N` line ckb-debugger prints in flamegraph mode: what the profile covers. */
+/**
+ * The `All cycles: N` line ckb-debugger prints in flamegraph mode: what the
+ * profile covers. The last one: when the script spawns other scripts, the
+ * debugger first runs the whole group (printing its full total) to record
+ * the syscalls, then profiles the root script alone ("Actual run").
+ */
 export function profiledCycles(output: string): bigint | undefined {
-  const m = /^All cycles:\s*(\d+)/m.exec(output);
-  return m ? BigInt(m[1]) : undefined;
+  const all = [...output.matchAll(/^All cycles:\s*(\d+)/gm)];
+  return all.length ? BigInt(all[all.length - 1][1]) : undefined;
+}
+
+/**
+ * How many scripts the profiled script spawned (CKB2023 `spawn`), from the
+ * `Spawn tree:` lines ckb-debugger prints in flamegraph mode: one per VM,
+ * the root first (`Spawn tree: 0 …`, then `Spawn tree: └── 1 …`). 0 when
+ * there are none. The debugger profiles only the root VM, so the spawned
+ * scripts' cycles are in the group's total but in none of its frames. (A
+ * script could print such a line itself; this count only adds a note.)
+ */
+export function spawnedScripts(output: string): number {
+  const ids = new Set<string>();
+  for (const m of output.matchAll(/^Spawn tree: [\s─-╿]*(\d+)\s/gm)) ids.add(m[1]);
+  ids.delete("0");
+  return ids.size;
 }

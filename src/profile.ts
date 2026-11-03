@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { MockTransaction, RpcTransaction } from "./mock.js";
 import { elfFunctionNames } from "./elf.js";
-import { nameAddresses, parseFolded, type Folded } from "./flame.js";
+import { nameAddresses, parseFolded, spawnedScripts, type Folded } from "./flame.js";
 import {
   debuggerArgs,
   parseDebuggerRun,
@@ -131,6 +131,12 @@ export interface FlameGroup {
   /** With `bin`: the exit code of that run (with the deployed binary), and whether the VM stopped it. */
   deployedResult?: number;
   deployedError?: string;
+  /**
+   * How many scripts this group's script spawned (CKB2023 `spawn`). ckb-debugger
+   * profiles only the root script: the spawned ones' cycles are in `cycles`
+   * but in no frame of `folded`, and `--bin` replaces only the root's binary.
+   */
+  spawned?: number;
 }
 
 /**
@@ -182,6 +188,7 @@ export async function flameTransaction(
         "--flamegraph-output",
         out,
       ]);
+      const spawned = spawnedScripts(runOut.stdout);
       const names = bin ? await namesOf(bin) : new Map<bigint, string>();
       const folded = nameAddresses(parseFolded(await options.readFile(out).catch(() => "")), names);
       // Flamegraph mode leaves out loading the binary, so result and cycles come
@@ -197,6 +204,7 @@ export async function flameTransaction(
         ...(parsed.error && { error: parsed.error }),
         cycles: parsed.cycles,
         folded,
+        ...(spawned && { spawned }),
         ...(bin &&
           deployed && {
             bin,

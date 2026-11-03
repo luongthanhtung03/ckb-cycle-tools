@@ -222,6 +222,13 @@ Reading the lock hashes of the transaction's cells is the lock's largest cost.
 The profile covers the script's run; loading the binary into the VM (1,812
 cycles here) is counted by the node but not by the profiler.
 
+**A script that spawns another** (CKB2023 `spawn`): its group's cycles include
+every script it spawned, as on the node, and the CLI and report say how many it
+spawned. The functions are the spawning script's own: ckb-debugger profiles only
+that one, and `--bin` replaces only its binary, so the spawned scripts' work is
+in the total but in no frame. [`test/fixtures/spawn-project`](test/fixtures/spawn-project)
+is such a pair.
+
 **In the browser:** drop the `.folded` file on the
 [web inspector](https://ckb-cycle-tools.vercel.app/) ("inside a script"), or open
 its example, and it draws the same flamegraph and table. Nothing is uploaded.

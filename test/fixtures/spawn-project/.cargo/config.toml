@@ -1,0 +1,5 @@
+# CKB-VM has no atomic instructions: ckb-std's dummy-atomic provides the calls.
+# B-extension bit ops are supported by CKB-VM version 2. (No [build] target: the
+# tests crate builds for the host; `make build` passes --target.)
+[target.riscv64imac-unknown-none-elf]
+rustflags = ["-C", "target-feature=+zba,+zbb,+zbc,+zbs,-a"]

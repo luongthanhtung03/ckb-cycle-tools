@@ -1,0 +1,8 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ckb-testtool = "1.1"
+ckb-cycles-testtool = { path = "../../../../integrations/ckb-testtool" }

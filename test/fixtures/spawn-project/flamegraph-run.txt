@@ -1,0 +1,11 @@
+Pre gather: collect vm creation
+Run result: 0
+All cycles: 761957(744.1K)
+Spawn tree: 0                    cell_dep[0][0..15992]
+Spawn tree: └── 1                cell_dep[1][0..11552]
+Pre gather: collect syscalls
+Run result: 0
+All cycles: 761957(744.1K)
+Actual run: start
+Run result: 0
+All cycles: 14974(14.6K)

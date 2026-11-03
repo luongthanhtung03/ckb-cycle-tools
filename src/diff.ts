@@ -67,6 +67,14 @@ export interface GroupResult {
   functions?: FunctionResult[];
   /** Why `functions` were not recorded although asked for (the symbols build costs other cycles…). */
   functionsWarning?: string;
+  /**
+   * How many scripts this one spawned (CKB2023 `spawn`), seen by the run that
+   * recorded `functions`. Their cycles are in `cycles`, but `functions` cover
+   * only this script: ckb-debugger profiles the root VM alone.
+   */
+  spawned?: number;
+  /** With `spawned`: the cycles the function profile covers (the root script's own run). */
+  profiled?: number;
 }
 
 export interface FunctionResult {
@@ -115,6 +123,10 @@ export interface DiffRow {
   functions?: FunctionDelta[];
   /** The head's reason for not recording functions. */
   functionsWarning?: string;
+  /** The head's script spawned this many others, whose cycles no function accounts for. */
+  spawned?: number;
+  /** With `spawned`: the cycles the head's function profile covers. */
+  profiled?: number;
   /** Why the base side of this group was not compared (its binary was not in the base checkout). */
   notCompared?: string;
 }
@@ -278,6 +290,10 @@ function groupRow(scenario: string, measured: GroupResult | undefined, h: GroupR
   }
   if (h?.functions) row.functions = functionDeltas(b?.functions, h.functions);
   if (h?.functionsWarning) row.functionsWarning = h.functionsWarning;
+  if (h?.spawned) {
+    row.spawned = h.spawned;
+    if (h.profiled !== undefined) row.profiled = h.profiled;
+  }
   return row;
 }
 
@@ -471,7 +487,14 @@ function functionBlocks(rows: DiffRow[]): string[] {
       out.push(`<details><summary>Functions in ${where}: not recorded</summary>`, "", md(r.functionsWarning), "", "</details>", "");
       continue;
     }
-    if (!r.functions?.length) continue;
+    const spawn = r.spawned ? spawnNote(r) : undefined;
+    if (!r.functions?.length) {
+      // No function of the script itself changed: with spawned scripts, that is where the change is.
+      if (spawn && r.functions && r.kind !== "same") {
+        out.push(`<details><summary>Functions in ${where}: none of its own changed</summary>`, "", md(spawn), "", "</details>", "");
+      }
+      continue;
+    }
     const shown = r.functions.slice(0, FUNCTIONS_SHOWN);
     const more = r.functions.length - shown.length;
     const n = r.functions.length;
@@ -483,6 +506,7 @@ function functionBlocks(rows: DiffRow[]): string[] {
       ...shown.map((f) => `| ${md(clipName(f.name))} | ${fnCell(f.base)} | ${fnCell(f.head)} | ${f.delta === undefined ? "" : signed(f.delta)} |`),
       "",
       ...(more > 0 ? [`and ${more} more.`, ""] : []),
+      ...(spawn ? [md(spawn), ""] : []),
       `<sub>Self cycles, from ckb-debugger's profiler with the symbols build; — means not among the ${FUNCTION_LIMIT} costliest (or not recorded).</sub>`,
       "",
       "</details>",
@@ -493,6 +517,17 @@ function functionBlocks(rows: DiffRow[]): string[] {
 }
 
 const fnCell = (n: number | undefined) => (n === undefined ? "—" : fmt(n));
+
+/** What a function list leaves out when the script spawned others: their cycles. */
+export function spawnNote(r: { spawned?: number; profiled?: number; head?: { cycles?: number } }): string {
+  const n = r.spawned ?? 0;
+  const covers =
+    r.profiled !== undefined && r.head?.cycles !== undefined ? ` (the profile covers ${fmt(r.profiled)} of its ${fmt(r.head.cycles)} cycles)` : "";
+  return (
+    `This script spawned ${n} other script${n === 1 ? "" : "s"}: ${n === 1 ? "its" : "their"} cycles are in the group's total, ` +
+    `but not in these functions, which are the spawning script's own${covers}.`
+  );
+}
 
 /** The hidden marker that identifies the sticky comment, so it is updated instead of duplicated. */
 export const COMMENT_MARKER = "<!-- ckb-cycles-report -->";
@@ -626,7 +661,8 @@ export function formatText(diff: CycleDiff): string {
         .map((f) => `${termLine(f.name)} ${f.delta !== undefined ? signed(f.delta) : `${fnText(f.base)} → ${fnText(f.head)}`}`);
       const more = r.functions.length - top.length;
       functions.push(`functions in ${where}: ${top.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
-    }
+      if (r.spawned) functions.push(`  ${spawnNote(r)}`);
+    } else if (r.functions && r.spawned) functions.push(`functions in ${where}: none of its own changed. ${spawnNote(r)}`);
   }
   const errors = (diff.reportErrors ?? []).map((e) => `error: ${termLine(e)}`);
   const warnings = (diff.warnings ?? []).map((w) => `${termLine(w.scenario)}: warning: ${termLine(w.text)}`);
