@@ -17,8 +17,8 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
-import { FUNCTION_LIMIT, resultLabel, termLine, termLines, unmatchedError } from "./diff.js";
-import { functionCosts } from "./flame.js";
+import { FUNCTION_LIMIT, resultLabel, spawnNote, termLine, termLines, unmatchedError } from "./diff.js";
+import { foldedTotal, functionCosts } from "./flame.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile, type ProfileOptions } from "./profile.js";
 import { consensusOf, nodeVerdict, PUBLIC_RPC } from "./replay.js";
@@ -407,6 +407,10 @@ async function recordFunctions(
   }
   for (const g of run) {
     const f = flame.groups.find((f) => f.selector === g.selector);
+    if (f?.spawned) {
+      g.spawned = f.spawned;
+      g.profiled = Number(foldedTotal(f.folded));
+    }
     if (!f) g.functionsWarning = "the flamegraph run did not profile this group";
     else if (f.cycles !== BigInt(g.cycles) || resultLabel(f) !== resultLabel(g)) {
       g.functionsWarning =
@@ -494,6 +498,7 @@ export function formatReport(report: CycleReport): string {
       else if (g.functions?.length) {
         const top = g.functions.slice(0, 3).map((f) => `${t(f.name)} ${fmt(f.self)}`);
         out.push("", `${t(s.name)} ${t(g.selector)}: costliest functions (self cycles): ${top.join(", ")}`);
+        if (g.spawned) out.push(`  ${spawnNote({ ...g, head: g })}`);
       }
     }
   }

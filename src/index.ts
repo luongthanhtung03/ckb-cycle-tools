@@ -36,6 +36,7 @@ export {
   functionCosts,
   parseFolded,
   profiledCycles,
+  spawnedScripts,
   renderFlameSvg,
   splitStack,
 } from "./flame.js";

@@ -163,6 +163,19 @@ function substituteOne(mock: MockTransaction, sub: BinarySubstitution, skipUnmat
     if (argsMentions) {
       warnings.push(`the old code hash still appears in the args of ${argsMentions} script(s); args are not rewritten`);
     }
+    // A script that spawns or execs this code by its data hash may read that hash
+    // from a cell's data (a match cell naming its game): it will not find the new build.
+    const needle = oldDataHash.slice(2);
+    const dataMentions = [...mock.mock_info.inputs, ...mock.mock_info.cell_deps]
+      .map((c) => c.data)
+      .concat(mock.tx.outputs_data)
+      .filter((d) => d.toLowerCase().includes(needle)).length;
+    if (dataMentions) {
+      warnings.push(
+        `the old code hash still appears in the data of ${dataMentions} cell(s); cell data is not rewritten, ` +
+          `so a script that spawns or execs this code by the hash it reads there does not find the new build`,
+      );
+    }
   }
 
   return {

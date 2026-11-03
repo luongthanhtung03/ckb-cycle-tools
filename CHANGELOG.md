@@ -2,6 +2,27 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+Scripts that spawn other scripts (CKB2023 `spawn`).
+
+### Added
+- `flame`, and `report` with `functions`, say when a script spawned others:
+  ckb-debugger profiles only the spawning script, so the spawned scripts'
+  cycles are in the group's total but in none of its functions. The report
+  records `spawned` and `profiled` per group; `diff` notes it under the
+  group, and for a group whose cycles changed while none of its own
+  functions did, says that the change is in what it spawned.
+- A warning when a swapped-in binary's old code hash is still in a cell's
+  data (a match cell naming the game it spawns by data hash): data is not
+  rewritten, so that script would not find the new build.
+- `test/fixtures/spawn-project`: a parent lock that spawns a child found by
+  data2 hash, with mocks, and tests against ckb-debugger 1.1.1.
+
+### Fixed
+- `profiledCycles` reads the last `All cycles:` line: for a spawning script,
+  flamegraph mode prints the whole group's total first.
+
 ## 1.1.0 (2026-10-30)
 
 Cycle reports from ckb-testtool tests, and a check across ckb-debugger releases.

@@ -1,0 +1,20 @@
+# A parent script that spawns a child (CKB2023 spawn, VM version 2), the shape
+# of a match script that replays a run in a game script: the parent finds the
+# child by the data2 hash held in its own cell's data, passes it an argument,
+# reads its answer through a pipe and waits for it. ckb-std without libc, so
+# it builds without clang. See README.md here for how the fixtures are made.
+[workspace]
+resolver = "2"
+members = ["contracts/spawn-parent", "contracts/spawn-child", "tests"]
+
+[workspace.dependencies]
+ckb-std = { version = "=1.1.0", default-features = false, features = ["allocator", "ckb-types", "dummy-atomic"] }
+
+[profile.release]
+overflow-checks = true
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = false
+debug = true

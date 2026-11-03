@@ -335,7 +335,15 @@ async function flameCommand(args: string[]): Promise<number> {
     }
     const costs = functionCosts(g.folded);
     if (costs.length === 1) out.push("  one frame: the binary has no symbols. Pass an unstripped build with --bin <code-hash>=<elf>");
-    out.push(`  profiled ${fmt(profiled)} cycles (loading the binary is not profiled)`, "  SELF        TOTAL       FUNCTION");
+    out.push(`  profiled ${fmt(profiled)} cycles (loading the binary is not profiled)`);
+    if (g.spawned) {
+      const n = g.spawned;
+      out.push(
+        `  spawned ${n} other script${n === 1 ? "" : "s"}: ${n === 1 ? "its" : "their"} cycles are in the ${fmt(g.cycles)}, not in this profile`,
+        "  (ckb-debugger profiles only the spawning script; --bin replaces only its binary)",
+      );
+    }
+    out.push("  SELF        TOTAL       FUNCTION");
     for (const c of costs.slice(0, top)) out.push(`  ${fmt(c.self).padStart(10)}  ${fmt(c.total).padStart(10)}  ${termLine(c.name)}`);
     const base = join(dir, g.selector);
     await writeFile(`${base}.folded`, formatFolded(g.folded) + "\n");
