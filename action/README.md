@@ -51,6 +51,8 @@ credentials, so the base must already be in the checkout.
 | `base-ref` | the PR's base commit | empty: report the head alone (every group "new") |
 | `fail-above` | (never) | percent growth of any group that fails the job |
 | `fail-on-result-change` | `false` | fail when any group's result changed |
+| `informational` | `false` | `true`: a crossed threshold or a scenario that could not run is a warning, never a failed job (a failing build still fails) |
+| `base-config` | `base` | `head`: measure the base with the PR's cycles.json and the base's binaries, for a cycles.json generated before the Action (`ckb-cycles scan`) |
 | `allow-removed` | `false` | with a threshold set, do not fail on base groups with nothing in the head to compare against (removed, renamed, moved, or not built on the base) |
 | `comment` | `true` | post or update the sticky comment |
 | `title` | `Cycle report` | the comment's heading |
@@ -169,12 +171,93 @@ jobs:
 ```
 
 `action/comment` takes `markdown` (the file, required), `pr` (default: the
-event's pull request) and `github-token` (default: the workflow token). The
+event's pull request), `head-sha`, `head-owner` and `head-branch` (default: the
+`workflow_run` event's, see below), `max-bytes` (default and most 262144) and
+`github-token` (default: the workflow token). The
 markdown comes from a job the PR's code ran in, so a hostile PR can make it
-say anything (as in one job); it is posted as text and nothing in it runs. On self-hosted
+say anything (as in one job). It is checked before it is posted (a regular
+file of at most `max-bytes`, the report's marker on its first line, no NUL
+bytes), posted as a file, never through a shell or an expression, and with
+every `@mention` and `#ref` broken by a zero-width space, as the report itself
+writes them. On self-hosted
 runners, the split helps only if the second job cannot land on a machine the
 first job's build could change: use ephemeral runners, or run the comment job
 on a GitHub-hosted one.
+
+### Pull requests from forks: `pull_request` + `workflow_run`
+
+Under `pull_request`, every job of a run for a fork's PR gets a read-only
+token, the comment job above included: it cannot comment. The comment then
+goes in a second workflow, on `workflow_run`, which runs from the default
+branch with a token that can comment. It never checks out or runs anything
+from the pull request: it downloads the first run's artifact as data and
+posts it. The pull request is not taken from the artifact (which the PR can
+write): it is the open PR of this repository whose head is still the run's
+`head_sha`, found from the event through the API. A PR that has moved on
+since gets nothing from this run; the next run posts.
+
+```yaml
+# .github/workflows/cycles.yml: measures, with the PR's code and a read-only token
+name: Cycles
+on: pull_request
+permissions: {}
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: luongthanhtung03/ckb-cycle-tools/action@<commit-sha>
+        with:
+          build: make build
+          comment: false
+          informational: true       # report, never fail
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: cycle-report
+          path: ${{ runner.temp }}/ckb-cycles/comment.md
+          if-no-files-found: ignore
+          retention-days: 1
+```
+
+```yaml
+# .github/workflows/cycles-comment.yml: posts, with no code from the PR
+name: Cycles comment
+on:
+  workflow_run:
+    workflows: [Cycles]             # the name above
+    types: [completed]
+permissions: {}
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read                 # the other run's artifact
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        id: download
+        continue-on-error: true     # no artifact: the build failed before the report
+        with:
+          name: cycle-report
+          path: ${{ runner.temp }}/cycle-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - if: steps.download.outcome == 'success'
+        uses: luongthanhtung03/ckb-cycle-tools/action/comment@<commit-sha>
+        with:
+          markdown: ${{ runner.temp }}/cycle-report/comment.md
+```
+
+A `workflow_run` workflow runs only once it is on the default branch, so a
+pull request that adds the pair shows the report in its job summary, and the
+comments start with the next pull request after it is merged.
 
 ## cycles.json
 

@@ -23,6 +23,20 @@ inputs:
   fail-on-result-change:
     description: Fail when a script group's result changed (ok to exit N, or back, or a different VM error).
     default: "false"
+  informational:
+    description: >
+      "true": the report never fails the job. A crossed threshold, or a scenario that
+      could not run, is a warning instead (and stays in the comment and the `failed`
+      output). A build that fails, or ckb-cycles itself failing, still fails the step.
+    default: "false"
+  base-config:
+    description: >
+      Which cycles.json measures the base. "base" (default): the base commit's own, so
+      a scenario the PR removes is listed as removed. "head": the PR's, with the
+      binaries the base commit's build made (--binaries-from). For a cycles.json that a
+      step before the Action generates (ckb-cycles scan), which the base checkout does
+      not have.
+    default: base
   allow-removed:
     description: >
       With fail-above or fail-on-result-change set, do not fail on base script groups
@@ -138,8 +152,10 @@ runs:
         BUILD: ${{ inputs.build }}
         CONFIG: ${{ inputs.config }}
         BASE: ${{ inputs.base-ref }}
+        BASE_CONFIG: ${{ inputs.base-config }}
       run: |
         out="$RUNNER_TEMP/ckb-cycles"
+        case $BASE_CONFIG in base | head) ;; *) echo "::error::base-config is base or head"; exit 1 ;; esac
         if [ -z "$BASE" ]; then
           echo '{"tool":"ckb-cycles","version":1,"scenarios":[]}' > "$out/base.json"
           exit 0
@@ -153,7 +169,10 @@ runs:
         # base group with nothing to compare against, which a gated diff fails on (the
         # allow-removed input accepts it). The head's scenarios still run with the PR's
         # config, as before.
-        if [ ! -f "$out/base/$CONFIG" ]; then
+        # With base-config: head, the base is the PR's cycles.json (generated before the
+        # Action, so the base checkout has none) with the base checkout's binaries.
+        if [ "$BASE_CONFIG" = head ]; then config=$CONFIG; else config=$out/base/$CONFIG; fi
+        if [ ! -f "$config" ]; then
           # No cycles.json on the base (the PR adds it): every head group is new.
           echo '{"tool":"ckb-cycles","version":1,"scenarios":[]}' > "$out/base.json"
         elif [ -n "$BUILD" ] && ! (cd "$out/base" && bash -euo pipefail -c "$BUILD"); then
@@ -167,7 +186,15 @@ runs:
             const all = [...new Set([...names(config, (c) => c.scenarios), ...names(head, (r) => r.scenarios)])];
             const scenarios = all.map((name) => ({ name, error: "the build failed on the base commit", groups: [] }));
             fs.writeFileSync(out, JSON.stringify({ tool: "ckb-cycles", version: 1, scenarios }));
-          ' "$out/base/$CONFIG" "$out/head.json" "$out/base.json"
+          ' "$config" "$out/head.json" "$out/base.json"
+        elif [ "$BASE_CONFIG" = head ]; then
+          # The PR's config and mocks, the base's binaries; it reads nothing outside the
+          # two checkouts. A binary the base did not build is left as the mock has it:
+          # its groups are marked not compared.
+          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base" --root "$GITHUB_WORKSPACE" --root "$out/base" --json "$out/base.json" || true
+          if [ ! -s "$out/base.json" ]; then
+            echo '{"tool":"ckb-cycles","version":1,"scenarios":[],"errors":["the base report did not run (see the log): nothing on the base was measured"]}' > "$out/base.json"
+          fi
         else
           # Its errors (a binary no scenario uses) are in the JSON, and a gated diff fails on them.
           # --root: the base's config reads nothing outside the base checkout.
@@ -283,6 +310,12 @@ runs:
     - name: Fail on the thresholds
       if: steps.diff.outputs.failed == 'true'
       shell: bash
+      env:
+        INFORMATIONAL: ${{ inputs.informational }}
       run: |
+        if [ "$INFORMATIONAL" = true ]; then
+          echo "::warning::cycle report: a threshold was crossed or a scenario could not run (see the job summary); informational, so the job passes"
+          exit 0
+        fi
         echo "::error::cycle report: a threshold was crossed or a scenario could not run (see the job summary)"
         exit 1
