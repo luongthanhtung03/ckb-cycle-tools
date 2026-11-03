@@ -160,7 +160,7 @@ function job(dir: string, ids: string, patchFails: number): Job {
       "inputs.head-sha": "",
       "inputs.head-owner": "",
       "inputs.head-branch": "",
-      "inputs.max-bytes": "65000",
+      "inputs.max-bytes": "262144",
     },
   };
   const tools = runStep("action/action.yml", "Resolve the comment's tools", j);
