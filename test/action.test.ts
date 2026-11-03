@@ -405,7 +405,7 @@ describe.skipIf(!bash)("action/comment: a workflow_run job and an untrusted arti
 
   it("refuses a file that is not a report: too large, no marker, NUL bytes", () => {
     const cases: [string, Buffer | string][] = [
-      ["over 65000", `<!-- ckb-cycles-report -->\n${"a".repeat(70_000)}`],
+      ["over 262144", `<!-- ckb-cycles-report -->\n${"a".repeat(270_000)}`],
       ["not a cycle report", "hello\n<!-- ckb-cycles-report -->\n"],
       ["NUL bytes", Buffer.from("<!-- ckb-cycles-report -->\nab\0cd\n")],
     ];
@@ -424,10 +424,14 @@ describe.skipIf(!bash)("action/comment: a workflow_run job and an untrusted arti
     expect(check(j).outputs.pr).toBe("7");
     j.ctx["inputs.max-bytes"] = "100";
     expect(check(j).out).toContain("over 100");
-    // A larger max-bytes than a comment can hold is held to 65000.
+    // A larger max-bytes is held to 262144.
     j.ctx["inputs.max-bytes"] = "999999";
-    writeFileSync(join(dir, "ckb-cycles", "comment.md"), `<!-- ckb-cycles-report -->\n${"a".repeat(70_000)}`);
-    expect(check(j).out).toContain("over 65000");
+    writeFileSync(join(dir, "ckb-cycles", "comment.md"), `<!-- ckb-cycles-report -->\n${"a".repeat(270_000)}`);
+    expect(check(j).out).toContain("over 262144");
+    // A report at its 60,000-character cap in multi-byte characters (Δ, zero-width spaces) is posted.
+    j.ctx["inputs.max-bytes"] = "262144";
+    writeFileSync(join(dir, "ckb-cycles", "comment.md"), `<!-- ckb-cycles-report -->\n${"Δ​".repeat(30_000)}`);
+    expect(check(j).outputs.pr).toBe("7");
   });
 
   it("posts a copy in which no @mention or #ref links", () => {

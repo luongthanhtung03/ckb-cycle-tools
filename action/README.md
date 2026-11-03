@@ -172,7 +172,7 @@ jobs:
 
 `action/comment` takes `markdown` (the file, required), `pr` (default: the
 event's pull request), `head-sha`, `head-owner` and `head-branch` (default: the
-`workflow_run` event's, see below), `max-bytes` (default and most 65000) and
+`workflow_run` event's, see below), `max-bytes` (default and most 262144) and
 `github-token` (default: the workflow token). The
 markdown comes from a job the PR's code ran in, so a hostile PR can make it
 say anything (as in one job). It is checked before it is posted (a regular

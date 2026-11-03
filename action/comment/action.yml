@@ -31,9 +31,10 @@ inputs:
     default: ${{ github.event.workflow_run.head_branch }}
   max-bytes:
     description: >
-      The largest markdown file posted, in bytes (at most 65000: GitHub's limit for a
-      comment is 65536 characters). A larger one is not posted.
-    default: "65000"
+      The largest markdown file posted, in bytes (at most 262144). The report keeps
+      itself under 60,000 characters (GitHub refuses a comment over 65,536); this
+      bounds what a hostile artifact can make the job read. A larger one is not posted.
+    default: "262144"
   github-token:
     description: Token for the comment. Needs pull-requests write.
     default: ${{ github.token }}
@@ -91,8 +92,8 @@ runs:
       run: |
         export PATH=/usr/bin:/bin
         skip() { echo "::warning::$1; no cycle report comment posted"; exit 0; }
-        case $MAX_BYTES in '' | *[!0-9]*) MAX_BYTES=65000 ;; esac
-        if [ "$MAX_BYTES" -gt 65000 ]; then MAX_BYTES=65000; fi
+        case $MAX_BYTES in '' | *[!0-9]*) MAX_BYTES=262144 ;; esac
+        if [ "$MAX_BYTES" -gt 262144 ]; then MAX_BYTES=262144; fi
 
         if [ ! -f "$MARKDOWN" ] || [ -L "$MARKDOWN" ]; then skip "no report at $MARKDOWN"; fi
         size=$(wc -c < "$MARKDOWN")
