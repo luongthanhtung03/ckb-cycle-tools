@@ -18,6 +18,18 @@ Scripts that spawn other scripts (CKB2023 `spawn`).
   rewritten, so that script would not find the new build.
 - `test/fixtures/spawn-project`: a parent lock that spawns a child found by
   data2 hash, with mocks, and tests against ckb-debugger 1.1.1.
+- Action: pull requests from forks, whose token cannot comment. `action/comment`
+  runs in a `workflow_run` workflow: it finds the pull request from the run's
+  head commit through the API (never from the artifact), posts only while the
+  PR is still at that commit, and checks the downloaded report first (at most
+  `max-bytes`, the marker on its first line, no NUL bytes; @mentions and #refs
+  broken). The two workflows are in `action/README.md`.
+- Action input `informational`: a crossed threshold or a scenario that could
+  not run is a warning, not a failed job.
+- Action input `base-config: head`: the base is measured with the PR's
+  cycles.json and the base checkout's binaries (`--binaries-from`), for a
+  cycles.json generated before the Action (`ckb-cycles scan`). With the
+  default, the base checkout has no such file and every group was new.
 
 ### Fixed
 - `profiledCycles` reads the last `All cycles:` line: for a spawning script,

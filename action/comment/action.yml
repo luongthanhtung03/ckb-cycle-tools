@@ -12,8 +12,28 @@ inputs:
       from the first job. Must be a regular file (not a symlink).
     required: true
   pr:
-    description: Number of the pull request to comment on.
+    description: >
+      Number of the pull request to comment on. Empty under workflow_run (whose
+      event has no pull request for one from a fork): it is found from head-sha.
     default: ${{ github.event.pull_request.number }}
+  head-sha:
+    description: >
+      The commit the report measured. When set, the comment is posted only on an open
+      pull request of this repository whose head is still that commit: one that has
+      moved on gets the next run's report instead. Under workflow_run, the run's
+      head_sha (from the event, not from the artifact).
+    default: ${{ github.event.workflow_run.head_sha }}
+  head-owner:
+    description: Owner of the pull request's head repository (the fork), to find it from head-sha.
+    default: ${{ github.event.workflow_run.head_repository.owner.login }}
+  head-branch:
+    description: The pull request's head branch, to find it from head-sha.
+    default: ${{ github.event.workflow_run.head_branch }}
+  max-bytes:
+    description: >
+      The largest markdown file posted, in bytes (at most 65000: GitHub's limit for a
+      comment is 65536 characters). A larger one is not posted.
+    default: "65000"
   github-token:
     description: Token for the comment. Needs pull-requests write.
     default: ${{ github.token }}
@@ -39,15 +59,95 @@ runs:
 
     # No pull-request code runs in this job, but the steps before this one in it could
     # have written $GITHUB_ENV or $GITHUB_PATH: the same precautions as in the main Action.
-    - name: Post the sticky comment
-      if: inputs.pr != ''
+    # The markdown was written by a job the pull request's code ran in (under
+    # pull_request a PR can change the workflow too): it is data, checked here and
+    # never run. It must look like a report (the marker on its first line, no NUL
+    # bytes, at most max-bytes), and a copy with every @mention and #ref broken by a
+    # zero-width space (as the report itself writes them) is what gets posted.
+    # Which PR it goes to comes from the event and the API, never from the artifact.
+    - name: Check the report and the pull request
+      id: check
       shell: /bin/bash --noprofile --norc -p -eo pipefail {0}
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         GH: ${{ steps.tools.outputs.gh }}
         REPO: ${{ github.repository }}
         PR: ${{ inputs.pr }}
-        BODY: ${{ inputs.markdown }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        HEAD_OWNER: ${{ inputs.head-owner }}
+        HEAD_BRANCH: ${{ inputs.head-branch }}
+        MARKDOWN: ${{ inputs.markdown }}
+        MAX_BYTES: ${{ inputs.max-bytes }}
+        PROXY_HTTPS: ${{ steps.tools.outputs.https-proxy }}
+        PROXY_HTTP: ${{ steps.tools.outputs.http-proxy }}
+        PROXY_NO: ${{ steps.tools.outputs.no-proxy }}
+        CERT_FILE: ${{ steps.tools.outputs.ssl-cert-file }}
+        CERT_DIR: ${{ steps.tools.outputs.ssl-cert-dir }}
+        BASH_ENV: ""
+        ENV: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+      run: |
+        export PATH=/usr/bin:/bin
+        skip() { echo "::warning::$1; no cycle report comment posted"; exit 0; }
+        case $MAX_BYTES in '' | *[!0-9]*) MAX_BYTES=65000 ;; esac
+        if [ "$MAX_BYTES" -gt 65000 ]; then MAX_BYTES=65000; fi
+
+        if [ ! -f "$MARKDOWN" ] || [ -L "$MARKDOWN" ]; then skip "no report at $MARKDOWN"; fi
+        size=$(wc -c < "$MARKDOWN")
+        if [ "$size" -gt "$MAX_BYTES" ]; then skip "the report is $size bytes, over $MAX_BYTES"; fi
+        if [ "$(head -n 1 "$MARKDOWN")" != '<!-- ckb-cycles-report -->' ]; then skip "the file is not a cycle report"; fi
+        if [ "$(tr -d '\000' < "$MARKDOWN" | wc -c)" != "$size" ]; then skip "the report has NUL bytes"; fi
+        body=$(mktemp /tmp/ckb-comment.XXXXXXXX)
+        LC_ALL=C sed 's/\([@#]\)\([A-Za-z0-9_]\)/\1\xe2\x80\x8b\2/g' "$MARKDOWN" > "$body"
+
+        cfg=$(mktemp -d /tmp/ckb-gh.XXXXXXXX)
+        trap 'rm -rf "$cfg"' EXIT
+        gh() {
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$cfg" GH_CONFIG_DIR="$cfg" GH_TOKEN="$GH_TOKEN" \
+            GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+            HTTPS_PROXY="$PROXY_HTTPS" https_proxy="$PROXY_HTTPS" HTTP_PROXY="$PROXY_HTTP" http_proxy="$PROXY_HTTP" \
+            NO_PROXY="$PROXY_NO" no_proxy="$PROXY_NO" SSL_CERT_FILE="$CERT_FILE" SSL_CERT_DIR="$CERT_DIR" \
+            "$GH" "$@"
+        }
+        case $PR in *[!0-9]*) skip "pr is not a number" ;; esac
+        if [ -n "$HEAD_SHA" ]; then
+          if [ -z "$GH" ]; then skip "gh is not on PATH"; fi
+          case $HEAD_SHA in *[!0-9a-f]*) skip "head-sha is not a commit hash" ;; esac
+          if [ ${#HEAD_SHA} != 40 ]; then skip "head-sha is not a commit hash"; fi
+          if [ -n "$PR" ]; then
+            got=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha + " " + .base.repo.full_name + " " + .state') \
+              || skip "could not read pull request $PR"
+            if [ "$got" != "$HEAD_SHA $REPO open" ]; then skip "pull request $PR is not open at $HEAD_SHA (it moved on?)"; fi
+          else
+            case $HEAD_OWNER in '' | *[!A-Za-z0-9-]*) skip "no head repository owner to find the pull request by" ;; esac
+            if [ -z "$HEAD_BRANCH" ]; then skip "no head branch to find the pull request by"; fi
+            # The branch name is the PR author's: a query parameter gh encodes, never
+            # part of a URL, a jq program or a command line of its own.
+            prs=$(gh api -X GET "repos/$REPO/pulls" -f state=open -f "head=$HEAD_OWNER:$HEAD_BRANCH" -f per_page=100 \
+              --jq ".[] | select(.head.sha == \"$HEAD_SHA\" and .base.repo.full_name == \"$REPO\") | .number") \
+              || skip "could not list the open pull requests"
+            PR=${prs%%$'\n'*}
+            case $PR in '' | *[!0-9]*) skip "no open pull request is at $HEAD_SHA (it moved on?)" ;; esac
+            if [ "$PR" != "$prs" ]; then echo "::warning::more than one open pull request is at $HEAD_SHA; posting on $PR"; fi
+          fi
+        fi
+        if [ -z "$PR" ]; then skip "no pull request number"; fi
+        {
+          echo "pr=$PR"
+          echo "body=$body"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Post the sticky comment
+      if: steps.check.outputs.pr != ''
+      shell: /bin/bash --noprofile --norc -p -eo pipefail {0}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH: ${{ steps.tools.outputs.gh }}
+        REPO: ${{ github.repository }}
+        PR: ${{ steps.check.outputs.pr }}
+        BODY: ${{ steps.check.outputs.body }}
         RETRY_DELAY: "5"
         PROXY_HTTPS: ${{ steps.tools.outputs.https-proxy }}
         PROXY_HTTP: ${{ steps.tools.outputs.http-proxy }}

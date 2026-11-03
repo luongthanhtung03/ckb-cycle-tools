@@ -135,6 +135,8 @@ function job(dir: string, ids: string, patchFails: number): Job {
       `env > '${d}/gh-env'`,
       'case "$*" in',
       "  'api user'*) exit 1 ;;",
+      // The pull request lookups of action/comment: what the test put in `pulls`.
+      `  *repos/o/r/pulls*) [ -f '${d}/pulls' ] || exit 1; cat '${d}/pulls' ;;`,
       `  *--paginate*) [ '${ids}' != FAIL ] || exit 1; printf "%s" '${ids}' ;;`,
       `  *PATCH*) n=$(cat '${d}/patched' 2>/dev/null || echo 0); echo $((n + 1)) > '${d}/patched'; [ "$n" -ge ${patchFails} ] ;;`,
       "esac",
@@ -155,6 +157,10 @@ function job(dir: string, ids: string, patchFails: number): Job {
       "runner.temp": dir,
       "inputs.pr": "7",
       "inputs.markdown": join(dir, "ckb-cycles", "comment.md"),
+      "inputs.head-sha": "",
+      "inputs.head-owner": "",
+      "inputs.head-branch": "",
+      "inputs.max-bytes": "65000",
     },
   };
   const tools = runStep("action/action.yml", "Resolve the comment's tools", j);
@@ -309,15 +315,149 @@ describe.skipIf(!bash)("action/comment: posting from a job that runs no PR code"
       const { PR: _mp, BODY: _mb, ...mainRest } = main.env;
       expect(rest).toEqual(mainRest);
     }
+    // What it posts, and where, is what the check step settled.
     expect(step("action/comment/action.yml", "Post the sticky comment").env).toMatchObject({
-      PR: "${{ inputs.pr }}",
-      BODY: "${{ inputs.markdown }}",
+      PR: "${{ steps.check.outputs.pr }}",
+      BODY: "${{ steps.check.outputs.body }}",
     });
   });
 
   it("posts the comment", () => {
     const j = job(fresh(), "", 0);
+    expect(check(j).outputs.pr).toBe("7");
     expect(post(j, "action/comment/action.yml")).toMatchObject({ status: 0, verbs: ["POST"] });
+  });
+});
+
+/** The check step of action/comment, with its outputs put where the post step reads them. */
+function check(j: Job) {
+  const r = runStep("action/comment/action.yml", "Check the report and the pull request", j);
+  j.ctx["steps.check.outputs.pr"] = r.outputs.pr ?? "";
+  j.ctx["steps.check.outputs.body"] = r.outputs.body ?? "";
+  const calls = readFileSync(join(j.dir, "calls"), "utf8").trim().split("\n").filter(Boolean);
+  return { ...r, calls };
+}
+
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+
+/**
+ * action/comment under workflow_run: the report comes from an artifact that a pull
+ * request's code wrote. It is data (checked, never run) and never says which PR it
+ * is for: the PR is found from the event's head commit through the API.
+ */
+describe.skipIf(!bash)("action/comment: a workflow_run job and an untrusted artifact", { timeout: 60_000 }, () => {
+  const fromRun = (j: Job) => {
+    j.ctx["inputs.pr"] = "";
+    j.ctx["inputs.head-sha"] = SHA;
+    j.ctx["inputs.head-owner"] = "alice";
+    j.ctx["inputs.head-branch"] = 'feat/x"; $(touch pwned) #';
+    return j;
+  };
+
+  it("finds the open pull request at the run's head commit, the branch passed as a query parameter", () => {
+    const j = fromRun(job(fresh(), "", 0));
+    writeFileSync(join(dir, "pulls"), "12\n");
+    const r = check(j);
+    expect(r.status, r.out).toBe(0);
+    expect(r.outputs.pr).toBe("12");
+    const lookup = r.calls.find((c) => c.includes("repos/o/r/pulls")) ?? "";
+    expect(lookup).toContain("-X GET repos/o/r/pulls");
+    expect(lookup).toContain('head=alice:feat/x"; $(touch pwned) #');
+    expect(lookup).toContain(`select(.head.sha == "${SHA}"`);
+    expect(existsSync(join(dir, "pwned"))).toBe(false);
+    // The lookup (GET), then the comment.
+    expect(post(j, "action/comment/action.yml")).toMatchObject({ status: 0, verbs: ["GET", "POST"] });
+  });
+
+  it("posts nothing when no open pull request is at that commit any more", () => {
+    const j = fromRun(job(fresh(), "", 0));
+    writeFileSync(join(dir, "pulls"), "");
+    const r = check(j);
+    expect(r.status).toBe(0);
+    expect(r.outputs.pr).toBeUndefined();
+    expect(r.out).toContain("no open pull request is at");
+  });
+
+  it("checks a given PR number against the head commit", () => {
+    const j = fromRun(job(fresh(), "", 0));
+    j.ctx["inputs.pr"] = "7";
+    writeFileSync(join(dir, "pulls"), `${SHA} o/r open\n`);
+    expect(check(j).outputs.pr).toBe("7");
+    writeFileSync(join(dir, "pulls"), `${"f".repeat(40)} o/r open\n`);
+    const moved = check(j);
+    expect(moved.outputs.pr).toBeUndefined();
+    expect(moved.out).toContain("is not open at");
+    writeFileSync(join(dir, "pulls"), `${SHA} someone/else open\n`);
+    expect(check(j).outputs.pr).toBeUndefined();
+  });
+
+  it("refuses a head-sha or an owner that is not one", () => {
+    const j = fromRun(job(fresh(), "", 0));
+    writeFileSync(join(dir, "pulls"), "12\n");
+    j.ctx["inputs.head-sha"] = 'x" or true';
+    expect(check(j).outputs.pr).toBeUndefined();
+    j.ctx["inputs.head-sha"] = SHA;
+    j.ctx["inputs.head-owner"] = "a b";
+    expect(check(j).outputs.pr).toBeUndefined();
+    j.ctx["inputs.head-owner"] = "alice";
+    expect(check(j).outputs.pr).toBe("12");
+  });
+
+  it("refuses a file that is not a report: too large, no marker, NUL bytes", () => {
+    const cases: [string, Buffer | string][] = [
+      ["over 65000", `<!-- ckb-cycles-report -->\n${"a".repeat(70_000)}`],
+      ["not a cycle report", "hello\n<!-- ckb-cycles-report -->\n"],
+      ["NUL bytes", Buffer.from("<!-- ckb-cycles-report -->\nab\0cd\n")],
+    ];
+    for (const [why, content] of cases) {
+      const j = job(fresh(), "", 0);
+      writeFileSync(join(dir, "ckb-cycles", "comment.md"), content);
+      const r = check(j);
+      expect(r.status, why).toBe(0);
+      expect(r.outputs.pr, why).toBeUndefined();
+      expect(r.out, why).toContain(why);
+      expect(post(j, "action/comment/action.yml").verbs, why).toEqual([]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const j = job(fresh(), "", 0);
+    writeFileSync(join(dir, "ckb-cycles", "comment.md"), `<!-- ckb-cycles-report -->\n${"a".repeat(200)}`);
+    expect(check(j).outputs.pr).toBe("7");
+    j.ctx["inputs.max-bytes"] = "100";
+    expect(check(j).out).toContain("over 100");
+    // A larger max-bytes than a comment can hold is held to 65000.
+    j.ctx["inputs.max-bytes"] = "999999";
+    writeFileSync(join(dir, "ckb-cycles", "comment.md"), `<!-- ckb-cycles-report -->\n${"a".repeat(70_000)}`);
+    expect(check(j).out).toContain("over 65000");
+  });
+
+  it("posts a copy in which no @mention or #ref links", () => {
+    const j = job(fresh(), "", 0);
+    const md = join(dir, "ckb-cycles", "comment.md");
+    writeFileSync(md, "<!-- ckb-cycles-report -->\n### Cycle report\ncc @someone about #12 and a@b\n");
+    const r = check(j);
+    // The copy is in bash's /tmp, which on Windows is not C:\tmp.
+    const body =
+      process.platform === "win32"
+        ? spawnSync("bash", ["-c", 'cygpath -w "$0"', r.outputs.body], { encoding: "utf8" }).stdout.trim()
+        : r.outputs.body;
+    expect(readFileSync(body, "utf8")).toBe(
+      "<!-- ckb-cycles-report -->\n### Cycle report\ncc @​someone about #​12 and a@​b\n",
+    );
+    expect(readFileSync(md, "utf8")).toContain("@someone");
+    rmSync(body, { force: true });
+  });
+});
+
+describe.skipIf(!bash)("action.yml: informational", { timeout: 60_000 }, () => {
+  it("a crossed threshold fails the job, unless informational", () => {
+    const j: Job = { dir: fresh(), path: [], env: { ...process.env }, ctx: { "inputs.informational": "false" } };
+    const failed = runStep("action/action.yml", "Fail on the thresholds", j);
+    expect(failed.status).toBe(1);
+    expect(failed.out).toContain("::error::cycle report");
+    j.ctx["inputs.informational"] = "true";
+    const r = runStep("action/action.yml", "Fail on the thresholds", j);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("::warning::cycle report: a threshold was crossed");
   });
 });
 
@@ -368,7 +508,7 @@ describe.skipIf(!bash)("action.yml: the base report", { timeout: 60_000 }, () =>
       cwd: ws,
       path: [],
       env: { ...process.env, RUNNER_TEMP: posix(d), GITHUB_WORKSPACE: posix(ws), CKB_CYCLES: posix(cli) },
-      ctx: { "inputs.build": "", "inputs.config": "cycles.json", "inputs.base-ref": base },
+      ctx: { "inputs.build": "", "inputs.config": "cycles.json", "inputs.base-ref": base, "inputs.base-config": "base" },
     };
     return { j, d };
   }
@@ -388,6 +528,35 @@ describe.skipIf(!bash)("action.yml: the base report", { timeout: 60_000 }, () =>
     expect(call.slice(0, 2)).toEqual(["report", `${posix(d)}/ckb-cycles/base/cycles.json`]);
     expect(call).not.toContain("--binaries-from");
     expect(call.filter((a, i) => call[i - 1] === "--root")).toEqual([`${posix(d)}/ckb-cycles/base`]);
+  });
+
+  it("with base-config: head, measures the base with the PR's cycles.json and the base checkout's binaries", () => {
+    const { j, d } = repo(JSON.stringify({ scenarios: [{ name: "kept", mock: "m.json" }, { name: "deleted", mock: "d.json" }] }));
+    j.ctx["inputs.base-config"] = "head";
+    const r = runStep("action/action.yml", "Report the base", j);
+    expect(r.status, r.out).toBe(0);
+    const base = JSON.parse(readFileSync(join(d, "ckb-cycles", "base.json"), "utf8"));
+    expect(base.scenarios.map((s: { name: string }) => s.name)).toEqual(["kept"]);
+    const [call] = calls(d);
+    expect(call.slice(0, 2)).toEqual(["report", "cycles.json"]);
+    expect(call[call.indexOf("--binaries-from") + 1]).toBe(`${posix(d)}/ckb-cycles/base`);
+    expect(call.filter((a, i) => call[i - 1] === "--root")).toEqual([posix(join(d, "ws")), `${posix(d)}/ckb-cycles/base`]);
+  });
+
+  it("with base-config: head, a base without a cycles.json is still measured (the config is generated)", () => {
+    const { j, d } = repo(undefined);
+    j.ctx["inputs.base-config"] = "head";
+    expect(runStep("action/action.yml", "Report the base", j).status).toBe(0);
+    const base = JSON.parse(readFileSync(join(d, "ckb-cycles", "base.json"), "utf8"));
+    expect(base.scenarios.map((s: { name: string }) => s.name)).toEqual(["kept"]);
+  });
+
+  it("refuses a base-config that is neither base nor head", () => {
+    const { j } = repo(undefined);
+    j.ctx["inputs.base-config"] = "pr";
+    const r = runStep("action/action.yml", "Report the base", j);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("base-config is base or head");
   });
 
   it("writes an empty base report when the base has no cycles.json (the PR adds it)", () => {
