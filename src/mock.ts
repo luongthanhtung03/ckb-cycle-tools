@@ -149,11 +149,17 @@ export interface NodeConsensus {
   /** "mainnet", "testnet", or the chain id for any other chain. */
   network: string;
   vmEpochs: VmEpochs;
+  /**
+   * The consensus `max_block_cycles`, when the node gives it: the node verifies
+   * each transaction under this one limit (see DEFAULT_TX_CYCLE_LIMIT).
+   */
+  maxBlockCycles?: bigint;
 }
 
 interface RpcConsensus {
   id: string;
   hardfork_features: { rfc: string; epoch_number: Hex | null }[];
+  max_block_cycles?: Hex;
 }
 
 /**
@@ -169,7 +175,8 @@ export async function nodeConsensus(rpc: Rpc): Promise<NodeConsensus> {
     return f.epoch_number === null ? Infinity : Number(f.epoch_number);
   };
   const network = c.id === "ckb" ? "mainnet" : c.id === "ckb_testnet" ? "testnet" : c.id;
-  return { chain: c.id, network, vmEpochs: [epochOf("0032"), epochOf("0049")] };
+  const max = typeof c.max_block_cycles === "string" && /^0x[0-9a-fA-F]+$/.test(c.max_block_cycles) ? BigInt(c.max_block_cycles) : undefined;
+  return { chain: c.id, network, vmEpochs: [epochOf("0032"), epochOf("0049")], ...(max !== undefined && max > 0n && { maxBlockCycles: max }) };
 }
 
 /** Parses a molecule OutPointVec: u32 LE count, then 36-byte out points. */

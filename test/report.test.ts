@@ -118,6 +118,28 @@ describe("formatReport", () => {
     expect(out).toContain("  the node never runs: input.0.lock");
     expect(out).not.toContain("accepted: rejected");
   });
+
+  it("says when a scenario's groups add up to more than the node's per-transaction limit", () => {
+    const g = (selector: string, cycles: number) =>
+      ({ selector, role: "lock", script: "big-lock", codeHash: H, hashType: "data2", result: 0, cycles, nodeReaches: true }) as const;
+    const out = formatReport({
+      tool: "ckb-cycles",
+      version: 1,
+      scenarios: [
+        {
+          name: "heavy",
+          groups: [g("input.0.lock", 2_000_000_000), g("input.1.lock", 2_000_000_000)],
+          nodeStopsAt: "input.1.lock",
+          overTxLimit: { limit: 3_500_000_000, sum: 4_000_000_000 },
+        },
+      ],
+    });
+    expect(out).toContain(
+      "heavy: over the node's per-transaction limit of 3,500,000,000 cycles: the node would reject this transaction (exceeded max cycles). " +
+        "Each group above ran on its own with the whole limit; the node gives each group what the ones before it left, and stops at input.1.lock (big-lock), where the running sum passes it",
+    );
+    expect(out).not.toContain("heavy: rejected");
+  });
 });
 
 describe("runReport", () => {
@@ -159,8 +181,28 @@ describe("runReport", () => {
     const accepted = await runReport("cycles.json", { binariesRoot: empty, runDebugger: anyDebugger });
     for (const s of accepted.scenarios) {
       expect("nodeStopsAt" in s).toBe(false);
+      expect("overTxLimit" in s).toBe(false);
       for (const g of s.groups) expect("nodeReaches" in g).toBe(false);
     }
+  });
+
+  it("records a scenario whose groups each fit but together pass the node's per-transaction limit", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
+    // 2e9 cycles per group: each under ckb-debugger's per-group limit, two of them over the node's.
+    const heavy = async (args: string[]): Promise<DebuggerOutput> =>
+      args[0] === "--version" ? anyDebugger(args) : { stdout: "Run result: 0\nAll cycles: 2000000000(2000.0M)\n", stderr: "", exitCode: 0 };
+    const r = await runReport("cycles.json", { binariesRoot: empty, runDebugger: heavy });
+    for (const s of r.scenarios) {
+      const sum = s.groups.reduce((n, g) => n + g.cycles, 0);
+      if (sum <= 3_500_000_000) {
+        expect("overTxLimit" in s).toBe(false);
+        continue;
+      }
+      expect(s.overTxLimit).toEqual({ limit: 3_500_000_000, sum });
+      expect(s.groups.every((g) => g.result === 0)).toBe(true);
+      expect(s.groups.some((g) => g.selector === s.nodeStopsAt)).toBe(true);
+    }
+    expect(r.scenarios.some((s) => s.overTxLimit)).toBe(true);
   });
 
   // Security review, 27 Oct: in CI the cycles.json is the pull request's.

@@ -94,6 +94,27 @@ export interface ScenarioResult {
    * add up to anything the node spends.
    */
   nodeStopsAt?: string;
+  /**
+   * Set only when the groups' cycles add up to more than the node's limit for
+   * one transaction (added after 1.3.0): `limit` is the consensus
+   * `max_block_cycles` (3,500,000,000 on mainnet and testnet), `sum` the groups'
+   * cycles. ckb-debugger gives each group that limit on its own; the node gives
+   * it to the whole transaction, so it would reject this one (exceeded max
+   * cycles). `nodeStopsAt` names the group where the running sum passes it.
+   */
+  overTxLimit?: { limit: number; sum: number };
+}
+
+/**
+ * A scenario's `overTxLimit`, read defensively (a report file is the PR's):
+ * undefined unless both numbers are there and the sum is over the limit.
+ */
+export function overTxLimitOf(s: ScenarioResult): { limit: number; sum: number } | undefined {
+  const o = (s as { overTxLimit?: unknown }).overTxLimit as Record<string, unknown> | undefined;
+  if (!o || typeof o !== "object") return undefined;
+  const { limit, sum } = o;
+  if (typeof limit !== "number" || typeof sum !== "number" || !(sum > limit)) return undefined;
+  return { limit, sum };
 }
 
 export interface GroupResult {
@@ -251,6 +272,14 @@ export interface CycleDiff {
   notes?: string[];
   /** Each side's manifest, short, for the comment. */
   manifests?: { base?: ManifestSummary; head?: ManifestSummary };
+  /**
+   * Head scenarios whose groups add up to more than the node's per-transaction
+   * limit while the base's did not (`newScenario`: no base scenario ran to
+   * compare with). The node would reject them (exceeded max cycles) though every
+   * group may accept: a gated diff fails on one the base ran under the limit, as
+   * on a group that starts rejecting; `failOnResultChange` on any.
+   */
+  overTxLimit?: { scenario: string; limit: number; sum: number; newScenario?: boolean }[];
 }
 
 export interface DiffOptions {
@@ -426,6 +455,13 @@ export function diffReports(base: CycleReport, head: CycleReport, options: DiffO
   for (const h of head.scenarios) scenarioRows(h, baseByName.get(h.name));
   for (const b of base.scenarios) if (!headNames.has(b.name)) scenarioRows(undefined, b);
 
+  // Over the node's per-transaction limit on the head, and not on the base: a rejection the groups do not show.
+  const overTxLimit = head.scenarios.flatMap((h) => {
+    const o = h.error ? undefined : overTxLimitOf(h);
+    const b = baseByName.get(h.name);
+    if (!o || (b && !b.error && overTxLimitOf(b))) return [];
+    return [{ scenario: h.name, ...o, ...(!b || b.error ? { newScenario: true } : {}) }];
+  });
   const groups = rows.filter((r) => r.kind !== "error" && r.kind !== "base-error");
   const unpaired = groups.filter((r) => r.inputsChanged);
   return {
@@ -443,6 +479,7 @@ export function diffReports(base: CycleReport, head: CycleReport, options: DiffO
     ...(manifests.environment.length && { environment: manifests.environment }),
     ...(manifests.notes.length && { notes: manifests.notes }),
     ...(manifests.manifests && { manifests: manifests.manifests }),
+    ...(overTxLimit.length && { overTxLimit }),
   };
 }
 
@@ -551,7 +588,10 @@ export function functionDeltas(base: FunctionResult[] | undefined, head: Functio
  * result change besides (reject → accept, one exit code or VM error to another,
  * a new group that does not accept). A new group has no base that accepted, so
  * this rule leaves it alone: with `failAbove` alone it fails only as before (a
- * new group the VM stopped is over the threshold).
+ * new group the VM stopped is over the threshold). A scenario whose groups add
+ * up to more than the node's per-transaction limit on the head, and not on the
+ * base, counts as a group that starts rejecting (the node would reject it); a
+ * new scenario over the limit, as a new group that does not accept.
  */
 export function diffFailed(diff: CycleDiff, options: DiffOptions = {}): boolean {
   const gated = options.failAbove !== undefined || options.failOnResultChange === true;
@@ -559,6 +599,8 @@ export function diffFailed(diff: CycleDiff, options: DiffOptions = {}): boolean 
     (options.failAbove !== undefined && diff.overThreshold > 0) ||
     (options.failOnResultChange === true && diff.resultChanges > 0) ||
     (gated && diff.rows.some(nowRejects)) ||
+    (gated && (diff.overTxLimit ?? []).some((o) => !o.newScenario)) ||
+    (options.failOnResultChange === true && (diff.overTxLimit?.length ?? 0) > 0) ||
     (gated && diff.baseErrors > 0) ||
     (gated && (diff.reportErrors?.length ?? 0) > 0) ||
     (gated && !options.allowRemoved && (diff.removed ?? 0) > 0) ||
@@ -614,6 +656,9 @@ export function summarize(diff: CycleDiff, clean: (s: string) => string = termLi
   const parts = [
     ...(diff.resultChanges ? [`${diff.resultChanges} result change${s(diff.resultChanges)}`] : []),
     ...(diff.overThreshold ? [`${diff.overThreshold} over the ${diff.threshold}% threshold`] : []),
+    ...(diff.overTxLimit?.length
+      ? [`${diff.overTxLimit.length} scenario${s(diff.overTxLimit.length)} over the node's per-transaction cycle limit (the node would reject)`]
+      : []),
     ...(errors ? [`${errors} scenario${s(errors)} failed to run`] : []),
     ...(diff.baseErrors ? [`${diff.baseErrors} scenario${s(diff.baseErrors)} could not run on the base`] : []),
     `${changed} of ${groups.length} script group${groups.length === 1 ? "" : "s"} changed`,
@@ -803,6 +848,7 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
     ? [`**Report errors** (nothing measured what they name):`, "", ...diff.reportErrors.slice(0, 20).map((e) => `- ${md(e)}`), ...(diff.reportErrors.length > 20 ? [`- and ${diff.reportErrors.length - 20} more`] : []), ""]
     : [];
   top.push(...errors);
+  if (diff.overTxLimit?.length) top.push(...overTxLimitBlock(diff.overTxLimit, md, "**"), "");
   // Not the same environment: a gated check fails on it. Then what could not be checked.
   if (diff.environment?.length) {
     top.push(
@@ -881,6 +927,24 @@ export function manifestLines(diff: CycleDiff): string[] {
   return out;
 }
 
+/**
+ * The head scenarios newly over the node's per-transaction limit, one line each.
+ * `clean` cleans the scenario name (md or termLine); `strong` wraps the heading.
+ */
+function overTxLimitBlock(over: NonNullable<CycleDiff["overTxLimit"]>, clean: (s: string) => string, strong: string): string[] {
+  const shown = over.slice(0, 20).map(
+    (o) =>
+      `- ${clean(o.scenario)}: ${fmt(o.sum)} cycles over the node's per-transaction limit of ${fmt(o.limit)}: ` +
+      `the node would reject this transaction (exceeded max cycles)${o.newScenario ? " (new scenario)" : " (under it on the base)"}`,
+  );
+  return [
+    `${strong}Over the node's per-transaction limit${strong}: ckb-debugger gives each group the whole limit, the node gives it to the whole transaction:`,
+    ...(strong ? [""] : []),
+    ...shown,
+    ...(over.length > shown.length ? [`- and ${over.length - shown.length} more`] : []),
+  ];
+}
+
 /** How many scenario warnings a comment lists. */
 const WARNINGS_SHOWN = 50;
 
@@ -935,7 +999,10 @@ export function formatText(diff: CycleDiff): string {
       if (r.spawned) functions.push(`  ${spawnNote(r)}`);
     } else if (r.functions && r.spawned) functions.push(`functions in ${where}: none of its own changed. ${spawnNote(r)}`);
   }
-  const errors = (diff.reportErrors ?? []).map((e) => `error: ${termLine(e)}`);
+  const errors = [
+    ...(diff.overTxLimit?.length ? overTxLimitBlock(diff.overTxLimit, termLine, "") : []),
+    ...(diff.reportErrors ?? []).map((e) => `error: ${termLine(e)}`),
+  ];
   const environment = (diff.environment ?? []).map((e) => `environment differs: ${termLine(e)}`);
   const notes = (diff.notes ?? []).map((n) => `note: ${termLine(n)}`);
   const warnings = (diff.warnings ?? []).map((w) => `${termLine(w.scenario)}: warning: ${termLine(w.text)}`);

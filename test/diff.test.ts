@@ -132,6 +132,48 @@ describe("diffReports", () => {
   });
 
   // Review, 5 Nov: with only --fail-above, a group that started rejecting passed by getting cheaper.
+  // The node's cycle limit is per transaction: every group accepts, but the node rejects.
+  describe("a scenario newly over the node's per-transaction limit", () => {
+    const under = report({ name: "heavy", groups: [g("input.0.lock", 1_500_000_000), g("input.1.lock", 1_500_000_000)] });
+    const overGroups = [g("input.0.lock", 2_000_000_000), g("input.1.lock", 2_000_000_000)];
+    const over = report({ name: "heavy", groups: overGroups, nodeStopsAt: "input.1.lock", overTxLimit: { limit: 3_500_000_000, sum: 4_000_000_000 } });
+
+    it("fails any gated check, like a group that starts rejecting", () => {
+      const d = diffReports(under, over, { failAbove: 50 });
+      expect(d.overThreshold).toBe(0);
+      expect(d.resultChanges).toBe(0);
+      expect(d.overTxLimit).toEqual([{ scenario: "heavy", limit: 3_500_000_000, sum: 4_000_000_000 }]);
+      expect(diffFailed(d, { failAbove: 50 })).toBe(true);
+      expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+      expect(diffFailed(d)).toBe(false);
+      const text = formatText(d);
+      expect(text).toContain("1 scenario over the node's per-transaction cycle limit (the node would reject)");
+      expect(text).toContain(
+        "- heavy: 4,000,000,000 cycles over the node's per-transaction limit of 3,500,000,000: the node would reject this transaction (exceeded max cycles) (under it on the base)",
+      );
+      expect(formatMarkdown(d)).toContain("**Over the node's per-transaction limit**");
+    });
+
+    it("is not new when the base was over too, and a new scenario over it fails --fail-on-result-change only", () => {
+      const both = diffReports(over, over, { failAbove: 5 });
+      expect(both.overTxLimit).toBeUndefined();
+      expect(diffFailed(both, { failAbove: 5 })).toBe(false);
+      const added = diffReports(report(), over, { failAbove: 5 });
+      expect(added.overTxLimit).toEqual([{ scenario: "heavy", limit: 3_500_000_000, sum: 4_000_000_000, newScenario: true }]);
+      expect(diffFailed(added, { failAbove: 5 })).toBe(false);
+      expect(diffFailed(added, { failOnResultChange: true })).toBe(true);
+    });
+
+    it("ignores a malformed overTxLimit (a report file is the PR's)", () => {
+      const bad = report({ name: "heavy", groups: overGroups, overTxLimit: { limit: "x", sum: 1 } as unknown as { limit: number; sum: number } });
+      expect(diffReports(under, bad).overTxLimit).toBeUndefined();
+    });
+
+    it("leaves a diff of reports without it as it was", () => {
+      expect("overTxLimit" in diffReports(base, base)).toBe(false);
+    });
+  });
+
   describe("a group that accepted and now rejects", () => {
     const accepts = report({ name: "spend", groups: [g("input.0.lock", 1_000_000)] });
     const rejects = report({ name: "spend", groups: [g("input.0.lock", 10_000, 5)] });

@@ -5,6 +5,7 @@ import type { MockTransaction } from "../src/mock.js";
 import {
   checkMockTransaction,
   debuggerArgs,
+  DEFAULT_TX_CYCLE_LIMIT,
   groupsOf,
   nodeOrder,
   nodeStop,
@@ -231,6 +232,107 @@ describe("node order and where the node stops", () => {
     expect(text).toContain("not what the node spends: it stops at the first failing group, input.1.lock (my-lock),");
     expect(text).toContain("reports no cycles for a rejected tx");
     expect(text).toContain("the node never runs: input.0.lock, input.0.type");
+  });
+});
+
+// The node's cycle limit is per transaction (max_block_cycles, each group gets
+// what the ones before it left); ckb-debugger gives each group the whole limit.
+describe("the node's per-transaction cycle limit", () => {
+  const lockOf = (args: string) => ({ code_hash: H("1"), hash_type: "type", args });
+  const at = (l: ReturnType<typeof lockOf>, type: typeof counter | null = null) => ({ capacity: "0x0", lock: l, type });
+  const hashOf = (l: ReturnType<typeof lockOf>) =>
+    ccc.Script.from({ codeHash: l.code_hash, hashType: l.hash_type as ccc.HashType, args: l.args }).hash();
+  const [low, high] = [lockOf("0x01"), lockOf("0x02")].sort((a, b) => (hashOf(a) < hashOf(b) ? -1 : 1));
+
+  /** Replays `mock` with a debugger that answers each selector with its cycles (and exit code, default 0). */
+  const replay = (mock: MockTransaction, cycles: Record<string, bigint>, extra: Partial<ReplayPlan> = {}, codes: Record<string, number> = {}) =>
+    replayGroups(
+      plan(mock, extra),
+      async (args) => {
+        const sel = args[args.indexOf("--script") + 1];
+        const code = codes[sel] ?? 0;
+        return { stdout: `Run result: ${code}\nAll cycles: ${cycles[sel] ?? 0n}(0.0M)\n`, stderr: "", exitCode: code === 0 ? 0 : 254 };
+      },
+      { txFile: "/tx.json", debugger: "x" },
+    );
+  // First appearance: input.0.lock (high), input.0.type (counter), input.1.lock (low).
+  // Node order: input.1.lock, input.0.lock, input.0.type.
+  const mock = () => mockOf([at(high, counter), at(low)], []);
+
+  it("defaults to 3,500,000,000, mainnet's and testnet's max_block_cycles", () => {
+    expect(DEFAULT_TX_CYCLE_LIMIT).toBe(3_500_000_000n);
+  });
+
+  it("flags a transaction whose groups each fit but together pass the limit, and where the node stops", async () => {
+    const p = await replay(mock(), { "input.0.lock": 1_500_000_000n, "input.0.type": 1_500_000_000n, "input.1.lock": 1_000_000_000n });
+    expect(p.groups.every((g) => g.result === 0 && !g.error)).toBe(true);
+    expect(p.measuredCycles).toBe(4_000_000_000n);
+    expect(p.overTxLimit).toEqual({ limit: 3_500_000_000n, sum: 4_000_000_000n });
+    // Running sum in node order: 1.0e9 (input.1.lock), 2.5e9 (input.0.lock), 4.0e9 (input.0.type): over there.
+    expect(p.nodeStopsAt).toBe("input.0.type");
+    expect(p.groups.every((g) => g.nodeReaches === true)).toBe(true);
+    const text = sumLines(p).join("\n");
+    expect(text).toMatch(/^sum of groups, each run on its own {2}4,000,000,000\n/);
+    expect(text).toContain("over the node's per-transaction limit of 3,500,000,000 cycles: the node would reject");
+    expect(text).toContain("this transaction (exceeded max cycles)");
+    expect(text).toContain("so it stops at input.0.type, where the running sum passes it");
+    expect(text).not.toContain("first failing group");
+  });
+
+  it("names the groups the node never runs after the one that passes the limit", async () => {
+    const p = await replay(mock(), { "input.0.lock": 3_000_000_000n, "input.0.type": 10n, "input.1.lock": 1_000_000_000n });
+    expect(p.nodeStopsAt).toBe("input.0.lock");
+    expect(p.groups.map((g) => [g.selector, g.nodeReaches])).toEqual([
+      ["input.0.lock", true],
+      ["input.0.type", false],
+      ["input.1.lock", true],
+    ]);
+    expect(sumLines(p).join("\n")).toContain("the node never runs: input.0.type");
+  });
+
+  it("uses the plan's limit (the node's max_block_cycles) when it has one", async () => {
+    const cycles = { "input.0.lock": 600n, "input.0.type": 300n, "input.1.lock": 200n };
+    const over = await replay(mock(), cycles, { txCycleLimit: 1_000n });
+    expect(over.overTxLimit).toEqual({ limit: 1_000n, sum: 1_100n });
+    expect(over.nodeStopsAt).toBe("input.0.type");
+    // Exactly at the limit is within it: the node fails only when a group needs more than is left.
+    const at = await replay(mock(), cycles, { txCycleLimit: 1_100n });
+    expect(at.overTxLimit).toBeUndefined();
+    expect(at.nodeStopsAt).toBeUndefined();
+  });
+
+  it("changes nothing for an accepted transaction under the limit", async () => {
+    const p = await replay(mock(), { "input.0.lock": 1_000_000_000n, "input.0.type": 1_000_000_000n, "input.1.lock": 1_000_000_000n });
+    expect("overTxLimit" in p).toBe(false);
+    expect("nodeStopsAt" in p).toBe(false);
+    expect(p.groups.some((g) => "nodeReaches" in g)).toBe(false);
+    expect(sumLines(p)).toEqual(["measured (sum of groups)  3,000,000,000"]);
+  });
+
+  it("stops at a failing group that comes first in the node's order, and still says the sum is over", async () => {
+    const p = await replay(
+      mock(),
+      { "input.0.lock": 1_500_000_000n, "input.0.type": 1_500_000_000n, "input.1.lock": 1_000_000_000n },
+      {},
+      { "input.1.lock": 7 },
+    );
+    expect(p.nodeStopsAt).toBe("input.1.lock");
+    expect(p.overTxLimit).toEqual({ limit: 3_500_000_000n, sum: 4_000_000_000n });
+    const text = sumLines(p).join("\n");
+    expect(text).toContain("it stops at the first failing group, input.1.lock,");
+    expect(text).toContain("the sum is also over the node's per-transaction limit of 3,500,000,000 cycles");
+  });
+
+  it("nodeStop takes the limit; without it, only a failing group stops the node", () => {
+    const groups = groupsOf(mock()).map((g, i) => ({ ...g, result: 0, cycles: [5n, 5n, 5n][i] }));
+    expect(nodeStop(groups)).toBeUndefined();
+    expect(nodeStop(groups, 15n)).toBeUndefined();
+    const stop = nodeStop(groups, 9n)!;
+    expect(stop.overLimit).toBe(true);
+    // 5 + 5 passes 9 at the second group in the node's order.
+    expect(stop.stopsAt).toBe(nodeOrder(groups)[1]);
+    expect(stop.reaches.size).toBe(2);
+    expect(nodeStop([{ ...groups[0], result: 3 }, ...groups.slice(1)], 9n)?.overLimit).toBeUndefined();
   });
 });
 

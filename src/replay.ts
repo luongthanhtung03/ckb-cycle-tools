@@ -59,6 +59,16 @@ export interface Profile {
    * rejects the transaction and reports no cycles for it.
    */
   nodeStopsAt?: string;
+  /**
+   * Set only when the groups' cycles add up to more than the node's limit for
+   * one transaction (`limit`: the consensus `max_block_cycles`, or
+   * DEFAULT_TX_CYCLE_LIMIT). ckb-debugger gives every group that limit on its
+   * own; the node gives the whole transaction that limit, each group what the
+   * ones before it left, so it would reject this transaction (exceeded max
+   * cycles). `nodeStopsAt` then names the group at which the running sum, in
+   * the node's order, passes the limit, unless a failing group comes first.
+   */
+  overTxLimit?: { limit: bigint; sum: bigint };
   groups: ProfiledGroup[];
   /** Where the numbers came from, so a result can be reproduced. */
   env: { debugger: string; network: string; rpcUrl: string; scriptVersion: number };
@@ -84,7 +94,20 @@ export interface ReplayOptions {
    * transaction's block, or the current one (2) for a transaction not on chain.
    */
   scriptVersion?: 0 | 1 | 2;
+  /**
+   * The node's cycle limit for one transaction. By default, the `max_block_cycles`
+   * of the node's `get_consensus` when it was asked, else DEFAULT_TX_CYCLE_LIMIT.
+   */
+  txCycleLimit?: bigint;
 }
+
+/**
+ * The node's cycle limit for one transaction when its consensus is not known:
+ * `max_block_cycles` on mainnet and testnet. The node verifies a transaction's
+ * groups one after another under this one budget (each gets what the ones
+ * before it left), where ckb-debugger gives each group all of it.
+ */
+export const DEFAULT_TX_CYCLE_LIMIT = 3_500_000_000n;
 
 /**
  * Type ID is verified natively by the node rather than by a script binary, so
@@ -212,6 +235,8 @@ export interface ReplayPlan {
   /** "testnet", "mainnet", or a devnet's chain id: what the node says it serves, when it was asked. */
   network: string;
   rpcUrl: string;
+  /** The node's limit for one transaction, when known (the option, or the node's `max_block_cycles`); else DEFAULT_TX_CYCLE_LIMIT applies. */
+  txCycleLimit?: bigint;
 }
 
 /** The string fields of a mock transaction that are names, not hex. */
@@ -289,6 +314,7 @@ export async function planReplay(
   ]);
   const { mock, cycles, status, epoch } = fetched;
   const network = consensus?.network ?? options.network ?? "testnet";
+  const txCycleLimit = options.txCycleLimit ?? consensus?.maxBlockCycles;
   const groups = groupsOf(mock);
 
   // Known-script names are CCC's table for the network, through the same node;
@@ -316,6 +342,7 @@ export async function planReplay(
       (epoch === undefined ? 2 : scriptVersionAt(consensus?.vmEpochs ?? (network === "mainnet" ? "mainnet" : "testnet"), epoch)),
     network,
     rpcUrl,
+    ...(txCycleLimit !== undefined && { txCycleLimit }),
   };
 }
 
@@ -371,14 +398,17 @@ export async function replayGroups(
     const out = await run(debuggerArgs(options.txFile, selector, plan.scriptVersion));
     profiled.push({ ...g, selector, ...(typeof out === "string" ? parseDebuggerOutput(out) : parseDebuggerRun(out)) });
   }
-  const stop = nodeStop(profiled);
+  const limit = plan.txCycleLimit ?? DEFAULT_TX_CYCLE_LIMIT;
+  const stop = nodeStop(profiled, limit);
   if (stop) for (const g of profiled) g.nodeReaches = stop.reaches.has(g);
+  const measuredCycles = profiled.reduce((sum, g) => sum + g.cycles, 0n);
   return {
     hash: plan.hash,
     status: plan.status,
     ...(plan.nodeCycles !== undefined && { nodeCycles: plan.nodeCycles }),
-    measuredCycles: profiled.reduce((sum, g) => sum + g.cycles, 0n),
+    measuredCycles,
     ...(stop && { nodeStopsAt: stop.stopsAt.selector }),
+    ...(measuredCycles > limit && { overTxLimit: { limit, sum: measuredCycles } }),
     groups: profiled,
     env: { debugger: options.debugger, network: plan.network, rpcUrl: plan.rpcUrl, scriptVersion: plan.scriptVersion },
   };
@@ -410,14 +440,26 @@ export const rejects = (g: { result: number; error?: string }): boolean => g.res
  * Where the node would stop, for a transaction some group rejects: the first
  * failing group in nodeOrder, and the groups the node reaches (every one up to
  * and including it). Undefined when every group accepts.
+ *
+ * With `limit` (the node's cycle limit for the transaction), a group at which
+ * the running sum of cycles in nodeOrder passes the limit also stops the node
+ * (exceeded max cycles), even though it accepts on its own here: the node gives
+ * each group only what the ones before it left. `overLimit` says that is why.
  */
-export function nodeStop<G extends { role: "lock" | "type"; scriptHash: string; result: number; error?: string }>(
+export function nodeStop<G extends { role: "lock" | "type"; scriptHash: string; result: number; error?: string; cycles?: bigint }>(
   groups: G[],
-): { stopsAt: G; reaches: Set<G> } | undefined {
+  limit?: bigint,
+): { stopsAt: G; reaches: Set<G>; overLimit?: boolean } | undefined {
   const ordered = nodeOrder(groups);
-  const at = ordered.findIndex(rejects);
-  if (at < 0) return undefined;
-  return { stopsAt: ordered[at], reaches: new Set(ordered.slice(0, at + 1)) };
+  let sum = 0n;
+  for (const [at, g] of ordered.entries()) {
+    sum += g.cycles ?? 0n;
+    const over = limit !== undefined && sum > limit;
+    if (rejects(g) || over) {
+      return { stopsAt: g, reaches: new Set(ordered.slice(0, at + 1)), ...(!rejects(g) && { overLimit: true }) };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -432,18 +474,40 @@ export function sumLines(p: Profile, name: (s: string) => string = (s) => s): st
   if (p.nodeStopsAt === undefined) return [`measured (sum of groups)  ${n(p.measuredCycles)}`];
   const stop = p.groups.find((g) => g.selector === p.nodeStopsAt);
   const label = stop?.name ? `${p.nodeStopsAt} (${name(stop.name)})` : p.nodeStopsAt;
-  const out = [
-    `sum of groups, each run on its own  ${n(p.measuredCycles)}`,
-    `  not what the node spends: it stops at the first failing group, ${label},`,
-    `  and reports no cycles for a rejected tx (it runs lock groups, then type groups,`,
-    `  each in script-hash order)`,
-  ];
+  const out =
+    p.overTxLimit && stop && !rejects(stop)
+      ? [
+          `sum of groups, each run on its own  ${n(p.measuredCycles)}`,
+          ...overTxLimitLines(p.overTxLimit).map((l) => `  ${l}`),
+          `  ckb-debugger gives each group the whole limit; the node gives each group what the`,
+          `  ones before it left, so it stops at ${label}, where the running sum passes it`,
+          `  (it runs lock groups, then type groups, each in script-hash order)`,
+        ]
+      : [
+          `sum of groups, each run on its own  ${n(p.measuredCycles)}`,
+          `  not what the node spends: it stops at the first failing group, ${label},`,
+          `  and reports no cycles for a rejected tx (it runs lock groups, then type groups,`,
+          `  each in script-hash order)`,
+          ...(p.overTxLimit ? [`  the sum is also over the node's per-transaction limit of ${n(p.overTxLimit.limit)} cycles`] : []),
+        ];
   const skipped = p.groups.filter((g) => g.nodeReaches === false).map((g) => g.selector);
   if (skipped.length) {
     const shown = skipped.slice(0, 8).join(", ");
     out.push(`  the node never runs: ${shown}${skipped.length > 8 ? `, and ${skipped.length - 8} more` : ""}`);
   }
   return out;
+}
+
+/**
+ * What a transaction whose groups add up to more than the node's limit for one
+ * transaction is told: the CLI, a report and the web page say the same.
+ */
+export function overTxLimitLines(o: { limit: bigint | number; sum: bigint | number }): string[] {
+  const n = (x: bigint | number) => x.toLocaleString("en-US");
+  return [
+    `over the node's per-transaction limit of ${n(o.limit)} cycles: the node would reject`,
+    `this transaction (exceeded max cycles)`,
+  ];
 }
 
 /** How a profile's total compares with the node's: what the CLI and the web page both print. */

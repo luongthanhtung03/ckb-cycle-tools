@@ -18,12 +18,12 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { CycleReport, GroupResult, ReportManifest, ScenarioManifest, ScenarioResult } from "./diff.js";
-import { FUNCTION_LIMIT, resultLabel, spawnNote, termLine, termLines, unmatchedError } from "./diff.js";
+import { FUNCTION_LIMIT, overTxLimitOf, resultLabel, spawnNote, termLine, termLines, unmatchedError } from "./diff.js";
 import { foldedTotal, functionCosts } from "./flame.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
 import { fileDigest, gitCommit, inputsHash, scenarioInputs, sha256, toolchainOf, toolIdentity } from "./manifest.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile, type ProfileOptions } from "./profile.js";
-import { consensusOf, nodeVerdict, PUBLIC_RPC } from "./replay.js";
+import { consensusOf, nodeVerdict, overTxLimitLines, PUBLIC_RPC } from "./replay.js";
 import { substituteBinaries, targetScriptKeys, type BinarySubstitution } from "./substitute.js";
 
 export interface BinaryConfig {
@@ -290,6 +290,8 @@ export async function runReport(
         const rpc = () => httpRpc(url, { ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }) });
         let mock: MockTransaction;
         let scriptVersion = s.scriptVersion;
+        // The node's own limit for one transaction, when its consensus is fetched here.
+        let txCycleLimit: bigint | undefined;
         if (s.mock) {
           const bytes = await readFile(await inside(resolve(dir, s.mock)));
           sm.inputs = inputsHash(entry, bytes);
@@ -306,6 +308,7 @@ export async function runReport(
             consensusOf(node, url, { ...(network && { network }), ...(rpcUrl && { rpcUrl }) }),
           ]);
           mock = built.mock;
+          txCycleLimit = consensus?.maxBlockCycles;
           if (scriptVersion === undefined && built.epoch !== undefined) {
             scriptVersion = scriptVersionAt(consensus?.vmEpochs ?? network ?? "testnet", built.epoch);
           }
@@ -337,6 +340,7 @@ export async function runReport(
         profile = await profileTransaction(swapped, {
           ...profileOptions,
           ...(scriptVersion !== undefined && { scriptVersion }),
+          ...(txCycleLimit !== undefined && { txCycleLimit }),
           scriptNames,
         });
         // The scripts whose code is a binary with symbols, when the scenario asks for functions.
@@ -379,6 +383,9 @@ export async function runReport(
         ...(unmatched.length && { unmatched }),
         ...(missing.length && { binaryMissing: true, missingBinaries: missing }),
         ...(profile.nodeStopsAt !== undefined && { nodeStopsAt: profile.nodeStopsAt }),
+        ...(profile.overTxLimit && {
+          overTxLimit: { limit: Number(profile.overTxLimit.limit), sum: Number(profile.overTxLimit.sum) },
+        }),
       };
     } catch (e) {
       result = { name: s.name, error: e instanceof Error ? e.message : String(e), groups: [] };
@@ -566,11 +573,22 @@ export function formatReport(report: CycleReport): string {
     if (s.nodeStopsAt === undefined) continue;
     const stop = s.groups.find((g) => g.selector === s.nodeStopsAt);
     const skipped = s.groups.filter((g) => g.nodeReaches === false).map((g) => t(g.selector));
-    out.push(
-      "",
-      `${t(s.name)}: rejected. Each group above ran on its own; the node stops at the first failing group, ` +
-        `${t(s.nodeStopsAt)}${stop ? ` (${t(stop.script)})` : ""}, and reports no cycles for a rejected tx`,
-    );
+    const at = `${t(s.nodeStopsAt)}${stop ? ` (${t(stop.script)})` : ""}`;
+    const limit = overTxLimitOf(s);
+    if (limit && stop && resultLabel(stop) === "ok") {
+      out.push(
+        "",
+        `${t(s.name)}: ${overTxLimitLines(limit).join(" ")}. Each group above ran on its own with the whole limit; ` +
+          `the node gives each group what the ones before it left, and stops at ${at}, where the running sum passes it`,
+      );
+    } else {
+      out.push(
+        "",
+        `${t(s.name)}: rejected. Each group above ran on its own; the node stops at the first failing group, ` +
+          `${at}, and reports no cycles for a rejected tx`,
+      );
+      if (limit) out.push(`  the sum of its groups is also over the node's per-transaction limit of ${limit.limit.toLocaleString("en-US")} cycles`);
+    }
     if (skipped.length) {
       out.push(`  the node never runs: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? `, and ${skipped.length - 8} more` : ""}`);
     }

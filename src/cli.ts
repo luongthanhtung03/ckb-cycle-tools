@@ -40,7 +40,8 @@ the cycles each group cost.
                repeat for several. Without :<hash-type> it applies to all of them
 
 Exit codes: 0 every script accepts (and the sum matches the node's)
-            1 a script rejects, or the sum differs from the node's
+            1 a script rejects, the sum differs from the node's, or the sum is
+              over the node's per-transaction limit (max_block_cycles)
             2 usage or environment error: bad arguments, node unreachable,
               transaction not found, ckb-debugger missing or unreadable output
 
@@ -420,7 +421,8 @@ async function main(): Promise<number> {
     console.log(table(p));
   }
   const mismatch = p.nodeCycles !== undefined && p.nodeCycles !== p.measuredCycles;
-  return mismatch || p.groups.some((g) => g.result !== 0) ? 1 : 0;
+  // Over the node's per-transaction limit: the node would reject it, so a verdict too.
+  return mismatch || p.groups.some((g) => g.result !== 0) || p.overTxLimit !== undefined ? 1 : 0;
 }
 
 // 1 is a verdict (a script rejects, a sum differs, a diff over its thresholds);

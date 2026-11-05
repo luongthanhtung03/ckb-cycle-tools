@@ -203,7 +203,11 @@ would never run. Above, the secp256k1 lock's script hash sorts first, so the nod
 rejects on the signature and never runs the session lock. In `--json` and in a
 report's JSON, the scenario or profile gets `nodeStopsAt` (that group's selector)
 and every group gets `nodeReaches: true | false`; both are absent when every
-group accepts, so reports of accepted transactions are unchanged. Sources, from
+group accepts, so reports of accepted transactions are unchanged. The same
+applies to a transaction whose groups each accept but together pass the node's
+per-transaction cycle limit (see Max cycles below): it gets `overTxLimit:
+{ limit, sum }` too, and `nodeStopsAt` names the group at which the running
+sum, in the node's order, passes the limit. Sources, from
 ckb `develop` at
 [a4aa128](https://github.com/nervosnetwork/ckb/tree/a4aa1286a45bc1d42c30f6698dc51521c3749b40):
 [`script/src/verify.rs`](https://github.com/nervosnetwork/ckb/blob/a4aa1286a45bc1d42c30f6698dc51521c3749b40/script/src/verify.rs#L180-L197)
@@ -231,7 +235,7 @@ rest from the node it asks or from ckb-debugger's defaults:
 | Witnesses, outputs, outputs data | The transaction itself (from `get_transaction`, or the `--file` you pass) |
 | Hardfork epochs (consensus) | The node's current `get_consensus` (RFC 0032 for CKB-VM v1, RFC 0049 for v2); a built-in table only when the public node of `--mainnet`/testnet cannot say |
 | CKB-VM version | For `hash_type: "type"` scripts: the version at the epoch of the transaction's block, from `get_header`, on those consensus epochs. `data`, `data1`, `data2` name their own. A transaction not on chain (`--file`) gets v2, today's version, not one read from the node |
-| Max cycles | ckb-debugger's default, 3,500,000,000 **per group** (each group is its own run). The node's limit is **per transaction**: in a block, each transaction is verified with the consensus `max_block_cycles` (3,500,000,000 on mainnet and testnet), the remaining budget shrinking group by group, and the block's sum must stay under it too. So a transaction whose groups each fit but together exceed the limit passes here and fails on the node |
+| Max cycles | ckb-debugger's default, 3,500,000,000 **per group** (each group is its own run). The node's limit is **per transaction**: in a block, each transaction is verified with the consensus `max_block_cycles` (3,500,000,000 on mainnet and testnet), the remaining budget shrinking group by group, and the block's sum must stay under it too. So a transaction whose groups each fit but together exceed the limit passes ckb-debugger and fails on the node; the CLI, `report` and `diff` flag it ("over the node's per-transaction limit ...: the node would reject this transaction (exceeded max cycles)", `overTxLimit` in the JSON, exit 1), with the node's `max_block_cycles` from `get_consensus` when the replay asked the node, else 3,500,000,000. A gated `diff` fails on a scenario newly over it |
 | Group order | Here: first appearance, every group run, failures included. Node: lock groups then type groups, each by script hash, stopping at the first failure (see above) |
 | Type ID | Not a binary: checked here as the node checks it, and charged the node's fixed `TYPE_ID_CYCLES` (1,000,000) |
 | Since, capacity, maturity checks | Not replayed: the node checks them outside any script, so a script-level replay cannot see them |
@@ -715,7 +719,9 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
   its own 3,500,000,000-cycle limit; the node runs them in its own order under
   one per-transaction limit and stops at the first failure. A rejected
   transaction's sum is labelled as such, and the group the node would stop at
-  is computed from ckb-script's order, not yet confirmed by a node
+  is computed from ckb-script's order, not yet confirmed by a node. A sum over
+  the per-transaction limit is flagged as a rejection, from the summed group
+  cycles; no node has been asked to confirm one yet
   ([What comes from where](#what-comes-from-where-when-replaying)).
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
   tools then say the total is unknown instead of claiming a match.

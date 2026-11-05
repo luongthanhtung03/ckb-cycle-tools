@@ -88,6 +88,13 @@ describe("nodeConsensus", () => {
     expect(await nodeConsensus(rpc)).toEqual({ chain: "ckb", network: "mainnet", vmEpochs: [5414, 12293] });
   });
 
+  it("reads max_block_cycles, the node's cycle limit for one transaction, when the node gives it", async () => {
+    const c = { ...consensus("ckb_testnet", 3113, 9690), max_block_cycles: "0xd09dc300" };
+    expect((await nodeConsensus(async <T>() => c as T)).maxBlockCycles).toBe(3_500_000_000n);
+    const bad = { ...c, max_block_cycles: "lots" };
+    expect("maxBlockCycles" in (await nodeConsensus(async <T>() => bad as T))).toBe(false);
+  });
+
   it("treats a hardfork the node has not scheduled as never active", async () => {
     const c = consensus("ckb_dev", 0, 0);
     c.hardfork_features[2].epoch_number = null as unknown as string;

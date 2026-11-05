@@ -23,6 +23,11 @@ a reproducibility manifest, and what a rejected transaction's numbers mean.
   `--allow-changed-inputs`), or when the two sides ran another ckb-debugger or
   CKB-VM version. Before, an edited mock under the same scenario name was
   compared silently. Ungated diffs only gain notes. See Added.
+- A gated diff also fails when a head scenario's groups add up to more than
+  the node's per-transaction cycle limit and the base's did not: the node would
+  reject it, as if a group started rejecting (see Added). A new scenario over
+  the limit fails `--fail-on-result-change` only. The CLI exits 1 for such a
+  transaction.
 
 ### Added
 - `report` writes a `manifest` into its JSON: the ckb-cycle-tools version,
@@ -60,6 +65,21 @@ a reproducibility manifest, and what a rejected transaction's numbers mean.
   reports of accepted transactions are byte-for-byte as before. `report`'s text
   output says the same under a rejected scenario. `diff` and its gates are
   unchanged.
+- The node's cycle limit is per transaction (`max_block_cycles`, 3,500,000,000
+  on mainnet and testnet: each group gets what the ones before it left), while
+  ckb-debugger gives each group 3,500,000,000 on its own. A transaction whose
+  groups each fit but together pass the limit was shown as accepted; it is now
+  flagged: "over the node's per-transaction limit of 3,500,000,000 cycles: the
+  node would reject this transaction (exceeded max cycles)", in the CLI table,
+  the `report` text and the `diff` summary and comment. The limit is the
+  node's `get_consensus` `max_block_cycles` when the replay asked the node,
+  else 3,500,000,000 (`txCycleLimit` in the options to override;
+  `DEFAULT_TX_CYCLE_LIMIT` exported). `nodeStopsAt` and `nodeReaches` then mark
+  the group at which the running sum, in the node's order, passes the limit,
+  unless a failing group comes first. JSON, added fields only, and only in
+  that case: `overTxLimit: { limit, sum }` on a profile (bigints as strings,
+  as `measuredCycles`) and on a report scenario (numbers), and in a diff, the
+  head scenarios newly over it. Transactions under the limit are unchanged.
 - `nodeOrder`, `nodeStop` and `sumLines` exported from the package and from
   `ckb-cycle-tools/replay` (no Node built-ins).
 
