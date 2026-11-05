@@ -15,8 +15,9 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
        ckb-cycles --file <tx.json> [same options]
        ckb-cycles report <cycles.json> [--json <out.json>] [--binaries-from <dir>]
                   [--root <dir> ...] [--rpc <url>] [--timeout <s>] [--debugger <path>]
+                  [--toolchain <text>]
        ckb-cycles diff <base.json> <head.json> [--markdown] [--fail-above <percent>]
-                  [--fail-on-result-change] [--allow-removed] [--title <s>]
+                  [--fail-on-result-change] [--allow-removed] [--allow-changed-inputs] [--title <s>]
                   [--base-label <s>] [--head-label <s>]
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
                   [--timeout <s>]
@@ -56,7 +57,12 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                cell dep in any scenario (both also in the JSON's "errors"):
                a rejection is a result, not an error. A binary missing from
                --binaries-from is left as the mock has it: only the groups
-               whose code it is are marked, and not compared
+               whose code it is are marked, and not compared.
+               The JSON's "manifest" records what the numbers were measured
+               with: tool version, ckb-debugger version and the sha256 of its
+               binary, the git commit, per scenario the CKB-VM version, a hash
+               of its inputs and the swapped-in binaries' hashes. --toolchain
+               adds free text to it (e.g. the output of rustc -V)
   diff         compares two reports group by group: Δ cycles, Δ%, and any group
                whose result changed (ok → exit 12, or back). --fail-above exits 1
                when a group grows by more than that percentage (a new group
@@ -70,7 +76,12 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                unchecked: a scenario the base could not run, an error in
                either report, a base group with nothing in the head to
                compare with (removed, renamed, moved, or its binary not built
-               on the base); --allow-removed accepts the last
+               on the base); --allow-removed accepts the last. With both
+               reports' manifests: a scenario whose inputs (mock, transaction
+               file, cycles.json entry) changed is NOT COMPARED, and fails a
+               gated diff unless --allow-changed-inputs; another ckb-debugger
+               (version or binary) or CKB-VM version fails a gated diff, and
+               is a note otherwise. A report without a manifest is a note
   mock         saves a transaction as a ckb-debugger mock transaction, every cell
                it touches included, so a scenario can replay it with no node
   scan         writes a cycles.json from the mock transactions a test suite wrote
@@ -145,6 +156,7 @@ async function reportCommand(args: string[]): Promise<number> {
       debugger: { type: "string" },
       "binaries-from": { type: "string" },
       root: { type: "string", multiple: true },
+      toolchain: { type: "string" },
     },
   });
   if (positionals.length !== 1) {
@@ -157,6 +169,7 @@ async function reportCommand(args: string[]): Promise<number> {
     ...(values.debugger && { debuggerPath: values.debugger }),
     ...(values["binaries-from"] && { binariesRoot: values["binaries-from"] }),
     ...(values.root && { roots: values.root }),
+    ...(values.toolchain && { toolchain: values.toolchain }),
     onScenario: (s) => console.error(`${s.error ? "✗" : "·"} ${termLine(s.name)}`),
   });
   const { errors, notices, ...data } = report;
@@ -184,6 +197,7 @@ async function diffCommand(args: string[]): Promise<number> {
       "fail-above": { type: "string" },
       "fail-on-result-change": { type: "boolean" },
       "allow-removed": { type: "boolean" },
+      "allow-changed-inputs": { type: "boolean" },
       "base-label": { type: "string" },
       "head-label": { type: "string" },
       title: { type: "string" },
@@ -202,6 +216,7 @@ async function diffCommand(args: string[]): Promise<number> {
     ...(failAbove !== undefined && { failAbove }),
     failOnResultChange: values["fail-on-result-change"],
     allowRemoved: values["allow-removed"],
+    allowChangedInputs: values["allow-changed-inputs"],
   };
   const diff = diffReports(await readReport(positionals[0]), await readReport(positionals[1]), options);
   console.log(

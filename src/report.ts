@@ -16,10 +16,12 @@
  */
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { CycleReport, GroupResult, ScenarioResult } from "./diff.js";
+import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
+import type { CycleReport, GroupResult, ReportManifest, ScenarioManifest, ScenarioResult } from "./diff.js";
 import { FUNCTION_LIMIT, resultLabel, spawnNote, termLine, termLines, unmatchedError } from "./diff.js";
 import { foldedTotal, functionCosts } from "./flame.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
+import { fileDigest, gitCommit, inputsHash, scenarioInputs, sha256, toolchainOf, toolIdentity } from "./manifest.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile, type ProfileOptions } from "./profile.js";
 import { consensusOf, nodeVerdict, PUBLIC_RPC } from "./replay.js";
 import { substituteBinaries, targetScriptKeys, type BinarySubstitution } from "./substitute.js";
@@ -140,6 +142,14 @@ export interface ReportOptions {
   onScenario?: (s: ScenarioResult) => void;
   /** Runs ckb-debugger instead of the native binary (see ProfileOptions): for tests. */
   runDebugger?: ProfileOptions["runDebugger"];
+  /**
+   * With `runDebugger`: what it runs, for the manifest (a WebAssembly build's
+   * id, or a native binary's sha256). Without `runDebugger`, the binary that
+   * runs is hashed instead.
+   */
+  debuggerBuild?: { wasm?: string; sha256?: string };
+  /** Free text for the manifest: the compiler and build profile the binaries were built with (e.g. `rustc -V`). */
+  toolchain?: string;
 }
 
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -166,7 +176,7 @@ export function groupResults(p: Profile): GroupResult[] {
 export async function runReport(
   configPath: string,
   options: ReportOptions = {},
-): Promise<CycleReport & { errors: string[]; notices?: string[] }> {
+): Promise<CycleReport & { errors: string[]; notices?: string[]; manifest: ReportManifest }> {
   const config = parseCyclesConfig(await readFile(configPath, "utf8"));
   const dir = dirname(resolve(configPath));
   const binDir = options.binariesRoot ? resolve(options.binariesRoot) : dir;
@@ -185,6 +195,27 @@ export async function runReport(
 
   const inside = (file: string) => confine(file, roots);
 
+  // The manifest: what the numbers were measured with. The debugger is resolved
+  // once, so the binary hashed is the one every scenario runs; when it cannot be
+  // found, each scenario says so as before.
+  let debuggerPath: string | undefined;
+  if (!options.runDebugger) {
+    try {
+      debuggerPath = options.debuggerPath ? checkDebuggerPath(options.debuggerPath) : resolveDebugger();
+    } catch {
+      debuggerPath = undefined;
+    }
+  }
+  const environment = Promise.all([
+    toolIdentity(),
+    debuggerPath ? fileDigest(debuggerPath).catch(() => undefined) : Promise.resolve(undefined),
+    gitCommit(dir),
+    options.binariesRoot ? gitCommit(binDir) : Promise.resolve(undefined),
+  ]);
+  const scenarioManifests: ScenarioManifest[] = [];
+  /** Binary name → what was read: for the manifest of the scenarios it is swapped into. */
+  const digests = new Map<string, { path: string; sha256: string; size: number }>();
+
   // A binary resolves to null when it is absent from another checkout (the
   // base, --binaries-from): that binary is new there, not broken. Only it, and
   // the groups whose code it is, count as new; every other binary still swaps in.
@@ -196,12 +227,15 @@ export async function runReport(
       p = inside(resolve(binDir, b.path))
         .then((file) => readFile(file))
         .then(
-        (data): BinarySubstitution => ({
-          name,
-          data: new Uint8Array(data),
-          ...(b.outPoint && { outPoint: b.outPoint }),
-          ...(b.codeHash && { codeHash: b.codeHash }),
-        }),
+        (data): BinarySubstitution => {
+          digests.set(name, { path: b.path, sha256: sha256(data), size: data.length });
+          return {
+            name,
+            data: new Uint8Array(data),
+            ...(b.outPoint && { outPoint: b.outPoint }),
+            ...(b.codeHash && { codeHash: b.codeHash }),
+          };
+        },
         (e: NodeJS.ErrnoException) => {
           if (options.binariesRoot && e.code === "ENOENT") {
             missingNames.add(name);
@@ -221,6 +255,10 @@ export async function runReport(
   const scenarios: ScenarioResult[] = [];
   for (const s of config.scenarios) {
     let result: ScenarioResult;
+    const sm: ScenarioManifest = { name: s.name };
+    const entry = scenarioInputs(s, network);
+    // A tx scenario has no file: its entry (the hash) is its input.
+    if (s.tx !== undefined) sm.inputs = inputsHash(entry);
     try {
       const explicit = s.binaries !== undefined;
       const names = explicit ? s.binaries! : Object.keys(config.binaries ?? {});
@@ -235,7 +273,8 @@ export async function runReport(
         ...(network && { network }),
         ...(rpcUrl && { rpcUrl }),
         ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
-        ...(options.debuggerPath && { debuggerPath: options.debuggerPath }),
+        // The binary the manifest hashed; an explicit path that does not check out fails each scenario, as before.
+        ...((debuggerPath ?? options.debuggerPath) && { debuggerPath: debuggerPath ?? options.debuggerPath }),
         ...(options.runDebugger && { runDebugger: options.runDebugger }),
         ...(s.scriptVersion !== undefined && { scriptVersion: s.scriptVersion }),
       };
@@ -252,10 +291,14 @@ export async function runReport(
         let mock: MockTransaction;
         let scriptVersion = s.scriptVersion;
         if (s.mock) {
-          mock = JSON.parse(await readFile(await inside(resolve(dir, s.mock)), "utf8"));
+          const bytes = await readFile(await inside(resolve(dir, s.mock)));
+          sm.inputs = inputsHash(entry, bytes);
+          mock = JSON.parse(bytes.toString("utf8"));
           if (!mock?.mock_info || !mock.tx) throw new Error(`${s.mock} is not a ckb-debugger mock transaction`);
         } else if (s.file) {
-          mock = await mockFromTransaction(rpc(), readTransactionJson(await readFile(await inside(resolve(dir, s.file)), "utf8")));
+          const bytes = await readFile(await inside(resolve(dir, s.file)));
+          sm.inputs = inputsHash(entry, bytes);
+          mock = await mockFromTransaction(rpc(), readTransactionJson(bytes.toString("utf8")));
         } else {
           const node = rpc();
           const [built, consensus] = await Promise.all([
@@ -313,6 +356,12 @@ export async function runReport(
         }
       }
       debuggerVersion ??= profile.env.debugger;
+      sm.scriptVersion = profile.env.scriptVersion;
+      const swappedIn = substituted.flatMap((name) => {
+        const d = digests.get(name);
+        return d ? [{ name, ...d }] : [];
+      });
+      if (swappedIn.length) sm.binaries = swappedIn;
       // Kept with the scenario: numbers that do not add up to the node's are not to be trusted.
       if (nodeVerdict(profile) === "mismatch") {
         warnings.push(`the groups add up to ${profile.measuredCycles} cycles, the node reported ${profile.nodeCycles}`);
@@ -335,6 +384,7 @@ export async function runReport(
       result = { name: s.name, error: e instanceof Error ? e.message : String(e), groups: [] };
     }
     scenarios.push(result);
+    scenarioManifests.push(sm);
     options.onScenario?.(result);
   }
 
@@ -349,6 +399,22 @@ export async function runReport(
       errors.push(unmatchedError(name));
     }
   }
+  const [tool, debuggerDigest, commit, binariesCommit] = await environment;
+  const toolchain = toolchainOf(options.toolchain);
+  const manifest: ReportManifest = {
+    schema: 1,
+    tool,
+    debugger: {
+      version: debuggerVersion ?? "unknown",
+      ...(debuggerPath && { path: debuggerPath }),
+      ...(debuggerDigest && { sha256: debuggerDigest.sha256 }),
+      ...(options.runDebugger && options.debuggerBuild?.sha256 && { sha256: options.debuggerBuild.sha256 }),
+      ...(options.runDebugger && options.debuggerBuild?.wasm && { wasm: options.debuggerBuild.wasm }),
+    },
+    ...((commit || binariesCommit) && { git: { ...(commit && { commit }), ...(binariesCommit && { binaries: binariesCommit }) } }),
+    ...(toolchain && { toolchain }),
+    scenarios: scenarioManifests,
+  };
   return {
     tool: "ckb-cycles",
     version: 1,
@@ -356,6 +422,7 @@ export async function runReport(
     scenarios,
     errors,
     ...(notices.length && { notices }),
+    manifest,
   };
 }
 
@@ -519,5 +586,17 @@ export function formatReport(report: CycleReport): string {
     }
   }
   if (report.debugger) out.push("", t(report.debugger));
+  const m = report.manifest;
+  if (m) {
+    const parts = [
+      ...(m.debugger?.sha256 ? [`debugger sha256 ${m.debugger.sha256}`] : []),
+      ...(m.debugger?.wasm ? [`debugger wasm ${m.debugger.wasm}`] : []),
+      ...(m.git?.commit ? [`commit ${m.git.commit}`] : []),
+      ...(m.git?.binaries && m.git.binaries !== m.git.commit ? [`binaries from ${m.git.binaries}`] : []),
+      ...(m.toolchain ? [`toolchain: ${m.toolchain}`] : []),
+      ...(m.tool?.version ? [`${m.tool.name} ${m.tool.version}`] : []),
+    ];
+    if (parts.length) out.push(t(`manifest: ${parts.join(" · ")}`));
+  }
   return out.join("\n");
 }

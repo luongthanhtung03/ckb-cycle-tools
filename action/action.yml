@@ -45,6 +45,18 @@ inputs:
       with nothing in the head to compare against (a scenario or group the PR removed,
       renamed or moved, or one whose binary the base did not build).
     default: "false"
+  allow-changed-inputs:
+    description: >
+      With fail-above or fail-on-result-change set, do not fail on a scenario whose
+      inputs changed (its mock, transaction file or cycles.json entry differs from the
+      base's, by the reports' manifests). Its groups are still not compared.
+    default: "false"
+  toolchain:
+    description: >
+      Shell command whose output is recorded as the toolchain in each report's
+      manifest (e.g. `rustc -V`). Runs after the build, in the PR checkout and in the
+      base checkout. Empty: none recorded. A command that fails records nothing.
+    default: ""
   comment:
     description: Post (or update) the sticky PR comment. The table also goes to the job summary either way.
     default: "true"
@@ -73,8 +85,10 @@ outputs:
   failed:
     description: >
       "true" when the diff failed the thresholds, a head scenario could not run, or (with
-      a threshold set) a base scenario could not run, either report has errors, or a base
-      group has nothing to compare against (unless allow-removed).
+      a threshold set) a base scenario could not run, either report has errors, a base
+      group has nothing to compare against (unless allow-removed), a scenario's inputs
+      changed (unless allow-changed-inputs), or the reports' manifests name another
+      ckb-debugger or CKB-VM version.
     value: ${{ steps.diff.outputs.failed }}
 
 runs:
@@ -140,13 +154,20 @@ runs:
       env:
         BUILD: ${{ inputs.build }}
         CONFIG: ${{ inputs.config }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
         if [ -n "$BUILD" ]; then bash -euo pipefail -c "$BUILD"; fi
+        # For the report's manifest: what built the binaries (free text, cleaned wherever it is shown).
+        toolchain=()
+        if [ -n "$TOOLCHAIN" ]; then
+          if tc=$(bash -euo pipefail -c "$TOOLCHAIN"); then toolchain=(--toolchain "${tc:0:4096}")
+          else echo "::warning::the toolchain command failed on the head; no toolchain recorded"; fi
+        fi
         # A scenario that cannot run is in the report as an error row; the diff fails on it.
         # The report's other errors (a binary no scenario uses) are in the JSON too, and a
         # gated diff fails on them: hence `|| true`, the verdict is the diff's.
         # --root: the cycles.json is the PR's; it reads nothing outside the checkout.
-        node "$CKB_CYCLES" report "$CONFIG" --root "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/ckb-cycles/head.json" || true
+        node "$CKB_CYCLES" report "$CONFIG" --root "$GITHUB_WORKSPACE" "${toolchain[@]}" --json "$RUNNER_TEMP/ckb-cycles/head.json" || true
 
     - name: Report the base
       shell: bash
@@ -155,6 +176,7 @@ runs:
         CONFIG: ${{ inputs.config }}
         BASE: ${{ inputs.base-ref }}
         BASE_CONFIG: ${{ inputs.base-config }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
         out="$RUNNER_TEMP/ckb-cycles"
         case $BASE_CONFIG in base | head) ;; *) echo "::error::base-config is base or head"; exit 1 ;; esac
@@ -189,18 +211,28 @@ runs:
             const scenarios = all.map((name) => ({ name, error: "the build failed on the base commit", groups: [] }));
             fs.writeFileSync(out, JSON.stringify({ tool: "ckb-cycles", version: 1, scenarios }));
           ' "$config" "$out/head.json" "$out/base.json"
-        elif [ "$BASE_CONFIG" = head ]; then
+        else
+          # The base's toolchain, from inside the base checkout (its own rust-toolchain.toml…).
+          toolchain=()
+          if [ -n "$TOOLCHAIN" ]; then
+            if tc=$(cd "$out/base" && bash -euo pipefail -c "$TOOLCHAIN"); then toolchain=(--toolchain "${tc:0:4096}")
+            else echo "::warning::the toolchain command failed on the base; no toolchain recorded"; fi
+          fi
+          measure=$BASE_CONFIG
+        fi
+        if [ "${measure:-}" = head ]; then
           # The PR's config and mocks, the base's binaries; it reads nothing outside the
           # two checkouts. A binary the base did not build is left as the mock has it:
-          # its groups are marked not compared.
-          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base" --root "$GITHUB_WORKSPACE" --root "$out/base" --json "$out/base.json" || true
+          # its groups are marked not compared. The inputs are the head's, so the
+          # manifests' input hashes are equal and every scenario is compared.
+          node "$CKB_CYCLES" report "$CONFIG" --binaries-from "$out/base" --root "$GITHUB_WORKSPACE" --root "$out/base" "${toolchain[@]}" --json "$out/base.json" || true
           if [ ! -s "$out/base.json" ]; then
             echo '{"tool":"ckb-cycles","version":1,"scenarios":[],"errors":["the base report did not run (see the log): nothing on the base was measured"]}' > "$out/base.json"
           fi
-        else
+        elif [ "${measure:-}" = base ]; then
           # Its errors (a binary no scenario uses) are in the JSON, and a gated diff fails on them.
           # --root: the base's config reads nothing outside the base checkout.
-          node "$CKB_CYCLES" report "$out/base/$CONFIG" --root "$out/base" --json "$out/base.json" || true
+          node "$CKB_CYCLES" report "$out/base/$CONFIG" --root "$out/base" "${toolchain[@]}" --json "$out/base.json" || true
           if [ ! -s "$out/base.json" ]; then
             echo '{"tool":"ckb-cycles","version":1,"scenarios":[],"errors":["the base report did not run (see the log): nothing on the base was measured"]}' > "$out/base.json"
           fi
@@ -216,6 +248,7 @@ runs:
         FAIL_ABOVE: ${{ inputs.fail-above }}
         FAIL_ON_RESULT_CHANGE: ${{ inputs.fail-on-result-change }}
         ALLOW_REMOVED: ${{ inputs.allow-removed }}
+        ALLOW_CHANGED_INPUTS: ${{ inputs.allow-changed-inputs }}
         TITLE: ${{ inputs.title }}
       run: |
         out="$RUNNER_TEMP/ckb-cycles"
@@ -224,6 +257,7 @@ runs:
         if [ -n "$FAIL_ABOVE" ]; then args+=(--fail-above "$FAIL_ABOVE"); fi
         if [ "$FAIL_ON_RESULT_CHANGE" = true ]; then args+=(--fail-on-result-change); fi
         if [ "$ALLOW_REMOVED" = true ]; then args+=(--allow-removed); fi
+        if [ "$ALLOW_CHANGED_INPUTS" = true ]; then args+=(--allow-changed-inputs); fi
         set +e
         node "$CKB_CYCLES" diff "$out/base.json" "$out/head.json" "${args[@]}" > "$out/diff.md"
         code=$?

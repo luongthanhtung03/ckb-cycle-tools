@@ -4,9 +4,48 @@ This project follows [semantic versioning](https://semver.org/).
 
 ## Unreleased
 
-What a rejected transaction's numbers mean (review #46, point 7a).
+From the review on #46 (5 Nov): failed gates on a script that starts rejecting,
+a reproducibility manifest, and what a rejected transaction's numbers mean.
+
+### Changed
+- `diff --fail-above` (and the Action's `fail-above`) now also fails when a
+  group that accepted on the base rejects on the head (`ok` → `exit N` or a VM
+  error), whatever its cycles: a script that starts rejecting what it accepted
+  could pass before, by getting cheaper. This affects workflows that set only
+  `fail-above`: a pull request that turns an accepting scenario into a
+  rejection now fails the check (a warning with `informational: true`).
+  `--fail-on-result-change` is unchanged and still broader (reject → accept,
+  one exit code to another, a new group that does not accept); a diff with
+  neither set stays informational. The comment marks such a row "accepted on
+  the base, rejects now".
+- A gated diff (`--fail-above` or `--fail-on-result-change`) now also fails
+  when a scenario's inputs changed between base and head (unless
+  `--allow-changed-inputs`), or when the two sides ran another ckb-debugger or
+  CKB-VM version. Before, an edited mock under the same scenario name was
+  compared silently. Ungated diffs only gain notes. See Added.
 
 ### Added
+- `report` writes a `manifest` into its JSON: the ckb-cycle-tools version,
+  ckb-debugger's `--version` and the sha256 (and path) of the binary every
+  scenario ran (resolved once), or a WebAssembly build's id for a library
+  caller that runs one (`debuggerBuild`), the git commit of the config's
+  checkout and of `--binaries-from` (none, and no failure, outside git), an
+  optional `--toolchain <text>`, and per scenario the CKB-VM version, an
+  `inputs` sha256 (the mock or transaction file's bytes as read, and the
+  cycles.json entry canonicalised without its name, file path or `functions`)
+  and each swapped-in binary's path, sha256 and size. The terminal report
+  ends with a manifest line.
+- `diff` reads both manifests. A scenario whose `inputs` differ is NOT
+  COMPARED (its groups count as neither new nor removed); a gated diff fails
+  on it unless `--allow-changed-inputs`. Another ckb-debugger (version, binary,
+  native against WebAssembly) or another CKB-VM version for a scenario fails a
+  gated diff, listed under the summary; ungated it is a bold note. Another
+  toolchain is a note. A report without a manifest on one side is a note,
+  never a failure; two such reports diff as before. The comment and the
+  terminal output show each side's manifest in one line. Manifest strings go
+  through the same cleaning as other report text.
+- Action inputs `toolchain` (a command run after the build in each checkout;
+  its output goes to `--toolchain`) and `allow-changed-inputs`.
 - A rejected transaction (some group exits non-zero, the VM stops it, or Type
   ID refuses it) no longer shows "measured (sum of groups)". The CLI prints
   "sum of groups, each run on its own", names the group the node would stop
@@ -41,18 +80,6 @@ What a rejected transaction's numbers mean (review #46, point 7a).
   profile at 49227cd (`opt-level = "s"`, LTO, one codegen unit, `panic = "abort"`,
   overflow checks, stripped; `+zba,+zbb,+zbc,+zbs,-a`; ckb-std 1.1.0; no pinned
   toolchain).
-
-### Changed
-- `diff --fail-above` (and the Action's `fail-above`) now also fails when a
-  group that accepted on the base rejects on the head (`ok` → `exit N` or a VM
-  error), whatever its cycles: a script that starts rejecting what it accepted
-  could pass before, by getting cheaper. This affects workflows that set only
-  `fail-above`: a pull request that turns an accepting scenario into a
-  rejection now fails the check (a warning with `informational: true`).
-  `--fail-on-result-change` is unchanged and still broader (reject → accept,
-  one exit code to another, a new group that does not accept); a diff with
-  neither set stays informational. The comment marks such a row "accepted on
-  the base, rejects now".
 
 ## 1.2.0 (2026-11-05)
 

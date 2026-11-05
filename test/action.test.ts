@@ -161,6 +161,7 @@ function job(dir: string, ids: string, patchFails: number): Job {
       "inputs.head-owner": "",
       "inputs.head-branch": "",
       "inputs.max-bytes": "262144",
+      "inputs.toolchain": "",
     },
   };
   const tools = runStep("action/action.yml", "Resolve the comment's tools", j);
@@ -562,7 +563,7 @@ describe.skipIf(!bash)("action.yml: the base report", { timeout: 60_000 }, () =>
       cwd: ws,
       path: [],
       env: { ...process.env, RUNNER_TEMP: posix(d), GITHUB_WORKSPACE: posix(ws), CKB_CYCLES: posix(cli) },
-      ctx: { "inputs.build": "", "inputs.config": "cycles.json", "inputs.base-ref": base, "inputs.base-config": "base" },
+      ctx: { "inputs.build": "", "inputs.config": "cycles.json", "inputs.base-ref": base, "inputs.base-config": "base", "inputs.toolchain": "" },
     };
     return { j, d };
   }
@@ -611,6 +612,33 @@ describe.skipIf(!bash)("action.yml: the base report", { timeout: 60_000 }, () =>
     const r = runStep("action/action.yml", "Report the base", j);
     expect(r.status).toBe(1);
     expect(r.out).toContain("base-config is base or head");
+  });
+
+  // The manifest's toolchain: the command's output, run inside each checkout after its build.
+  it("records the toolchain each checkout reports, and nothing when the command fails", () => {
+    for (const baseConfig of ["base", "head"]) {
+      const { j, d } = repo(JSON.stringify({ scenarios: [{ name: "kept", mock: "m.json" }, { name: "deleted", mock: "d.json" }] }));
+      j.ctx["inputs.base-config"] = baseConfig;
+      j.ctx["inputs.toolchain"] = "echo \"rustc in $(basename \"$PWD\")\"";
+      expect(runStep("action/action.yml", "Report the base", j).status).toBe(0);
+      const [call] = calls(d);
+      expect(call[call.indexOf("--toolchain") + 1]).toBe("rustc in base");
+    }
+    const { j, d } = repo(JSON.stringify({ scenarios: [{ name: "kept", mock: "m.json" }, { name: "deleted", mock: "d.json" }] }));
+    j.ctx["inputs.toolchain"] = "exit 3";
+    const r = runStep("action/action.yml", "Report the base", j);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("::warning::the toolchain command failed on the base");
+    expect(calls(d)[0]).not.toContain("--toolchain");
+  });
+
+  it("records the head's toolchain from the PR checkout", () => {
+    const { j, d } = repo(undefined);
+    j.ctx["inputs.toolchain"] = "echo \"rustc in $(basename \"$PWD\")\"";
+    expect(runStep("action/action.yml", "Report the head", j).status).toBe(0);
+    const [call] = calls(d);
+    expect(call.slice(0, 2)).toEqual(["report", "cycles.json"]);
+    expect(call[call.indexOf("--toolchain") + 1]).toBe("rustc in ws");
   });
 
   it("writes an empty base report when the base has no cycles.json (the PR adds it)", () => {

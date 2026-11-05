@@ -54,6 +54,8 @@ credentials, so the base must already be in the checkout.
 | `informational` | `false` | `true`: a crossed threshold or a scenario that could not run is a warning, never a failed job (a failing build still fails) |
 | `base-config` | `base` | `head`: measure the base with the PR's cycles.json and the base's binaries, for a cycles.json generated before the Action (`ckb-cycles scan`) |
 | `allow-removed` | `false` | with a threshold set, do not fail on base groups with nothing in the head to compare against (removed, renamed, moved, or not built on the base) |
+| `allow-changed-inputs` | `false` | with a threshold set, do not fail on a scenario whose inputs changed (its mock, transaction file or cycles.json entry differs from the base's); its groups are still not compared |
+| `toolchain` | (none) | shell command whose output each report's manifest records as its toolchain (e.g. `rustc -V`), run after the build in the PR checkout and in the base checkout; a failing command records nothing |
 | `comment` | `true` | post or update the sticky comment |
 | `title` | `Cycle report` | the comment's heading |
 | `github-token` | `github.token` | needs `pull-requests: write` |
@@ -112,6 +114,12 @@ anyone else that starts with the marker is left alone.
   before it reaches the debugger, which would otherwise embed any file on the
   runner, past `--root`. Under `--root` the config's `"rpc"` is ignored (with a
   warning): only the CLI's `--rpc`, or the public node, is asked.
+- Each report's manifest (below, [Limits](#limits)) records the sha256 of the
+  ckb-debugger binary it ran, so a head build that replaces the installed
+  debugger before the base is measured shows as a different binary, and fails
+  a gated check. It does not stop a build that fakes both sides. The
+  `toolchain` output and the paths in the manifest are the PR's text: they
+  are cleaned like names before they reach the comment or the log.
 - `timeout-minutes` on the job bounds a script that runs forever (ckb-debugger
   stops it only at its cycle limit).
 - The comment is a review aid, not a gate against a hostile PR: a pull request
@@ -342,17 +350,32 @@ cell dep in any scenario (a rejection is a result, not an error; both are in
 the JSON's `"errors"` too); `diff` 1 when a threshold is crossed or a head
 scenario could not run, and, with `--fail-above` or `--fail-on-result-change`,
 when a base scenario could not run, either report has errors, or a base group
-has nothing in the head to compare against (unless `--allow-removed`); 2 for
-bad arguments or reports.
+has nothing in the head to compare against (unless `--allow-removed`), a
+scenario's inputs changed (unless `--allow-changed-inputs`), or the two
+manifests name another ckb-debugger or CKB-VM version; 2 for bad arguments or
+reports. `report --toolchain <text>` records the toolchain in the manifest.
 
 ## Limits
 
 - One sticky comment per pull request: two runs of this Action on the same PR
   overwrite each other's comment.
 - Cycles are ckb-debugger's for the VM version you set (`scriptVersion`, default
-  the block's, or 2). Both sides use the same debugger, so the diff is exact;
-  two reports from different ckb-debugger versions are compared all the same,
-  and the summary says so.
+  the block's, or 2). Both sides use the same debugger, so the diff is exact.
+  Each report records a manifest: the ckb-cycle-tools version, ckb-debugger's
+  version and binary sha256, the commit, the `toolchain`, and per scenario the
+  CKB-VM version, a sha256 of its inputs (the mock or transaction file as read,
+  and its cycles.json entry without its name or path) and of each swapped-in
+  binary. With a threshold set, the check fails when the two manifests name
+  another ckb-debugger (version or binary) or another CKB-VM version for a
+  scenario; without one, the comment says so in bold. Reports from before
+  1.3.0 have no manifest: that is a note, not a failure.
+- The base is measured with the base commit's own cycles.json and mocks (the
+  default `base-config`), so a PR that edits a scenario's mock or entry under
+  the same name does not measure the same transaction on both sides: that
+  scenario's groups are "NOT COMPARED: inputs changed", and the check fails
+  when a threshold is set, unless `allow-changed-inputs` is true. With
+  `base-config: head` both sides use the PR's cycles.json and mocks, so the
+  inputs are the same by construction and every scenario is compared.
 - A scenario that is new in the PR (not in the base's `cycles.json`) shows its
   groups as new; so does a base without a `cycles.json`. A scenario the base
   cannot run (its build failed, a binary it names was not built, a node error)
