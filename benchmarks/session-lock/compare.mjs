@@ -150,6 +150,16 @@ The scenarios cover plain CKB sessions (${plain.length}) and token sessions (${t
 token is a stand-in type script, since the lock only compares its type hash and
 reads the amount from the cell data.
 
+This compares these two implementations of one lock only; it is not a verdict
+on Rust against JavaScript scripts in general.
+The Rust lock is \`cargo build --release\` of \`contracts/session-lock\` at that
+commit, with its \`[profile.release]\`: \`opt-level = "s"\`, \`lto = true\`,
+\`codegen-units = 1\`, \`panic = "abort"\`, \`overflow-checks = true\`,
+\`strip = true\`; target \`riscv64imac-unknown-none-elf\` with
+\`-C target-feature=+zba,+zbb,+zbc,+zbs,-a\` (its \`.cargo/config.toml\`);
+ckb-std 1.1.0 (its \`Cargo.lock\`). The repository pins no Rust toolchain, so
+CI builds with the runner's stable rustc.
+
 | | Rust | ckb-js-vm |
 |---|---:|---:|
 | Code deployed | ${fmt(rustBytes)} B binary | ${fmt(jsBytes)} B bytecode + ${fmt(vmBytes)} B VM |

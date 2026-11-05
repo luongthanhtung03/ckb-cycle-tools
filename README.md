@@ -178,14 +178,71 @@ tx not on chain
 GROUP  SCRIPT             RUN AT        RESULT       CYCLES  SHARE
 lock   0x1ae8b8…26bc20    input.0.lock  exit 12      12,893   0.8%
 lock   Secp256k1Blake160  input.1.lock  exit -31  1,642,194  99.2%
+
+sum of groups, each run on its own  1,655,087
+  not what the node spends: it stops at the first failing group, input.1.lock (Secp256k1Blake160),
+  and reports no cycles for a rejected tx (it runs lock groups, then type groups,
+  each in script-hash order)
+  the node never runs: input.0.lock
 ```
 
 The session lock refuses with its code 12 (outflow over `max_per_tx`) after
 12,893 cycles; the secp256k1 lock fails too, because the edit invalidated the
 signature. CI replays this file and requires exactly that refusal.
 
+**What a rejected transaction's numbers mean.** The CLI runs every group on its
+own, so you see every script that refuses, not only the first. The node does not
+work that way. ckb-script's `TransactionScriptsVerifier::verify` runs the groups
+one after another and returns at the first error, with no cycle count; a
+rejected transaction has no cycles on the node at all. Its order is every lock
+group, then every type group, each sorted by script hash (two `BTreeMap`s keyed by
+script hash, locks chained before types), which is not the order the CLI lists
+them in (first appearance). So for a rejected transaction the sum is labelled as
+what it is, and the CLI names the group the node would stop at and the groups it
+would never run. Above, the secp256k1 lock's script hash sorts first, so the node
+rejects on the signature and never runs the session lock. In `--json` and in a
+report's JSON, the scenario or profile gets `nodeStopsAt` (that group's selector)
+and every group gets `nodeReaches: true | false`; both are absent when every
+group accepts, so reports of accepted transactions are unchanged. Sources, from
+ckb `develop` at
+[a4aa128](https://github.com/nervosnetwork/ckb/tree/a4aa1286a45bc1d42c30f6698dc51521c3749b40):
+[`script/src/verify.rs`](https://github.com/nervosnetwork/ckb/blob/a4aa1286a45bc1d42c30f6698dc51521c3749b40/script/src/verify.rs#L180-L197)
+(`verify`, stops at the first failing group) and
+[`script/src/types.rs`](https://github.com/nervosnetwork/ckb/blob/a4aa1286a45bc1d42c30f6698dc51521c3749b40/script/src/types.rs#L642-L666)
+with [L865-L868](https://github.com/nervosnetwork/ckb/blob/a4aa1286a45bc1d42c30f6698dc51521c3749b40/script/src/types.rs#L865-L868)
+(group order). Which group fails first is computed, not observed: no node has
+been asked to confirm it for a rejected transaction yet.
+
 In code: `profileTransaction(readTransactionJson(json))`, or pass an RPC-shaped
-transaction object directly.
+transaction object directly; `nodeOrder(groups)` and `nodeStop(groups)` give the
+node's order and where it stops.
+
+### What comes from where when replaying
+
+A replay rebuilds everything a script can observe from the chain, and takes the
+rest from the node it asks or from ckb-debugger's defaults:
+
+| Input to the replay | Where it comes from |
+|---|---|
+| Input cells (output, data) | The original chain via RPC: `get_transaction` of the transaction that created each cell, so a spent cell replays as it was, not from the live cell set |
+| Cell deps, dep groups | Same, from the creating transactions; a dep group's cell is read and every cell it lists added as a code dep |
+| Input cell headers | The block that created each input cell (its `block_hash`), as on the node; a script sees it only if the transaction lists it in `header_deps`, as on the node |
+| Header deps | `get_header` for each hash in the transaction's `header_deps` |
+| Witnesses, outputs, outputs data | The transaction itself (from `get_transaction`, or the `--file` you pass) |
+| Hardfork epochs (consensus) | The node's current `get_consensus` (RFC 0032 for CKB-VM v1, RFC 0049 for v2); a built-in table only when the public node of `--mainnet`/testnet cannot say |
+| CKB-VM version | For `hash_type: "type"` scripts: the version at the epoch of the transaction's block, from `get_header`, on those consensus epochs. `data`, `data1`, `data2` name their own. A transaction not on chain (`--file`) gets v2, today's version, not one read from the node |
+| Max cycles | ckb-debugger's default, 3,500,000,000 **per group** (each group is its own run). The node's limit is **per transaction**: in a block, each transaction is verified with the consensus `max_block_cycles` (3,500,000,000 on mainnet and testnet), the remaining budget shrinking group by group, and the block's sum must stay under it too. So a transaction whose groups each fit but together exceed the limit passes here and fails on the node |
+| Group order | Here: first appearance, every group run, failures included. Node: lock groups then type groups, each by script hash, stopping at the first failure (see above) |
+| Type ID | Not a binary: checked here as the node checks it, and charged the node's fixed `TYPE_ID_CYCLES` (1,000,000) |
+| Since, capacity, maturity checks | Not replayed: the node checks them outside any script, so a script-level replay cannot see them |
+| Script names | CCC's known-script table for the network, and your `--name`s; labels only |
+
+The node's own verification lives in
+[`verification/contextual/src/contextual_block_verifier.rs`](https://github.com/nervosnetwork/ckb/blob/a4aa1286a45bc1d42c30f6698dc51521c3749b40/verification/contextual/src/contextual_block_verifier.rs#L413-L466)
+(per-transaction limit and block sum) and ckb-debugger's default in
+[`ckb-debugger/src/main.rs`](https://github.com/nervosnetwork/ckb-standalone-debugger/blob/740d6de0c1d7c2394a492f9bfef57e77abb98dfd/ckb-debugger/src/main.rs#L44)
+of v1.1.1. A node's transaction pool also has a `max_tx_verify_cycles` setting
+in its `ckb.toml`: a local setting, not consensus.
 
 ### Inside a script: flamegraphs
 
@@ -219,8 +276,9 @@ input.0.lock  0xab4194…4c08ce  ok  20,999 cycles
 ```
 
 Reading the lock hashes of the transaction's cells is the lock's largest cost.
-The profile covers the script's run; loading the binary into the VM (1,812
-cycles here) is counted by the node but not by the profiler.
+The profile covers the instructions the script ran; the difference (1,812 cycles
+here) is what the VM charges outside instructions, such as loading the binary and
+the bytes each syscall copies, counted by the node but in no frame.
 
 **A script that spawns another** (CKB2023 `spawn`): its group's cycles include
 every script it spawned, as on the node, and the CLI and report say how many it
@@ -228,6 +286,32 @@ spawned. The functions are the spawning script's own: ckb-debugger profiles only
 that one, and `--bin` replaces only its binary, so the spawned scripts' work is
 in the total but in no frame. [`test/fixtures/spawn-project`](test/fixtures/spawn-project)
 is such a pair.
+
+**Flamegraph fidelity: what is exact and what is attributed.** The group's cycle
+total is exact: it is ckb-debugger's run of the deployed binary, the same number
+the node counts (and `--bin` checks that the symbols build costs the same). How
+that total is split between functions is reconstructed. ckb-debugger's profiler
+(`machine_analyzer.rs` in
+[v1.1.1](https://github.com/nervosnetwork/ckb-standalone-debugger/blob/740d6de0c1d7c2394a492f9bfef57e77abb98dfd/ckb-debugger/src/machine_analyzer.rs))
+charges each instruction's cost (ckb-vm's cost model) to the current frame, and
+opens a frame only when a `jal`/`jalr` jumps to an address the ELF symbol table
+lists as a function start. So:
+
+- inlined code has no symbol of its own and is charged to the function it was
+  inlined into, so an optimised build shows fewer, heavier frames than the source
+  has functions, and moving code between inlined and not changes the split
+  without changing the total;
+- frames are named with the binary's DWARF info where it has some, and otherwise
+  from the symbol table (this tool fills in the `func_0x…` frames the profiler
+  could not name);
+- cycles the VM charges outside instructions (loading the binary, bytes copied by
+  syscalls) are in no frame, so the profile is a little under the group total and
+  the CLI prints both;
+- spawned scripts are in the total but in no frame (above).
+
+Per-function numbers are therefore exact sums of the instructions attributed to
+each frame, but which frame gets them depends on the build's inlining and symbols.
+Compare functions only between builds with the same profile.
 
 **In the browser:** drop the `.folded` file on the
 [web inspector](https://ckb-cycle-tools.vercel.app/) ("inside a script"), or open
@@ -597,6 +681,12 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
   functions only with an unstripped build passed by `--bin` (or `symbols` in a
   cycles.json). The CLI draws the graphs, the PR comment lists the changed
   functions, and the web page draws a `.folded` file the CLI made.
+- **Groups run on their own.** Every group is a separate ckb-debugger run with
+  its own 3,500,000,000-cycle limit; the node runs them in its own order under
+  one per-transaction limit and stops at the first failure. A rejected
+  transaction's sum is labelled as such, and the group the node would stop at
+  is computed from ckb-script's order, not yet confirmed by a node
+  ([What comes from where](#what-comes-from-where-when-replaying)).
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
   tools then say the total is unknown instead of claiming a match.
 - **The PR Action has run on one public pull request so far**, in this repository:
