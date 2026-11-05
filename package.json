@@ -43,7 +43,8 @@
     "prepack": "npm run build",
     "pack:check": "node scripts/pack-check.mjs",
     "atlas": "tsx scripts/atlas.ts",
-    "compat": "tsx scripts/compat.ts"
+    "compat": "tsx scripts/compat.ts",
+    "hardfork": "tsx scripts/hardfork-check.ts"
   },
   "devDependencies": {
     "@ckb-js-std/bindings": "^1.0.0",

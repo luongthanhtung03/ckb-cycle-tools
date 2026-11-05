@@ -1,0 +1,2299 @@
+{
+ "meta": {
+  "startedAt": "2026-11-05T18:31:20.371Z",
+  "finishedAt": "2026-11-05T18:33:06.772Z",
+  "debugger": "ckb-debugger 1.1.1",
+  "toolCommit": "8cf7f5f1d0d0d58e1849bfba9d50f237320fd517",
+  "rpc": {
+   "mainnet": "https://mainnet.ckb.dev/",
+   "testnet": "https://testnet.ckb.dev/"
+  },
+  "cyclesRpc": {
+   "mainnet": [
+    "https://mainnet.ckbapp.dev/rpc"
+   ],
+   "testnet": [
+    "https://testnet.ckbapp.dev/rpc"
+   ]
+  },
+  "explorer": {
+   "mainnet": "https://mainnet-api.explorer.nervos.org/api/v1/transactions/",
+   "testnet": "https://testnet-api.explorer.nervos.org/api/v1/transactions/"
+  },
+  "forks": {
+   "mainnet": {
+    "mirana": {
+     "epoch": 5414,
+     "startBlock": 7087867
+    },
+    "meepo": {
+     "epoch": 12293,
+     "startBlock": 16595590
+    }
+   },
+   "testnet": {
+    "mirana": {
+     "epoch": 3113,
+     "startBlock": 3199680
+    },
+    "meepo": {
+     "epoch": 9690,
+     "startBlock": 15013505
+    }
+   }
+  }
+ },
+ "cases": [
+  {
+   "network": "mainnet",
+   "fork": "mirana",
+   "side": "before",
+   "kind": "secp",
+   "hash": "0x331e62b22235a381967f924aa60c22b51081419e25e461041415406738e81c42",
+   "block": 7087857,
+   "epoch": 5413,
+   "index": 1,
+   "forkEpoch": 5414,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": null
+    }
+   ],
+   "explorerCycles": "1687119",
+   "scriptVersion": 0,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "1696062",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1687119",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1631886",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1696062",
+   "sums": {
+    "0": "1696062",
+    "1": "1687119",
+    "2": "1631886"
+   },
+   "oracle": "explorer",
+   "total": "1687119",
+   "verdict": "mismatch",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "mirana",
+   "side": "before",
+   "kind": "type",
+   "hash": "0xe4832c669935608ae4174bef8a7a4253246ff307e2bd4a8a73268a5f6363a25b",
+   "block": 7087856,
+   "epoch": 5413,
+   "index": 1,
+   "forkEpoch": 5414,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": null
+    }
+   ],
+   "explorerCycles": "2406176",
+   "scriptVersion": 0,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9376c3b5811942960a846691e16e477cf43d7c7fa654067c9948dfcd09a32137",
+     "hashType": "type",
+     "selector": "input.0.lock",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "2263231",
+       "result": 0
+      },
+      "1": {
+       "cycles": "2263223",
+       "result": 0
+      },
+      "2": {
+       "cycles": "2202045",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0xebafc1ebe95b88cac426f984ed5fce998089ecad0cd2f8b17755c9de4cb02162",
+     "hashType": "type",
+     "selector": "output.0.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "143001",
+       "result": 0
+      },
+      "1": {
+       "cycles": "142953",
+       "result": 0
+      },
+      "2": {
+       "cycles": "142760",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "2406232",
+   "sums": {
+    "0": "2406232",
+    "1": "2406176",
+    "2": "2344805"
+   },
+   "oracle": "explorer",
+   "total": "2406176",
+   "verdict": "mismatch",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "mirana",
+   "side": "before",
+   "kind": "data",
+   "hash": "0x963d42eec214971680f7c018cb479bf947cf53b85ae3f9291f3a1162c4361b04",
+   "block": 7087842,
+   "epoch": 5413,
+   "index": 1,
+   "forkEpoch": 5414,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": null
+    }
+   ],
+   "explorerCycles": "1741459",
+   "scriptVersion": 0,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "1705855",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1696882",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1641533",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x8b9cf1c536c2590282c2896ca34778590a3784b7daeafa241fe98e170a743ee0",
+     "hashType": "data",
+     "selector": "input.0.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "1": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "2": {
+       "cycles": "44577",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1750432",
+   "sums": {
+    "0": "1750432",
+    "1": "1741459",
+    "2": "1686110"
+   },
+   "oracle": "explorer",
+   "total": "1741459",
+   "verdict": "mismatch",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "mirana",
+   "side": "after",
+   "kind": "type",
+   "hash": "0xdc67b70d0116ec320526bd8230fab86979a2c1419afb812ff15ccfe2ad2a37f2",
+   "block": 7087881,
+   "epoch": 5414,
+   "index": 1,
+   "forkEpoch": 5414,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x1b7e66"
+    }
+   ],
+   "explorerCycles": "1801830",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1732881",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1723698",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1667432",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x3a468d53352eb855521dabed0dc7036929bfe72766ad58f801edfbae564f7b43",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "33019",
+       "result": 0
+      },
+      "1": {
+       "cycles": "33021",
+       "result": 0
+      },
+      "2": {
+       "cycles": "32977",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x9e537bf5b8ec044ca3f53355e879f3fd8832217e4a9b41d9994cf0c547241a79",
+     "hashType": "type",
+     "selector": "input.1.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "45109",
+       "result": 0
+      },
+      "1": {
+       "cycles": "45111",
+       "result": 0
+      },
+      "2": {
+       "cycles": "45041",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1801830",
+   "sums": {
+    "0": "1811009",
+    "1": "1801830",
+    "2": "1745450"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1801830",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "mirana",
+   "side": "after",
+   "kind": "secp",
+   "hash": "0x7662e6546d816b182afb68a896dd18155f548e83565d73664514ec7ee5d483c5",
+   "block": 7087882,
+   "epoch": 5414,
+   "index": 1,
+   "forkEpoch": 5414,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x19c165"
+    }
+   ],
+   "explorerCycles": "1687909",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1696807",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1687909",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1632906",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1687909",
+   "sums": {
+    "0": "1696807",
+    "1": "1687909",
+    "2": "1632906"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1687909",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "mirana",
+   "side": "after",
+   "kind": "data",
+   "hash": "0xc38599de0cab5000f65a9d34924d5dbe9ac0cde81e1fadaaa0ec2461cbd82b33",
+   "block": 7087885,
+   "epoch": 5414,
+   "index": 1,
+   "forkEpoch": 5414,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x1a9cd8"
+    }
+   ],
+   "explorerCycles": "1744088",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1708504",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1699511",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1644059",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x8b9cf1c536c2590282c2896ca34778590a3784b7daeafa241fe98e170a743ee0",
+     "hashType": "data",
+     "selector": "input.0.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "1": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "2": {
+       "cycles": "44577",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1744088",
+   "sums": {
+    "0": "1753081",
+    "1": "1744088",
+    "2": "1688636"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1744088",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "meepo",
+   "side": "before",
+   "kind": "type",
+   "hash": "0xfac50edc9daacd7ac5a95b895c86dabd668e0b632ad8344ba32114fe29a16a2d",
+   "block": 16595580,
+   "epoch": 12292,
+   "index": 1,
+   "forkEpoch": 12293,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x1b5b84"
+    }
+   ],
+   "explorerCycles": "1792900",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1723876",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1714768",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1658820",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x3a468d53352eb855521dabed0dc7036929bfe72766ad58f801edfbae564f7b43",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "33019",
+       "result": 0
+      },
+      "1": {
+       "cycles": "33021",
+       "result": 0
+      },
+      "2": {
+       "cycles": "32977",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x9e537bf5b8ec044ca3f53355e879f3fd8832217e4a9b41d9994cf0c547241a79",
+     "hashType": "type",
+     "selector": "input.1.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "45109",
+       "result": 0
+      },
+      "1": {
+       "cycles": "45111",
+       "result": 0
+      },
+      "2": {
+       "cycles": "45041",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1792900",
+   "sums": {
+    "0": "1802004",
+    "1": "1792900",
+    "2": "1736838"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1792900",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "meepo",
+   "side": "before",
+   "kind": "secp",
+   "hash": "0x5551d4ecc9eea6d1da6f64b65924e4cb062876d6915635a9c14e90ba323b5133",
+   "block": 16595577,
+   "epoch": 12292,
+   "index": 1,
+   "forkEpoch": 12293,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x19b9f8"
+    }
+   ],
+   "explorerCycles": "1686008",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1694946",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1686008",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1630813",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1686008",
+   "sums": {
+    "0": "1694946",
+    "1": "1686008",
+    "2": "1630813"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1686008",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "meepo",
+   "side": "before",
+   "kind": "data",
+   "hash": "0xbfdbaa67cf40cbed33387cff6abfb92d70e3e6d8191c4ac94734f2ada032c84f",
+   "block": 16595355,
+   "epoch": 12292,
+   "index": 4,
+   "forkEpoch": 12293,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x30f420"
+    }
+   ],
+   "explorerCycles": "3208224",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9b819793a64463aed77c615d6cb226eea5487ccfc0783043a587254cda2b6f26",
+     "hashType": "type",
+     "name": "OmniLock",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1486219",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1480384",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1446132",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95",
+     "hashType": "data1",
+     "name": "XUdt",
+     "selector": "input.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "18737",
+       "result": 0
+      },
+      "2": {
+       "cycles": "18737",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.1.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1718231",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1709103",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1653080",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "3208224",
+   "sums": {
+    "0": "3204450",
+    "1": "3208224",
+    "2": "3117949"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "3208224",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "meepo",
+   "side": "after",
+   "kind": "type",
+   "hash": "0x5733b2665e4c6d25069741c70f1d6299e85e82865b3db7ffd6504f5175c389fe",
+   "block": 16595604,
+   "epoch": 12293,
+   "index": 1,
+   "forkEpoch": 12293,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x447296"
+    }
+   ],
+   "explorerCycles": "4485782",
+   "scriptVersion": 2,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x5c5069eb0857efc65e1bca0c07df34c31663b3622fd3876c876320fc9634e2a8",
+     "hashType": "type",
+     "name": "Secp256k1Multisig",
+     "selector": "input.0.lock",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "4619331",
+       "result": 0
+      },
+      "1": {
+       "cycles": "4591718",
+       "result": 0
+      },
+      "2": {
+       "cycles": "4422695",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x92156e93acbad7b1ac26c6364efed9bdd5a4f866cecfdf6217e2ea4374f325f0",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "memory error: write on executable page"
+      },
+      "1": {
+       "cycles": "63164",
+       "result": 0
+      },
+      "2": {
+       "cycles": "63087",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "4485782",
+   "sums": {
+    "0": "4619331",
+    "1": "4654882",
+    "2": "4485782"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "4485782",
+   "verdict": "match",
+   "versionsMatching": [
+    2
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "meepo",
+   "side": "after",
+   "kind": "secp",
+   "hash": "0x76174741f477bc3dba21fb96c28c4fa078ae57edd34b414d96ae95bd65f6da59",
+   "block": 16595604,
+   "epoch": 12293,
+   "index": 2,
+   "forkEpoch": 12293,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x18fd10"
+    }
+   ],
+   "explorerCycles": "1637648",
+   "scriptVersion": 2,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "1702093",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1693100",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1637648",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1637648",
+   "sums": {
+    "0": "1702093",
+    "1": "1693100",
+    "2": "1637648"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1637648",
+   "verdict": "match",
+   "versionsMatching": [
+    2
+   ]
+  },
+  {
+   "network": "mainnet",
+   "fork": "meepo",
+   "side": "after",
+   "kind": "data",
+   "hash": "0x472048c894b05b4e7a126eaab46dee852f656751dbdd9aeb8099981b8bfcc7e7",
+   "block": 16595732,
+   "epoch": 12293,
+   "index": 1,
+   "forkEpoch": 12293,
+   "nodes": [
+    {
+     "url": "https://mainnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://mainnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x18f4f6"
+    }
+   ],
+   "explorerCycles": "1635574",
+   "scriptVersion": 2,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "1690690",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1681792",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1626803",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x1f591452ba058b6fcf86044f5300e9435c96b85c7724dfc1ae2b1faa2525ba16",
+     "hashType": "data2",
+     "selector": "output.0.type",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(2)"
+      },
+      "1": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(2)"
+      },
+      "2": {
+       "cycles": "8771",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1635574",
+   "sums": {
+    "0": "1690690",
+    "1": "1681792",
+    "2": "1635574"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://mainnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1635574",
+   "verdict": "match",
+   "versionsMatching": [
+    2
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "mirana",
+   "side": "before",
+   "kind": "type",
+   "hash": "0xb8f6f4a6b5cd6789f8bcb3b22188a4fdb6ee21de6f91162f9366c74c7ca29d37",
+   "block": 3199678,
+   "epoch": 3112,
+   "index": 1,
+   "forkEpoch": 3113,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": null
+    }
+   ],
+   "explorerCycles": "1807460",
+   "scriptVersion": 0,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "1738427",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1729194",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1672723",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x554cff969f3148e3c620749384004e9692e67c429f621554d139b505a281c7b8",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "33019",
+       "result": 0
+      },
+      "1": {
+       "cycles": "33021",
+       "result": 0
+      },
+      "2": {
+       "cycles": "32977",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x96248cdefb09eed910018a847cfb51ad044c2d7db650112931760e3ef34a7e9a",
+     "hashType": "type",
+     "selector": "input.1.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "45243",
+       "result": 0
+      },
+      "1": {
+       "cycles": "45245",
+       "result": 0
+      },
+      "2": {
+       "cycles": "45175",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1816689",
+   "sums": {
+    "0": "1816689",
+    "1": "1807460",
+    "2": "1750875"
+   },
+   "oracle": "explorer",
+   "total": "1807460",
+   "verdict": "mismatch",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "mirana",
+   "side": "before",
+   "kind": "data",
+   "hash": "0x5e5b117ecbb968d77bef32f60572383caa58cd414612824841029cd83febe79d",
+   "block": 3199665,
+   "epoch": 3112,
+   "index": 1,
+   "forkEpoch": 3113,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": null
+    }
+   ],
+   "explorerCycles": "1737828",
+   "scriptVersion": 0,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "1702249",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1693251",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1637789",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x8b9cf1c536c2590282c2896ca34778590a3784b7daeafa241fe98e170a743ee0",
+     "hashType": "data",
+     "selector": "input.0.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "1": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "2": {
+       "cycles": "44577",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1746826",
+   "sums": {
+    "0": "1746826",
+    "1": "1737828",
+    "2": "1682366"
+   },
+   "oracle": "explorer",
+   "total": "1737828",
+   "verdict": "mismatch",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "mirana",
+   "side": "before",
+   "kind": "secp",
+   "hash": "0xc3860d6d94caffc33355ecefda501cb6c64bb08a60eaa9623c150e2b777c4e0e",
+   "block": 3199645,
+   "epoch": 3112,
+   "index": 1,
+   "forkEpoch": 3113,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": null
+    }
+   ],
+   "explorerCycles": "1694060",
+   "scriptVersion": 0,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "1703013",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1694060",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1638828",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1703013",
+   "sums": {
+    "0": "1703013",
+    "1": "1694060",
+    "2": "1638828"
+   },
+   "oracle": "explorer",
+   "total": "1694060",
+   "verdict": "mismatch",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "mirana",
+   "side": "after",
+   "kind": "type",
+   "hash": "0x03b7dc4db375c8fdbf2287b72695c9aebf4c919ec6bac506cf599926d0d915be",
+   "block": 3199684,
+   "epoch": 3113,
+   "index": 1,
+   "forkEpoch": 3113,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x444b8e"
+    }
+   ],
+   "explorerCycles": "4475790",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x5447ad1c351fe85d14d70fc885a9beb8a99281c216386b2985ff87a51756739f",
+     "hashType": "type",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "29391",
+       "result": 0
+      },
+      "1": {
+       "cycles": "29393",
+       "result": 0
+      },
+      "2": {
+       "cycles": "29387",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x5c365147bb6c40e817a2a53e0dec3661f7390cc77f0c02db138303177b12e9fb",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1659077",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1657756",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1656234",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "lock",
+     "codeHash": "0x7dc668794fa55dd8e4b7233ff709551adda12612c620513a3bd14ca5f7c3918a",
+     "hashType": "type",
+     "selector": "input.1.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "4427",
+       "result": 0
+      },
+      "1": {
+       "cycles": "4429",
+       "result": 0
+      },
+      "2": {
+       "cycles": "4426",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x00000000000000000000000000000000000000000000000000545950455f4944",
+     "hashType": "type",
+     "name": "TypeId",
+     "selector": "input.1.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1000000",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1000000",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1000000",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.2.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1731508",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1722275",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1665804",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "lock",
+     "codeHash": "0xf56d2feb9b534b5de517ea1d45d2e1719913a5df668b5a708f7bc45b7adeceb4",
+     "hashType": "type",
+     "selector": "input.3.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "61935",
+       "result": 0
+      },
+      "1": {
+       "cycles": "61937",
+       "result": 0
+      },
+      "2": {
+       "cycles": "61919",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "4475790",
+   "sums": {
+    "0": "4486338",
+    "1": "4475790",
+    "2": "4417770"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "4475790",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "mirana",
+   "side": "after",
+   "kind": "secp",
+   "hash": "0x01852c8ded550d96b460a9597a4115dd2b592aa82efbc3e58ba9108fd584827c",
+   "block": 3199693,
+   "epoch": 3113,
+   "index": 3,
+   "forkEpoch": 3113,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x19dbee"
+    }
+   ],
+   "explorerCycles": "1694702",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1703715",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1694702",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1639189",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1694702",
+   "sums": {
+    "0": "1703715",
+    "1": "1694702",
+    "2": "1639189"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1694702",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "mirana",
+   "side": "after",
+   "kind": "data",
+   "hash": "0x795039b5cb6f708f819905ee6719b2f27528bdef39e3592c7b6a366a37c51aed",
+   "block": 3199736,
+   "epoch": 3113,
+   "index": 1,
+   "forkEpoch": 3113,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x1abe11"
+    }
+   ],
+   "explorerCycles": "1752593",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1717139",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1708016",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1652017",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x8b9cf1c536c2590282c2896ca34778590a3784b7daeafa241fe98e170a743ee0",
+     "hashType": "data",
+     "selector": "input.0.type",
+     "vm": 0,
+     "runs": {
+      "0": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "1": {
+       "cycles": "44577",
+       "result": 0
+      },
+      "2": {
+       "cycles": "44577",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1752593",
+   "sums": {
+    "0": "1761716",
+    "1": "1752593",
+    "2": "1696594"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1752593",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "meepo",
+   "side": "before",
+   "kind": "type",
+   "hash": "0xe11270003e1926cebfa4880e26a56a4a2e5d847a6b0371e03770e75bf9f3f5aa",
+   "block": 15013494,
+   "epoch": 9689,
+   "index": 1,
+   "forkEpoch": 9690,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x485cb1"
+    }
+   ],
+   "explorerCycles": "4742321",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x79f90bb5e892d80dd213439eeab551120eb417678824f282b4ffb5f21bad2e1e",
+     "hashType": "type",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1473442",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1467564",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1433059",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x1e44736436b406f8e48a30dfbddcf044feb0c9eebfe63b0f81cb5bb727d84854",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1512692",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1509765",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1508547",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "lock",
+     "codeHash": "0x7f5a09b8bd0e85bcf2ccad96411ccba2f289748a1c16900b0635c2ed9126f288",
+     "hashType": "type",
+     "selector": "input.1.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "54940",
+       "result": 0
+      },
+      "1": {
+       "cycles": "54942",
+       "result": 0
+      },
+      "2": {
+       "cycles": "54928",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.2.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1719173",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1710050",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1654051",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "4742321",
+   "sums": {
+    "0": "4760247",
+    "1": "4742321",
+    "2": "4650585"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "4742321",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "meepo",
+   "side": "before",
+   "kind": "secp",
+   "hash": "0xe860e051cabe35cfe677061f2cf530577abd890d37cfd4adc813708c22cdf242",
+   "block": 15013319,
+   "epoch": 9689,
+   "index": 1,
+   "forkEpoch": 9690,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x19b42d"
+    }
+   ],
+   "explorerCycles": "1684525",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1693448",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1684525",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1629395",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1684525",
+   "sums": {
+    "0": "1693448",
+    "1": "1684525",
+    "2": "1629395"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1684525",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "meepo",
+   "side": "before",
+   "kind": "data",
+   "hash": "0x5618e782ea7d3a1b68883a56bffd63cb9898f6a14a5c98ee34803d0b9e623c21",
+   "block": 15013228,
+   "epoch": 9689,
+   "index": 3,
+   "forkEpoch": 9690,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x221952"
+    }
+   ],
+   "explorerCycles": "2234706",
+   "scriptVersion": 1,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "1770707",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1761579",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1705556",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "input.1.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "116568",
+       "result": 0
+      },
+      "2": {
+       "cycles": "116568",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "input.2.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "117460",
+       "result": 0
+      },
+      "2": {
+       "cycles": "117460",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "input.3.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "117977",
+       "result": 0
+      },
+      "2": {
+       "cycles": "117977",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "output.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "121122",
+       "result": 0
+      },
+      "2": {
+       "cycles": "121122",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "2234706",
+   "sums": {
+    "0": "1770707",
+    "1": "2234706",
+    "2": "2178683"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "2234706",
+   "verdict": "match",
+   "versionsMatching": [
+    1
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "meepo",
+   "side": "after",
+   "kind": "type",
+   "hash": "0xd64d64405c01d84a6ed98f57f461936862bf0889ac457ff13b2882572d21415f",
+   "block": 15013519,
+   "epoch": 9690,
+   "index": 1,
+   "forkEpoch": 9690,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x1a6f57"
+    }
+   ],
+   "explorerCycles": "1732439",
+   "scriptVersion": 2,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "1719245",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1710177",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1654421",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x554cff969f3148e3c620749384004e9692e67c429f621554d139b505a281c7b8",
+     "hashType": "type",
+     "selector": "input.0.type",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "33019",
+       "result": 0
+      },
+      "1": {
+       "cycles": "33021",
+       "result": 0
+      },
+      "2": {
+       "cycles": "32977",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x96248cdefb09eed910018a847cfb51ad044c2d7db650112931760e3ef34a7e9a",
+     "hashType": "type",
+     "selector": "input.1.type",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "45109",
+       "result": 0
+      },
+      "1": {
+       "cycles": "45111",
+       "result": 0
+      },
+      "2": {
+       "cycles": "45041",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1732439",
+   "sums": {
+    "0": "1797373",
+    "1": "1788309",
+    "2": "1732439"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1732439",
+   "verdict": "match",
+   "versionsMatching": [
+    2
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "meepo",
+   "side": "after",
+   "kind": "secp",
+   "hash": "0xd265f5af8bc1023b5ed678739d8c38c0e296db48d92c08c124168473919c36c6",
+   "block": 15013546,
+   "epoch": 9690,
+   "index": 1,
+   "forkEpoch": 9690,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x18d692"
+    }
+   ],
+   "explorerCycles": "1627794",
+   "scriptVersion": 2,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "1691781",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1682873",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1627794",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "1627794",
+   "sums": {
+    "0": "1691781",
+    "1": "1682873",
+    "2": "1627794"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "1627794",
+   "verdict": "match",
+   "versionsMatching": [
+    2
+   ]
+  },
+  {
+   "network": "testnet",
+   "fork": "meepo",
+   "side": "after",
+   "kind": "data",
+   "hash": "0xc9cc9919ee359424b3fc5836d64abe9f09adf66d5a781be87b661f607dfd7d6a",
+   "block": 15013901,
+   "epoch": 9690,
+   "index": 1,
+   "forkEpoch": 9690,
+   "nodes": [
+    {
+     "url": "https://testnet.ckb.dev/",
+     "tx": "0x0",
+     "block": "0x0"
+    },
+    {
+     "url": "https://testnet.ckbapp.dev/rpc",
+     "tx": null,
+     "block": "0x2dd0d5"
+    }
+   ],
+   "explorerCycles": "3002581",
+   "scriptVersion": 2,
+   "groups": [
+    {
+     "role": "lock",
+     "codeHash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+     "hashType": "type",
+     "name": "Secp256k1Blake160",
+     "selector": "input.0.lock",
+     "vm": 2,
+     "runs": {
+      "0": {
+       "cycles": "1753105",
+       "result": 0
+      },
+      "1": {
+       "cycles": "1744277",
+       "result": 0
+      },
+      "2": {
+       "cycles": "1689568",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x0bbe768b519d8ea7b96d58f1182eb7e6ef96c541fbd9526975077ee09f049058",
+     "hashType": "data1",
+     "selector": "input.0.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "120928",
+       "result": 0
+      },
+      "2": {
+       "cycles": "120928",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "output.1.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "224601",
+       "result": 0
+      },
+      "2": {
+       "cycles": "224601",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "output.2.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "231509",
+       "result": 0
+      },
+      "2": {
+       "cycles": "231509",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "output.3.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "238417",
+       "result": 0
+      },
+      "2": {
+       "cycles": "238417",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "output.4.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "245325",
+       "result": 0
+      },
+      "2": {
+       "cycles": "245325",
+       "result": 0
+      }
+     }
+    },
+    {
+     "role": "type",
+     "codeHash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+     "hashType": "data1",
+     "selector": "output.5.type",
+     "vm": 1,
+     "runs": {
+      "0": {
+       "cycles": "0",
+       "result": -1,
+       "error": "ckb-debugger could not run it: InvalidVmVersion(1)"
+      },
+      "1": {
+       "cycles": "252233",
+       "result": 0
+      },
+      "2": {
+       "cycles": "252233",
+       "result": 0
+      }
+     }
+    }
+   ],
+   "sum": "3002581",
+   "sums": {
+    "0": "1753105",
+    "1": "3057290",
+    "2": "3002581"
+   },
+   "oracle": "node",
+   "oracleUrl": "https://testnet.ckbapp.dev/rpc",
+   "explorerAgrees": true,
+   "total": "3002581",
+   "verdict": "match",
+   "versionsMatching": [
+    2
+   ]
+  }
+ ]
+}
