@@ -64,6 +64,25 @@ a reproducibility manifest, and what a rejected transaction's numbers mean.
   `ckb-cycle-tools/replay` (no Node built-ins).
 
 ### Docs
+- compat/HARDFORK.md, from the review on #46 (point 1): 24 real mainnet and
+  testnet transactions next to Mirana (VM v1) and Meepo (VM v2), the nearest
+  of each kind (secp only; another `type` script; a data/data1/data2 script)
+  on each side of each fork, replayed as `ckb-cycles <hash>` replays them and
+  again with `--script-version` forced to the two other values. The 18 after
+  Mirana match the cycles a node recorded for their block exactly, at the
+  chosen version only, and data/data1/data2 groups keep their own version.
+  Before Mirana no public node has cycles (mainnet.ckb.dev reports `0x0`
+  everywhere here; mainnet/testnet.ckbapp.dev record from the Mirana block on),
+  and the explorer's number for those 6 equals the v1 sum, not the v0 sum the
+  consensus rules give: reported as unverified, with how to settle it. Also why
+  `estimate_cycles` is no oracle for a historical transaction (spent inputs do
+  not resolve; it would run today's VM).
+- `npm run hardfork` (scripts/hardfork-check.ts, `--discover` to pick the
+  transactions again) writes compat/hardfork.json, the table and
+  test/fixtures/hardfork-mocks.json.br. test/hardfork.test.ts replays the
+  recorded mocks offline with the WebAssembly debugger at every version, and
+  with `CKB_HARDFORK_NETWORK=1` plans them again through the public nodes.
+  No change to the replay itself.
 - README: "What a rejected transaction's numbers mean", and "What comes from
   where when replaying": a table of every input to a replay (cells, cell deps
   and dep groups, input headers, header deps, consensus epochs, CKB-VM version,

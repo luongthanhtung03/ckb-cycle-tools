@@ -718,7 +718,10 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
   is computed from ckb-script's order, not yet confirmed by a node
   ([What comes from where](#what-comes-from-where-when-replaying)).
 - **Older blocks.** Some public nodes report `0x0` cycles for old blocks; the
-  tools then say the total is unknown instead of claiming a match.
+  tools then say the total is unknown instead of claiming a match. Replays on
+  both sides of each VM hardfork, checked against recorded totals where a node
+  has them, and why nothing could be checked against a node before Mirana:
+  [compat/HARDFORK.md](compat/HARDFORK.md).
 - **The PR Action has run on one public pull request so far**, in this repository:
   [#1](https://github.com/luongthanhtung03/ckb-cycle-tools/pull/1) slows one check of
   the ckb-js-vm benchmark lock on purpose, and the comment reports it (+2.94% on that
