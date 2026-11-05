@@ -2,6 +2,34 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+A reproducibility manifest in every report, and a diff that does not compare
+reports that did not measure the same thing (review on #46, point 4).
+
+### Added
+- `report` writes a `manifest` into its JSON: the ckb-cycle-tools version,
+  ckb-debugger's `--version` and the sha256 (and path) of the binary every
+  scenario ran (resolved once), or a WebAssembly build's id for a library
+  caller that runs one (`debuggerBuild`), the git commit of the config's
+  checkout and of `--binaries-from` (none, and no failure, outside git), an
+  optional `--toolchain <text>`, and per scenario the CKB-VM version, an
+  `inputs` sha256 (the mock or transaction file's bytes as read, and the
+  cycles.json entry canonicalised without its name, file path or `functions`)
+  and each swapped-in binary's path, sha256 and size. The terminal report
+  ends with a manifest line.
+- `diff` reads both manifests. A scenario whose `inputs` differ is NOT
+  COMPARED (its groups count as neither new nor removed); a gated diff fails
+  on it unless `--allow-changed-inputs`. Another ckb-debugger (version, binary,
+  native against WebAssembly) or another CKB-VM version for a scenario fails a
+  gated diff, listed under the summary; ungated it is a bold note. Another
+  toolchain is a note. A report without a manifest on one side is a note,
+  never a failure; two such reports diff as before. The comment and the
+  terminal output show each side's manifest in one line. Manifest strings go
+  through the same cleaning as other report text.
+- Action inputs `toolchain` (a command run after the build in each checkout;
+  its output goes to `--toolchain`) and `allow-changed-inputs`.
+
 ## 1.2.0 (2026-11-05)
 
 Scripts that spawn other scripts (CKB2023 `spawn`).

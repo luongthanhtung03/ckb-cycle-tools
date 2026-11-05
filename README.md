@@ -274,6 +274,32 @@ scenario that matches none of its cell deps is a warning on that scenario, in
 the comment too. The summary says when the two reports come from different
 ckb-debugger versions.
 
+#### What a report was measured with: the manifest
+
+Each report's JSON has a `manifest` (from 1.3.0 on): the ckb-cycle-tools version,
+ckb-debugger's `--version` and the sha256 of the binary every scenario ran (or a
+WebAssembly build's id, when a library caller runs one), the git commit of the
+checkout the cycles.json is in (and of `--binaries-from`; none outside a git
+checkout), an optional `--toolchain <text>` (say, `rustc -V` and the build
+profile), and per scenario the CKB-VM version, an `inputs` sha256 and each
+swapped-in binary's path, sha256 and size. `inputs` covers what decides what a
+scenario runs: the bytes of its mock or transaction file as read, and its
+cycles.json entry without its name or file path (its form, transaction hash,
+`binaries` list, `scriptVersion`, and the network for a transaction fetched
+from a node).
+
+`diff` reads both manifests. A scenario whose `inputs` differ between base and
+head did not measure the same transaction: its groups are **NOT COMPARED:
+inputs changed**, and a gated diff (`--fail-above` or `--fail-on-result-change`)
+fails on it unless `--allow-changed-inputs`. Another ckb-debugger (version,
+binary, or native against WebAssembly) or another CKB-VM version for a scenario
+fails a gated diff with the reason listed under the summary, and is a
+prominent note otherwise. A different toolchain is a note. A report without a
+manifest (written before 1.3.0) on one side is a note, never a failure; two
+such reports diff as they always did. Every manifest string (a toolchain, a
+path) is cleaned like any other report text before it reaches a terminal or a
+comment.
+
 Here the ckb-js-vm session lock was changed to allow one shannon more than its
 limit and to do extra work per recipient check:
 
