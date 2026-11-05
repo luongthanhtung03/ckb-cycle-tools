@@ -40,6 +40,14 @@ export interface ScenarioResult {
    */
   binaryMissing?: boolean;
   missingBinaries?: string[];
+  /**
+   * Set when some group rejects (added after 1.2.0): the selector of the group the
+   * node would stop at, the first failing one in its order (lock groups, then
+   * type groups, each by script hash). The node reports no cycles for a
+   * rejected transaction, so the groups' cycles, each run on its own, do not
+   * add up to anything the node spends.
+   */
+  nodeStopsAt?: string;
 }
 
 export interface GroupResult {
@@ -55,6 +63,14 @@ export interface GroupResult {
   error?: string;
   /** Cycles; 0 when the VM stopped the script (`error`), whose count is not a cost. */
   cycles: number;
+  /**
+   * Set on every group of a scenario where some group rejects (added after 1.2.0):
+   * whether the node would run this group at all. It stops at the first failing
+   * group in its order (the scenario's `nodeStopsAt`); every group is still run
+   * on its own here, so the ones after it have a result and cycles the node
+   * would never produce. Absent when every group accepts: the node runs them all.
+   */
+  nodeReaches?: boolean;
   /**
    * The binary this group's code stands for was not in the checkout (the base):
    * its numbers are the mock's code, not that build's, so it is not compared.

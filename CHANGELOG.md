@@ -4,6 +4,44 @@ This project follows [semantic versioning](https://semver.org/).
 
 ## Unreleased
 
+What a rejected transaction's numbers mean (review #46, point 7a).
+
+### Added
+- A rejected transaction (some group exits non-zero, the VM stops it, or Type
+  ID refuses it) no longer shows "measured (sum of groups)". The CLI prints
+  "sum of groups, each run on its own", names the group the node would stop
+  at, says the node reports no cycles for a rejected transaction, and lists the
+  groups the node would never run. The order is ckb-script's, read from its
+  source (`TransactionScriptsVerifier::verify` and `TxData`/`TxInfo::groups`
+  at ckb a4aa128): lock groups, then type groups, each by script hash,
+  stopping at the first failure.
+- JSON, added fields only: a profile (`--json`, `profileTransaction`) and a
+  report scenario get `nodeStopsAt` (that group's selector), and each group
+  `nodeReaches: true | false`. Both are only set when some group rejects, so
+  reports of accepted transactions are byte-for-byte as before. `report`'s text
+  output says the same under a rejected scenario. `diff` and its gates are
+  unchanged.
+- `nodeOrder`, `nodeStop` and `sumLines` exported from the package and from
+  `ckb-cycle-tools/replay` (no Node built-ins).
+
+### Docs
+- README: "What a rejected transaction's numbers mean", and "What comes from
+  where when replaying": a table of every input to a replay (cells, cell deps
+  and dep groups, input headers, header deps, consensus epochs, CKB-VM version,
+  max cycles, group order, Type ID, since/capacity checks) and whether it comes
+  from the chain via RPC, the node's current state or ckb-debugger's defaults;
+  ckb-debugger's limit is per group, the node's per transaction.
+- README: "Flamegraph fidelity": totals are exact, the split between functions
+  is attributed (frames open only at symbol-table function starts, so inlined
+  code is charged to its caller; cycles charged outside instructions are in no
+  frame). The flame example now says the 1,812-cycle gap is everything charged
+  outside instructions, not only loading the binary.
+- benchmarks/session-lock/RESULTS.md (and compare.mjs, which writes it): the
+  comparison is of these two implementations only, and the Rust lock's build
+  profile at 49227cd (`opt-level = "s"`, LTO, one codegen unit, `panic = "abort"`,
+  overflow checks, stripped; `+zba,+zbb,+zbc,+zbs,-a`; ckb-std 1.1.0; no pinned
+  toolchain).
+
 ### Changed
 - `diff --fail-above` (and the Action's `fail-above`) now also fails when a
   group that accepted on the base rejects on the head (`ok` → `exit N` or a VM

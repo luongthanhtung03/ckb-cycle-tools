@@ -17,6 +17,8 @@ export {
   checkTypeId,
   debuggerArgs,
   groupsOf,
+  nodeOrder,
+  nodeStop,
   nodeVerdict,
   parseDebuggerOutput,
   parseDebuggerRun,
@@ -24,6 +26,7 @@ export {
   readTransactionJson,
   replayGroups,
   selectorFor,
+  sumLines,
 } from "./replay.js";
 export type { DebuggerOutput, GroupRun, Profile, ProfiledGroup, ReplayOptions, ReplayPlan, RunDebugger } from "./replay.js";
 export { flameTransaction, profileTransaction, runNativeDebugger } from "./profile.js";

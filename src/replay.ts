@@ -32,6 +32,12 @@ export interface GroupRun {
   cycles: bigint;
   /** Lines the script printed through ckb_debug. */
   logs: string[];
+  /**
+   * Set only when some group rejects: whether the node would run this group at
+   * all. It verifies groups in its own order (nodeOrder) and stops at the first
+   * one that fails, so the groups after that one never run there.
+   */
+  nodeReaches?: boolean;
 }
 
 export type ProfiledGroup = ScriptGroup & GroupRun;
@@ -42,8 +48,17 @@ export interface Profile {
   status: string;
   /** Total cycles as reported by the node. */
   nodeCycles?: bigint;
-  /** Sum of the per-group cycles measured by ckb-debugger. */
+  /**
+   * Sum of the per-group cycles measured by ckb-debugger, each group run on its
+   * own. When a group rejects, this is not what the node spent: see nodeStopsAt.
+   */
   measuredCycles: bigint;
+  /**
+   * Set when some group rejects: the selector of the group the node would stop
+   * at, the first failing one in the node's order (nodeOrder). The node then
+   * rejects the transaction and reports no cycles for it.
+   */
+  nodeStopsAt?: string;
   groups: ProfiledGroup[];
   /** Where the numbers came from, so a result can be reproduced. */
   env: { debugger: string; network: string; rpcUrl: string; scriptVersion: number };
@@ -356,14 +371,79 @@ export async function replayGroups(
     const out = await run(debuggerArgs(options.txFile, selector, plan.scriptVersion));
     profiled.push({ ...g, selector, ...(typeof out === "string" ? parseDebuggerOutput(out) : parseDebuggerRun(out)) });
   }
+  const stop = nodeStop(profiled);
+  if (stop) for (const g of profiled) g.nodeReaches = stop.reaches.has(g);
   return {
     hash: plan.hash,
     status: plan.status,
     ...(plan.nodeCycles !== undefined && { nodeCycles: plan.nodeCycles }),
     measuredCycles: profiled.reduce((sum, g) => sum + g.cycles, 0n),
+    ...(stop && { nodeStopsAt: stop.stopsAt.selector }),
     groups: profiled,
     env: { debugger: options.debugger, network: plan.network, rpcUrl: plan.rpcUrl, scriptVersion: plan.scriptVersion },
   };
+}
+
+/**
+ * The groups in the order the node verifies them: every lock group, then every
+ * type group, each set sorted by script hash (byte order, the same as the order
+ * of the lowercase hex). ckb-script keeps them in two BTreeMaps keyed by script
+ * hash and chains locks before types (TxData::new and TxInfo::groups in
+ * script/src/types.rs); TransactionScriptsVerifier::verify (script/src/verify.rs)
+ * runs them in that order and returns at the first error, with no cycles.
+ * Groups are listed elsewhere in first-appearance order, which is not this one.
+ */
+export function nodeOrder<G extends { role: "lock" | "type"; scriptHash: string }>(groups: G[]): G[] {
+  const rank = (g: G) => (g.role === "lock" ? 0 : 1);
+  return [...groups].sort((a, b) => {
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    const x = a.scriptHash.toLowerCase();
+    const y = b.scriptHash.toLowerCase();
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+}
+
+/** A group the node would count as a failure: a non-zero exit, a VM stop, a refused Type ID. */
+export const rejects = (g: { result: number; error?: string }): boolean => g.result !== 0 || g.error !== undefined;
+
+/**
+ * Where the node would stop, for a transaction some group rejects: the first
+ * failing group in nodeOrder, and the groups the node reaches (every one up to
+ * and including it). Undefined when every group accepts.
+ */
+export function nodeStop<G extends { role: "lock" | "type"; scriptHash: string; result: number; error?: string }>(
+  groups: G[],
+): { stopsAt: G; reaches: Set<G> } | undefined {
+  const ordered = nodeOrder(groups);
+  const at = ordered.findIndex(rejects);
+  if (at < 0) return undefined;
+  return { stopsAt: ordered[at], reaches: new Set(ordered.slice(0, at + 1)) };
+}
+
+/**
+ * The line(s) a profile's table ends its groups with: the sum. For a transaction
+ * every group accepts it is what the node spends, and the CLI checks it against
+ * the node. When a group rejects, the node would stop at the first failing group
+ * in its order and report no cycles, so the sum is labelled as what it is: every
+ * group run on its own. `name` cleans script names for the output (termLine).
+ */
+export function sumLines(p: Profile, name: (s: string) => string = (s) => s): string[] {
+  const n = (x: bigint) => x.toLocaleString("en-US");
+  if (p.nodeStopsAt === undefined) return [`measured (sum of groups)  ${n(p.measuredCycles)}`];
+  const stop = p.groups.find((g) => g.selector === p.nodeStopsAt);
+  const label = stop?.name ? `${p.nodeStopsAt} (${name(stop.name)})` : p.nodeStopsAt;
+  const out = [
+    `sum of groups, each run on its own  ${n(p.measuredCycles)}`,
+    `  not what the node spends: it stops at the first failing group, ${label},`,
+    `  and reports no cycles for a rejected tx (it runs lock groups, then type groups,`,
+    `  each in script-hash order)`,
+  ];
+  const skipped = p.groups.filter((g) => g.nodeReaches === false).map((g) => g.selector);
+  if (skipped.length) {
+    const shown = skipped.slice(0, 8).join(", ");
+    out.push(`  the node never runs: ${shown}${skipped.length > 8 ? `, and ${skipped.length - 8} more` : ""}`);
+  }
+  return out;
 }
 
 /** How a profile's total compares with the node's: what the CLI and the web page both print. */
