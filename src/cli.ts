@@ -61,6 +61,8 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                whose result changed (ok → exit 12, or back). --fail-above exits 1
                when a group grows by more than that percentage (a new group
                has no base, so no percentage: it is never over the threshold),
+               or a group that accepted on the base rejects on the head
+               (whatever its cycles; also with --fail-on-result-change),
                --fail-on-result-change when a result changed, including a new
                group that does not accept, or a group the VM stopped (also
                over any --fail-above). A scenario the head could not run

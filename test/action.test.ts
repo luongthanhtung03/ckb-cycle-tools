@@ -463,6 +463,56 @@ describe.skipIf(!bash)("action.yml: informational", { timeout: 60_000 }, () => {
     expect(r.status).toBe(0);
     expect(r.out).toContain("::warning::cycle report: a threshold was crossed");
   });
+
+  // Review, 5 Nov: with only fail-above, a group that started rejecting passed by getting cheaper.
+  it("a group that accepted and now rejects fails fail-above, a warning when informational", () => {
+    const dir = fresh();
+    const out = join(dir, "ckb-cycles");
+    mkdirSync(out);
+    const g = (cycles: number, result: number) => ({
+      selector: "input.0.lock", role: "lock", script: "my-lock", codeHash: "0x" + "1".repeat(64), hashType: "type", result, cycles,
+    });
+    const rep = (cycles: number, result: number) =>
+      JSON.stringify({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "spend", groups: [g(cycles, result)] }] });
+    writeFileSync(join(out, "base.json"), rep(1_000_000, 0));
+    writeFileSync(join(out, "head.json"), rep(10_000, 5));
+    // The CLI from source, through tsx: the step runs `node "$CKB_CYCLES" diff …`.
+    const cli = join(dir, "cli.mjs");
+    const src = join(process.cwd(), "src", "cli.ts");
+    writeFileSync(
+      cli,
+      `import { spawnSync } from "node:child_process";
+` +
+        `const r = spawnSync(process.execPath, ["--import", "tsx", ${JSON.stringify(src)}, ...process.argv.slice(2)], { stdio: "inherit" });
+` +
+        `process.exit(r.status ?? 2);
+`,
+    );
+    const j: Job = {
+      dir,
+      path: [],
+      env: { ...process.env, RUNNER_TEMP: posix(dir), GITHUB_STEP_SUMMARY: join(dir, "summary"), CKB_CYCLES: cli },
+      ctx: {
+        "inputs.base-ref": "abc1234",
+        "github.event.pull_request.head.sha || github.sha": "def5678",
+        "inputs.fail-above": "5",
+        "inputs.fail-on-result-change": "false",
+        "inputs.allow-removed": "false",
+        "inputs.title": "Cycles",
+        "inputs.informational": "true",
+      },
+    };
+    const diff = runStep("action/action.yml", "Diff", j);
+    expect(diff.status).toBe(0);
+    expect(diff.outputs.failed).toBe("true");
+    expect(readFileSync(join(out, "comment.md"), "utf8")).toContain("accepted on the base, rejects now");
+    const r = runStep("action/action.yml", "Fail on the thresholds", j);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("::warning::cycle report: a threshold was crossed");
+    // Ungated, the same diff is informational: not failed.
+    j.ctx["inputs.fail-above"] = "";
+    expect(runStep("action/action.yml", "Diff", j).outputs.failed).toBe("false");
+  });
 });
 
 /**

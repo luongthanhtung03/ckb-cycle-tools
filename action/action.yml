@@ -18,7 +18,9 @@ inputs:
     description: The commit to compare against. Empty on a push, which reports the head alone.
     default: ${{ github.event.pull_request.base.sha }}
   fail-above:
-    description: Fail when a script group grows by more than this percentage. Empty never fails on growth.
+    description: >
+      Fail when a script group grows by more than this percentage, or a group that accepted
+      on the base rejects on the head. Empty never fails on growth.
     default: ""
   fail-on-result-change:
     description: Fail when a script group's result changed (ok to exit N, or back, or a different VM error).

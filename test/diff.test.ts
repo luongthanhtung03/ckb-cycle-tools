@@ -131,6 +131,57 @@ describe("diffReports", () => {
     expect(diffFailed(d, { failOnResultChange: true, failAbove: 5 })).toBe(false);
   });
 
+  // Review, 5 Nov: with only --fail-above, a group that started rejecting passed by getting cheaper.
+  describe("a group that accepted and now rejects", () => {
+    const accepts = report({ name: "spend", groups: [g("input.0.lock", 1_000_000)] });
+    const rejects = report({ name: "spend", groups: [g("input.0.lock", 10_000, 5)] });
+
+    it("fails any gated check, whatever its cycles", () => {
+      const d = diffReports(accepts, rejects, { failAbove: 5 });
+      expect(d.rows[0]).toMatchObject({ kind: "result", overThreshold: false, delta: -990_000 });
+      expect(diffFailed(d, { failAbove: 5 })).toBe(true);
+      expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+      expect(formatText(d)).toContain("RESULT CHANGED: ok → exit 5 (accepted on the base, rejects now)");
+    });
+
+    it("a VM error counts as a rejection", () => {
+      const stopped = report({ name: "spend", groups: [{ ...g("input.0.lock", 0), result: -1, error: "invalid instruction" }] });
+      expect(diffFailed(diffReports(accepts, stopped, { failAbove: 5 }), { failAbove: 5 })).toBe(true);
+    });
+
+    it("stays informational without a gate", () => {
+      expect(diffFailed(diffReports(accepts, rejects))).toBe(false);
+    });
+
+    it("a rejection that now accepts fails --fail-on-result-change only", () => {
+      const d = diffReports(rejects, accepts, { failAbove: 5 });
+      expect(d.rows[0]).toMatchObject({ kind: "result" });
+      expect(formatText(d)).not.toContain("rejects now");
+      // Its cycles grew 100-fold: that alone is over the threshold.
+      expect(diffFailed(d, { failAbove: 5 })).toBe(true);
+      const cheaper = diffReports(
+        report({ name: "spend", groups: [g("input.0.lock", 1_000_000, 5)] }),
+        report({ name: "spend", groups: [g("input.0.lock", 10_000)] }),
+        { failAbove: 5 },
+      );
+      expect(diffFailed(cheaper, { failAbove: 5 })).toBe(false);
+      expect(diffFailed(cheaper, { failOnResultChange: true })).toBe(true);
+    });
+
+    it("one exit code turning into another fails --fail-on-result-change only", () => {
+      const d = diffReports(rejects, report({ name: "spend", groups: [g("input.0.lock", 10_000, 6)] }), { failAbove: 5 });
+      expect(diffFailed(d, { failAbove: 5 })).toBe(false);
+      expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+    });
+
+    it("a new group that does not accept is not one: --fail-above alone does not fail on it", () => {
+      const d = diffReports(report({ name: "spend", groups: [] }), rejects, { failAbove: 5 });
+      expect(d.rows[0]).toMatchObject({ kind: "result", base: { result: "not run" } });
+      expect(diffFailed(d, { failAbove: 5 })).toBe(false);
+      expect(diffFailed(d, { failOnResultChange: true })).toBe(true);
+    });
+  });
+
   // Found in hardening review: a new group never failed the check, even when it rejected.
   it("counts a new group that does not accept as a result change", () => {
     const d = diffReports(

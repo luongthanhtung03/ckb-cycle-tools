@@ -267,7 +267,11 @@ the head to compare against (a scenario or group removed, renamed or moved, or
 measured without its binary); `--allow-removed` accepts the last. A group the VM
 stopped (past the cycle limit, a bad instruction) is a result change, and over
 any `--fail-above` threshold, never a -100% saving; two different VM errors are
-two different results. With `--binaries-from`, a binary missing from that
+two different results. A group that accepted on the base and rejects on the
+head (`ok` → `exit 5`, or a VM error) fails `--fail-above` too, whatever its
+cycles: a cheaper rejection is not a saving. `--fail-on-result-change` is
+broader: it also fails on a rejection that now accepts, one exit code turning
+into another, and a new group that does not accept. With `--binaries-from`, a binary missing from that
 checkout is left as the mock has it: only the groups whose code it is are not
 compared, and every other binary is still swapped in. A binary offered to a
 scenario that matches none of its cell deps is a warning on that scenario, in

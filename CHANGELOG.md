@@ -2,6 +2,20 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+- `diff --fail-above` (and the Action's `fail-above`) now also fails when a
+  group that accepted on the base rejects on the head (`ok` → `exit N` or a VM
+  error), whatever its cycles: a script that starts rejecting what it accepted
+  could pass before, by getting cheaper. This affects workflows that set only
+  `fail-above`: a pull request that turns an accepting scenario into a
+  rejection now fails the check (a warning with `informational: true`).
+  `--fail-on-result-change` is unchanged and still broader (reject → accept,
+  one exit code to another, a new group that does not accept); a diff with
+  neither set stays informational. The comment marks such a row "accepted on
+  the base, rejects now".
+
 ## 1.2.0 (2026-11-05)
 
 Scripts that spawn other scripts (CKB2023 `spawn`).

@@ -327,19 +327,29 @@ export function functionDeltas(base: FunctionResult[] | undefined, head: Functio
  * run, an error in either report, and a base group with nothing to compare
  * against (removed, renamed, moved, or measured without its binary) unless
  * `allowRemoved`. A head group the VM stopped is a result change, and over any
- * `failAbove` threshold.
+ * `failAbove` threshold. With a gate set, a group that accepted on the base and
+ * rejects on the head (`ok` → `exit N` or a VM error) always fails, whatever its
+ * cycles: a cheaper rejection is not a saving. `failOnResultChange` fails on any
+ * result change besides (reject → accept, one exit code or VM error to another,
+ * a new group that does not accept). A new group has no base that accepted, so
+ * this rule leaves it alone: with `failAbove` alone it fails only as before (a
+ * new group the VM stopped is over the threshold).
  */
 export function diffFailed(diff: CycleDiff, options: DiffOptions = {}): boolean {
   const gated = options.failAbove !== undefined || options.failOnResultChange === true;
   return (
     (options.failAbove !== undefined && diff.overThreshold > 0) ||
     (options.failOnResultChange === true && diff.resultChanges > 0) ||
+    (gated && diff.rows.some(nowRejects)) ||
     (gated && diff.baseErrors > 0) ||
     (gated && (diff.reportErrors?.length ?? 0) > 0) ||
     (gated && !options.allowRemoved && (diff.removed ?? 0) > 0) ||
     diff.rows.some((r) => r.kind === "error")
   );
 }
+
+/** A group that accepted on the base and rejects (an exit code or a VM error) on the head. */
+const nowRejects = (r: DiffRow) => r.kind === "result" && r.base?.result === "ok" && r.head !== undefined && r.head.result !== "ok";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const signed = (n: number) => (n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(-n)}` : "0");
@@ -354,7 +364,7 @@ function note(r: DiffRow, threshold?: number): string {
     case "result":
       return r.base!.result === NOT_RUN
         ? `NEW, DOES NOT ACCEPT: ${r.head!.result}${unpaired}`
-        : `RESULT CHANGED: ${r.base!.result} → ${r.head!.result}`;
+        : `RESULT CHANGED: ${r.base!.result} → ${r.head!.result}${nowRejects(r) ? " (accepted on the base, rejects now)" : ""}`;
     case "new":
       return r.notCompared ? `NOT COMPARED: ${r.notCompared}` : "new";
     case "removed":

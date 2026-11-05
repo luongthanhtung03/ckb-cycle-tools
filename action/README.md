@@ -49,7 +49,7 @@ credentials, so the base must already be in the checkout.
 | `config` | `cycles.json` | the scenario file, relative to the repo root |
 | `build` | (none) | shell command run in the PR checkout and in a checkout of the base |
 | `base-ref` | the PR's base commit | empty: report the head alone (every group "new") |
-| `fail-above` | (never) | percent growth of any group that fails the job |
+| `fail-above` | (never) | percent growth of any group that fails the job; also fails when a group that accepted now rejects |
 | `fail-on-result-change` | `false` | fail when any group's result changed |
 | `informational` | `false` | `true`: a crossed threshold or a scenario that could not run is a warning, never a failed job (a failing build still fails) |
 | `base-config` | `base` | `head`: measure the base with the PR's cycles.json and the base's binaries, for a cycles.json generated before the Action (`ckb-cycles scan`) |
@@ -363,6 +363,11 @@ bad arguments or reports.
   `allow-removed` is true. New groups never fail it on their own.
 - A group the VM stopped (past the cycle limit, a bad instruction) is a result
   change, and over any `fail-above` threshold: its 0 cycles are not a saving.
+- With `fail-above` or `fail-on-result-change` set, a group that accepted on the
+  base and rejects on the head (an exit code or a VM error) fails the check,
+  whatever its cycles: a cheaper rejection is not a saving. Only
+  `fail-on-result-change` also fails on a rejection that now accepts, or on one
+  exit code turning into another.
 - A new group has no base, so no percentage: `fail-above` cannot apply to it, and
   the summary line says how many new groups it skipped. A new group that does not
   accept counts as a result change (against "did not run") for
