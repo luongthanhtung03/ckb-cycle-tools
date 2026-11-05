@@ -18,6 +18,52 @@ export interface CycleReport {
    * fails on these, from either side.
    */
   errors?: string[];
+  /**
+   * What the numbers were measured with (1.3.0 and later). A diff checks the two
+   * sides' manifests: changed scenario inputs, another debugger, another CKB-VM.
+   */
+  manifest?: ReportManifest;
+}
+
+/**
+ * A reproducibility manifest. Every string in it can come from a pull request
+ * (a path in its cycles.json, the toolchain its build printed): whatever shows
+ * it cleans it as any other report text.
+ */
+export interface ReportManifest {
+  /** This object's layout. */
+  schema: 1;
+  /** The package that wrote the report, e.g. `{ name: "ckb-cycle-tools", version: "1.3.0" }`. */
+  tool: { name: string; version: string };
+  debugger: {
+    /** `--version`, as the report's `debugger`. */
+    version: string;
+    /** The native binary every scenario ran, and its sha256. */
+    path?: string;
+    sha256?: string;
+    /** For a WebAssembly build: its id (the sha256 of the .wasm). */
+    wasm?: string;
+  };
+  /** The commit checked out where the cycles.json is, and where the binaries came from with --binaries-from. */
+  git?: { commit?: string; binaries?: string };
+  /** Free text the caller gave (`--toolchain`): the compiler and build profile, e.g. `rustc -V`. */
+  toolchain?: string;
+  scenarios: ScenarioManifest[];
+}
+
+export interface ScenarioManifest {
+  name: string;
+  /** The CKB-VM version the scenario's `hash_type: "type"` scripts ran on. */
+  scriptVersion?: number;
+  /**
+   * sha256 over what decides what the scenario runs: its cycles.json entry
+   * (canonical, without its name or file path) and its mock or transaction file
+   * as read. Two reports with the same scenario name and a different hash did
+   * not measure the same thing.
+   */
+  inputs?: string;
+  /** The binaries swapped in, as read: the path the config gives, sha256, size in bytes. */
+  binaries?: { name: string; path: string; sha256: string; size: number }[];
 }
 
 export interface ScenarioResult {
@@ -127,8 +173,21 @@ export interface DiffRow {
   spawned?: number;
   /** With `spawned`: the cycles the head's function profile covers. */
   profiled?: number;
-  /** Why the base side of this group was not compared (its binary was not in the base checkout). */
+  /** Why the base side of this group was not compared (its binary was not in the base checkout, its inputs changed). */
   notCompared?: string;
+  /** Not compared because the scenario's inputs differ between the two reports' manifests. */
+  inputsChanged?: boolean;
+}
+
+/** One side's manifest, as a comment shows it. */
+export interface ManifestSummary {
+  tool?: string;
+  debugger?: string;
+  debuggerSha256?: string;
+  wasm?: string;
+  commit?: string;
+  binariesCommit?: string;
+  toolchain?: string;
 }
 
 export interface CycleDiff {
@@ -158,6 +217,24 @@ export interface CycleDiff {
   /** Set when the two reports name different ckb-debugger versions. */
   debuggers?: { base: string; head: string };
   threshold?: number;
+  /**
+   * Groups not compared because their scenario's inputs (mock, transaction
+   * file, cycles.json entry) differ between the manifests. A gated diff fails
+   * on them unless `allowChangedInputs`.
+   */
+  inputsChanged?: number;
+  /** The scenarios whose inputs changed. */
+  changedScenarios?: string[];
+  /**
+   * Why the two reports did not run in the same environment, from their
+   * manifests: another ckb-debugger (version or binary), another CKB-VM version
+   * for a scenario. A gated diff fails on any.
+   */
+  environment?: string[];
+  /** What could not be checked, or differs without failing: a report without a manifest, another toolchain. */
+  notes?: string[];
+  /** Each side's manifest, short, for the comment. */
+  manifests?: { base?: ManifestSummary; head?: ManifestSummary };
 }
 
 export interface DiffOptions {
@@ -167,6 +244,112 @@ export interface DiffOptions {
   failOnResultChange?: boolean;
   /** Removed, renamed or uncompared base groups do not fail a gated diff. */
   allowRemoved?: boolean;
+  /** Scenarios whose inputs changed (manifest hashes differ) do not fail a gated diff; still not compared. */
+  allowChangedInputs?: boolean;
+}
+
+/** The note on a group whose scenario's inputs differ between base and head. */
+export const INPUTS_CHANGED = "inputs changed: the scenario's mock, transaction file or cycles.json entry differs from the base's";
+
+const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+
+/**
+ * A report's manifest, read defensively: a report file is the PR's, any field
+ * may be missing or of another type. Undefined when there is none.
+ */
+function manifestOf(r: CycleReport): ReportManifest | undefined {
+  const m = (r as { manifest?: unknown }).manifest as Record<string, unknown> | undefined;
+  if (!m || typeof m !== "object" || Array.isArray(m)) return undefined;
+  const d = (m.debugger && typeof m.debugger === "object" ? m.debugger : {}) as Record<string, unknown>;
+  const t = (m.tool && typeof m.tool === "object" ? m.tool : {}) as Record<string, unknown>;
+  const g = (m.git && typeof m.git === "object" ? m.git : undefined) as Record<string, unknown> | undefined;
+  const scenarios = (Array.isArray(m.scenarios) ? m.scenarios : [])
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === "object" && typeof (s as { name?: unknown }).name === "string")
+    .map(
+      (s): ScenarioManifest => ({
+        name: s.name as string,
+        ...(typeof s.scriptVersion === "number" && { scriptVersion: s.scriptVersion }),
+        ...(str(s.inputs) && { inputs: str(s.inputs) }),
+      }),
+    );
+  return {
+    schema: 1,
+    tool: { name: str(t.name) ?? "", version: str(t.version) ?? "" },
+    debugger: {
+      version: str(d.version) ?? "",
+      ...(str(d.sha256) && { sha256: str(d.sha256) }),
+      ...(str(d.wasm) && { wasm: str(d.wasm) }),
+    },
+    ...(g && { git: { ...(str(g.commit) && { commit: str(g.commit) }), ...(str(g.binaries) && { binaries: str(g.binaries) }) } }),
+    ...(str(m.toolchain) && { toolchain: str(m.toolchain) }),
+    scenarios,
+  };
+}
+
+function summaryOf(m: ReportManifest): ManifestSummary {
+  return {
+    ...(m.tool.version && { tool: `${m.tool.name || "ckb-cycle-tools"} ${m.tool.version}` }),
+    ...(m.debugger.version && { debugger: m.debugger.version }),
+    ...(m.debugger.sha256 && { debuggerSha256: m.debugger.sha256 }),
+    ...(m.debugger.wasm && { wasm: m.debugger.wasm }),
+    ...(m.git?.commit && { commit: m.git.commit }),
+    ...(m.git?.binaries && { binariesCommit: m.git.binaries }),
+    ...(m.toolchain && { toolchain: m.toolchain }),
+  };
+}
+
+/**
+ * What the two manifests say about comparability: the scenarios whose inputs
+ * changed, environment differences (a gated diff fails on them), and notes.
+ * Text from the manifests goes in as is: the formatters clean it.
+ */
+function compareManifests(base: CycleReport, head: CycleReport) {
+  const bm = manifestOf(base);
+  const hm = manifestOf(head);
+  const changed = new Set<string>();
+  const environment: string[] = [];
+  const notes: string[] = [];
+  // A side with nothing measured (the Action's placeholder for a base without a
+  // cycles.json, or whose build failed) has nothing to check: no note for it.
+  const measured = (r: CycleReport) => r.scenarios.some((s) => !s.error);
+  // Two reports without one (both before 1.3.0) diff as they always did.
+  for (const [side, r, m] of [["base", base, bm], ["head", head, hm]] as const) {
+    if (!m && (bm || hm) && measured(r)) {
+      notes.push(`the ${side} report has no manifest (written before ckb-cycle-tools 1.3.0?): its inputs, debugger binary and CKB-VM versions were not checked`);
+    }
+  }
+  if (bm && hm) {
+    const bd = bm.debugger;
+    const hd = hm.debugger;
+    // "unknown": no scenario ran on that side, which is an error row of its own.
+    const known = (v: string) => v && v !== "unknown";
+    if (known(bd.version) && known(hd.version) && bd.version !== hd.version) environment.push(`ckb-debugger version: base ${bd.version}, head ${hd.version}`);
+    if (bd.sha256 && hd.sha256 && bd.sha256 !== hd.sha256) {
+      environment.push(`ckb-debugger binary: base sha256 ${bd.sha256}, head sha256 ${hd.sha256}`);
+    }
+    if (bd.wasm && hd.wasm && bd.wasm !== hd.wasm) environment.push(`ckb-debugger WebAssembly build: base ${bd.wasm}, head ${hd.wasm}`);
+    if ((bd.wasm && hd.sha256 && !hd.wasm) || (hd.wasm && bd.sha256 && !bd.wasm)) {
+      environment.push(`ckb-debugger: one side ran the native binary, the other the WebAssembly build`);
+    }
+    const bs = new Map(bm.scenarios.map((s) => [s.name, s]));
+    for (const h of hm.scenarios) {
+      const b = bs.get(h.name);
+      if (!b) continue;
+      if (b.inputs && h.inputs && b.inputs !== h.inputs) {
+        changed.add(h.name);
+        continue;
+      }
+      if (b.scriptVersion !== undefined && h.scriptVersion !== undefined && b.scriptVersion !== h.scriptVersion) {
+        environment.push(`scenario ${h.name}: CKB-VM version ${b.scriptVersion} on the base, ${h.scriptVersion} on the head`);
+      }
+    }
+    if ((bm.toolchain ?? "") !== (hm.toolchain ?? "") && bm.toolchain && hm.toolchain) {
+      notes.push(`the toolchain differs: base ${bm.toolchain}; head ${hm.toolchain}`);
+    }
+  }
+  const manifests =
+    bm || hm ? { ...(bm && { base: summaryOf(bm) }), ...(hm && { head: summaryOf(hm) }) } : undefined;
+  return { changed, environment, notes, manifests };
 }
 
 /** The message for a binary no scenario's cell deps match, in a report's `errors` and the diff. */
@@ -199,6 +382,7 @@ export function diffReports(base: CycleReport, head: CycleReport, options: DiffO
   const rows: DiffRow[] = [];
   const baseByName = new Map(base.scenarios.map((s) => [s.name, s]));
   const headNames = new Set(head.scenarios.map((s) => s.name));
+  const manifests = compareManifests(base, head);
 
   const scenarioRows = (h: ScenarioResult | undefined, b: ScenarioResult | undefined) => {
     const name = (h ?? b)!.name;
@@ -214,28 +398,35 @@ export function diffReports(base: CycleReport, head: CycleReport, options: DiffO
       rows.push({ scenario: name, group: "", script: "", kind: "base-error", overThreshold: false, note: `base: ${b.error}` });
     }
     const baseGroups = new Map((b && !b.error ? b.groups : []).map((g) => [g.selector, g]));
+    // Inputs that differ: the two sides did not run the same transaction, so no group is compared.
+    const inputs = h && b && manifests.changed.has(name) ? INPUTS_CHANGED : undefined;
     for (const g of h?.groups ?? []) {
-      rows.push(groupRow(name, baseGroups.get(g.selector), g, threshold));
+      rows.push(groupRow(name, baseGroups.get(g.selector), g, threshold, inputs));
       baseGroups.delete(g.selector);
     }
-    for (const g of baseGroups.values()) rows.push(groupRow(name, g, undefined, threshold));
+    for (const g of baseGroups.values()) rows.push(groupRow(name, g, undefined, threshold, inputs));
   };
 
   for (const h of head.scenarios) scenarioRows(h, baseByName.get(h.name));
   for (const b of base.scenarios) if (!headNames.has(b.name)) scenarioRows(undefined, b);
 
   const groups = rows.filter((r) => r.kind !== "error" && r.kind !== "base-error");
+  const unpaired = groups.filter((r) => r.inputsChanged);
   return {
     rows,
     resultChanges: rows.filter((r) => r.kind === "result").length,
     overThreshold: rows.filter((r) => r.overThreshold).length,
     baseErrors: rows.filter((r) => r.kind === "base-error").length,
-    removed: groups.filter((r) => r.kind === "removed" || r.notCompared).length,
-    newGroups: groups.filter((r) => r.kind !== "removed" && (!r.base || r.base.result === NOT_RUN)).length,
+    removed: groups.filter((r) => (r.kind === "removed" || r.notCompared) && !r.inputsChanged).length,
+    newGroups: groups.filter((r) => r.kind !== "removed" && !r.inputsChanged && (!r.base || r.base.result === NOT_RUN)).length,
     reportErrors: [...reportErrors("base", base), ...reportErrors("head", head)],
     warnings: head.scenarios.flatMap((s) => (s.warnings ?? []).map((text) => ({ scenario: s.name, text }))),
     ...(base.debugger && head.debugger && base.debugger !== head.debugger && { debuggers: { base: base.debugger, head: head.debugger } }),
     ...(threshold !== undefined && { threshold }),
+    ...(unpaired.length && { inputsChanged: unpaired.length, changedScenarios: [...new Set(unpaired.map((r) => r.scenario))] }),
+    ...(manifests.environment.length && { environment: manifests.environment }),
+    ...(manifests.notes.length && { notes: manifests.notes }),
+    ...(manifests.manifests && { manifests: manifests.manifests }),
   };
 }
 
@@ -255,10 +446,17 @@ function reportErrors(side: "base" | "head", r: CycleReport): string[] {
   return [...out].map((e) => `${side}: ${e}`);
 }
 
-function groupRow(scenario: string, measured: GroupResult | undefined, h: GroupResult | undefined, threshold?: number): DiffRow {
+function groupRow(
+  scenario: string,
+  measured: GroupResult | undefined,
+  h: GroupResult | undefined,
+  threshold?: number,
+  inputsChanged?: string,
+): DiffRow {
   const side = (g: GroupResult) => ({ result: resultLabel(g), cycles: g.cycles });
   // Measured without its binary (not in the base checkout): the mock's code, not the base's build.
-  const b = h && measured?.missingBinary ? undefined : measured;
+  // Or measured on other inputs: not the same transaction.
+  const b = h && (measured?.missingBinary || inputsChanged) ? undefined : measured;
   const row: DiffRow = {
     scenario,
     group: (h ?? b)!.selector,
@@ -269,6 +467,10 @@ function groupRow(scenario: string, measured: GroupResult | undefined, h: GroupR
     overThreshold: false,
   };
   if (measured?.missingBinary) row.notCompared = `binary "${measured.missingBinary}" is not in the base checkout`;
+  if (inputsChanged) {
+    row.notCompared = inputsChanged;
+    row.inputsChanged = true;
+  }
   if (b && h) {
     row.delta = h.cycles - b.cycles;
     const changed = resultLabel(b) !== resultLabel(h);
@@ -337,6 +539,8 @@ export function diffFailed(diff: CycleDiff, options: DiffOptions = {}): boolean 
     (gated && diff.baseErrors > 0) ||
     (gated && (diff.reportErrors?.length ?? 0) > 0) ||
     (gated && !options.allowRemoved && (diff.removed ?? 0) > 0) ||
+    (gated && !options.allowChangedInputs && (diff.inputsChanged ?? 0) > 0) ||
+    (gated && (diff.environment?.length ?? 0) > 0) ||
     diff.rows.some((r) => r.kind === "error")
   );
 }
@@ -358,7 +562,7 @@ function note(r: DiffRow, threshold?: number): string {
     case "new":
       return r.notCompared ? `NOT COMPARED: ${r.notCompared}` : "new";
     case "removed":
-      return "REMOVED: no head group to compare with";
+      return r.inputsChanged ? `NOT IN THE HEAD (NOT COMPARED: ${r.notCompared})` : "REMOVED: no head group to compare with";
     case "error":
       return r.note ?? "error";
     case "base-error":
@@ -379,7 +583,7 @@ export function summarize(diff: CycleDiff, clean: (s: string) => string = termLi
   const errors = diff.rows.filter((r) => r.kind === "error").length;
   // A new group has no base, so no percentage: the threshold cannot apply to it.
   const unchecked =
-    diff.threshold === undefined ? 0 : groups.filter((r) => !r.base || r.base.result === NOT_RUN).length;
+    diff.threshold === undefined ? 0 : groups.filter((r) => !r.inputsChanged && (!r.base || r.base.result === NOT_RUN)).length;
   const s = (n: number) => (n > 1 ? "s" : "");
   const parts = [
     ...(diff.resultChanges ? [`${diff.resultChanges} result change${s(diff.resultChanges)}`] : []),
@@ -396,6 +600,10 @@ export function summarize(diff: CycleDiff, clean: (s: string) => string = termLi
       ? [`${diff.removed} base group${s(diff.removed)} with nothing in the head to compare with (removed, renamed, moved or not built on the base)`]
       : []),
     ...(diff.reportErrors?.length ? [`${diff.reportErrors.length} report error${s(diff.reportErrors.length)}`] : []),
+    ...(diff.inputsChanged
+      ? [`${diff.inputsChanged} group${s(diff.inputsChanged)} NOT COMPARED: the inputs of ${diff.changedScenarios?.length ?? 0} scenario${s(diff.changedScenarios?.length ?? 0)} changed`]
+      : []),
+    ...(diff.environment?.length ? [`the base and head ran in different environments (${diff.environment.length} difference${s(diff.environment.length)})`] : []),
     ...(diff.debuggers
       ? [`the reports come from different debuggers (base ${clean(diff.debuggers.base)}, head ${clean(diff.debuggers.head)}): cycles can differ for that alone`]
       : []),
@@ -569,7 +777,21 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
     ? [`**Report errors** (nothing measured what they name):`, "", ...diff.reportErrors.slice(0, 20).map((e) => `- ${md(e)}`), ...(diff.reportErrors.length > 20 ? [`- and ${diff.reportErrors.length - 20} more`] : []), ""]
     : [];
   top.push(...errors);
-  const footer = ["<sub>Generated by ckb-cycles (ckb-cycle-tools): each scenario replayed in ckb-debugger, one run per script group.</sub>"];
+  // Not the same environment: a gated check fails on it. Then what could not be checked.
+  if (diff.environment?.length) {
+    top.push(
+      `**The base and head ran in different environments**: cycles can differ for that alone (a diff with fail-above or fail-on-result-change fails on it):`,
+      "",
+      ...diff.environment.slice(0, 20).map((e) => `- ${md(e)}`),
+      ...(diff.environment.length > 20 ? [`- and ${diff.environment.length - 20} more`] : []),
+      "",
+    );
+  }
+  if (diff.notes?.length) top.push(...diff.notes.slice(0, 10).map((n) => `**Note:** ${md(n)}`), "");
+  const footer = [
+    ...manifestLines(diff).map((l) => `<sub>${md(l)}</sub>`),
+    "<sub>Generated by ckb-cycles (ckb-cycle-tools): each scenario replayed in ckb-debugger, one run per script group.</sub>",
+  ];
   let table = shown.length ? [head, ...shown.map(line), ""] : ["No script group changed its cycles or its result.", ""];
   let blocks = functionBlocks(shown);
   let warnings = diff.warnings?.length ? warningBlock(diff.warnings) : [];
@@ -608,6 +830,29 @@ export function formatMarkdown(diff: CycleDiff, options: MarkdownOptions = {}): 
     table = [...table.slice(0, 2), ...rows.slice(0, kept), "", `<sub>${cut} more changed row${s(cut)} left out: the comment would pass GitHub's size limit.</sub>`, ""];
   }
   return [...top, ...table, ...blocks, ...warnings, ...unchanged, ...footer].join("\n");
+}
+
+const shortHash = (h: string) => (/^[0-9a-f]{12,}$/i.test(h) ? h.slice(0, 12) : h);
+
+/**
+ * One line per side that has a manifest: tool, debugger (and its binary's
+ * hash), commit, toolchain. Plain text: the caller cleans it (md or termLine).
+ */
+export function manifestLines(diff: CycleDiff): string[] {
+  const out: string[] = [];
+  for (const side of ["base", "head"] as const) {
+    const m = diff.manifests?.[side];
+    if (!m) continue;
+    const parts = [
+      ...(m.debugger ? [`${m.debugger}${m.debuggerSha256 ? ` (sha256 ${shortHash(m.debuggerSha256)})` : m.wasm ? ` (wasm ${shortHash(m.wasm)})` : ""}`] : []),
+      ...(m.commit ? [`commit ${shortHash(m.commit)}`] : []),
+      ...(m.binariesCommit && m.binariesCommit !== m.commit ? [`binaries from ${shortHash(m.binariesCommit)}`] : []),
+      ...(m.toolchain ? [`toolchain: ${m.toolchain}`] : []),
+      ...(m.tool ? [m.tool] : []),
+    ];
+    if (parts.length) out.push(`${side}: ${parts.join(" · ")}`);
+  }
+  return out;
 }
 
 /** How many scenario warnings a comment lists. */
@@ -665,15 +910,20 @@ export function formatText(diff: CycleDiff): string {
     } else if (r.functions && r.spawned) functions.push(`functions in ${where}: none of its own changed. ${spawnNote(r)}`);
   }
   const errors = (diff.reportErrors ?? []).map((e) => `error: ${termLine(e)}`);
+  const environment = (diff.environment ?? []).map((e) => `environment differs: ${termLine(e)}`);
+  const notes = (diff.notes ?? []).map((n) => `note: ${termLine(n)}`);
   const warnings = (diff.warnings ?? []).map((w) => `${termLine(w.scenario)}: warning: ${termLine(w.text)}`);
+  const manifest = manifestLines(diff).map((l) => termLine(`manifest ${l}`));
   return [
     summarize(diff),
     ...(errors.length ? ["", ...errors] : []),
+    ...(environment.length || notes.length ? ["", ...environment, ...notes] : []),
     "",
     line(header),
     ...rows.map(line),
     ...(functions.length ? ["", ...functions] : []),
     ...(warnings.length ? ["", ...warnings] : []),
+    ...(manifest.length ? ["", ...manifest] : []),
   ].join("\n");
 }
 
