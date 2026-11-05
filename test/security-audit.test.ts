@@ -61,7 +61,9 @@ describe("audit: report with --root (untrusted cycles.json)", () => {
     } finally {
       server.close();
     }
-  });
+    // Without --rpc the report falls back to the public testnet node, which may
+    // take up to timeoutMs (5 s) to answer: vitest's default 5 s limit raced it.
+  }, 20_000);
 });
 
 describe("audit: terminal / CI log output", () => {
