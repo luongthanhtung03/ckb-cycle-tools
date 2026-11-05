@@ -2,7 +2,7 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.2.0 (2026-11-05)
 
 Scripts that spawn other scripts (CKB2023 `spawn`).
 

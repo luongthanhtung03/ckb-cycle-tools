@@ -44,7 +44,7 @@ npm install -g ckb-cycle-tools   # the ckb-cycles command
 ckb-cycles <tx hash>             # or without installing: npx -p ckb-cycle-tools ckb-cycles <tx hash>
 ```
 
-[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.1.0, ESM, Node 20 or
+[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.2.0, ESM, Node 20 or
 later). It drives `ckb-debugger`, which must be on PATH or passed with `--debugger`.
 
 ## Try it
