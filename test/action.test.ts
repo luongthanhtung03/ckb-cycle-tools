@@ -499,6 +499,7 @@ describe.skipIf(!bash)("action.yml: informational", { timeout: 60_000 }, () => {
         "inputs.fail-above": "5",
         "inputs.fail-on-result-change": "false",
         "inputs.allow-removed": "false",
+        "inputs.allow-changed-inputs": "false",
         "inputs.title": "Cycles",
         "inputs.informational": "true",
       },
