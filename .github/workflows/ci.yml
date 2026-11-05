@@ -121,6 +121,9 @@ jobs:
         env:
           SESSION_LOCK_BIN: ${{ github.workspace }}/ckb-session-kit/contracts/session-lock/target/riscv64imac-unknown-none-elf/release/session-lock
         run: node benchmarks/session-lock/compare.mjs
+      # Fails if any start-up variant does not exit the way it is written to.
+      - name: Measure ckb-js-vm's start-up floor
+        run: node benchmarks/session-lock/floor.mjs
       - name: Publish the results table
         if: always()
         run: cat benchmarks/session-lock/RESULTS.md >> "$GITHUB_STEP_SUMMARY"

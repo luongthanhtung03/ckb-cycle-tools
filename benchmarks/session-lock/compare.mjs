@@ -159,8 +159,10 @@ reads the amount from the cell data.
 | Cheapest run (bad args: start-up cost) | ${fmt(rustFloor)} | ${fmt(jsFloor)} |
 
 **Where the ckb-js-vm cycles go.** The cheapest run — args rejected almost
-immediately — still costs ${fmt(jsFloor)} cycles: that is the price of starting
-the JavaScript VM and loading the bytecode. An accepted plain CKB spend averages
+immediately — still costs ${fmt(jsFloor)} cycles: the price of starting the
+JavaScript VM, loading the bytecode and running the bundle's top-level code,
+most of it @ckb-js-std/core initialising (broken down in "Startup floor vs
+bytecode size" below). An accepted plain CKB spend averages
 ${fmt(jsOk)}, so the lock's own logic is only about ${fmt(jsLogic)} of it
 (${((Number(jsLogic) / Number(jsOk)) * 100).toFixed(0)}%). For a script this small, ckb-js-vm's cost is almost
 entirely fixed start-up, and the logic itself runs at roughly
@@ -182,9 +184,11 @@ same transactions against both versions:
 
 For ckb-js-vm, most of the increase is start-up: the 8 Oct TypeScript port,
 rebuilt with today's toolchain, still costs exactly its 8 Oct cycles, so the
-extra ${fmt(o.jsFloor - OCT8.jsFloor)} cycles before any logic runs come from loading the larger
-bytecode. The Rust lock grew more in relative terms (a larger binary to load,
-and the extra checks on every output), which is why the ratio fell.
+extra ${fmt(o.jsFloor - OCT8.jsFloor)} cycles before any logic runs come from the new version's
+start-up: mostly its new top-level \`2n ** 128n - 1n\` constant, the rest the
+larger bytecode (see "Startup floor vs bytecode size" below). The Rust lock grew
+more in relative terms (a larger binary to load, and the extra checks on every
+output), which is why the ratio fell.
 
 ## The 8 Oct scenarios
 
@@ -201,7 +205,12 @@ ${table(token)}
 Cycles are the session lock's own script group only. For scale, a standard
 secp256k1 lock costs about 1.6M cycles per transaction.
 `;
-writeFileSync(join(here, "RESULTS.md"), report);
+// floor.mjs writes its own section into RESULTS.md: keep it.
+const resultsPath = join(here, "RESULTS.md");
+const floorSection = existsSync(resultsPath)
+  ? readFileSync(resultsPath, "utf8").match(/<!-- floor:start[\s\S]*?<!-- floor:end -->\n/)?.[0]
+  : undefined;
+writeFileSync(resultsPath, floorSection ? `${report}\n${floorSection}` : report);
 console.log(report);
 if (failures) {
   // On GitHub Actions, name each disagreement in the run's annotations.
