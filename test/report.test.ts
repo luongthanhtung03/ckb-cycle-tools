@@ -99,6 +99,25 @@ describe("formatReport", () => {
       "ckb-debugger 1.1.1",
     ]);
   });
+
+  // Review #46, point 7a: a rejected scenario's cycles are not what the node spends.
+  it("says where the node stops in a rejected scenario, and which groups it never runs", () => {
+    const g = (selector: string, result: number, nodeReaches: boolean) =>
+      ({ selector, role: "lock", script: selector === "input.1.lock" ? "session-lock" : "other", codeHash: H, hashType: "data2", result, cycles: 10, nodeReaches }) as const;
+    const out = formatReport({
+      tool: "ckb-cycles",
+      version: 1,
+      scenarios: [
+        { name: "rejected", groups: [g("input.0.lock", 0, false), g("input.1.lock", 12, true)], nodeStopsAt: "input.1.lock" },
+        { name: "accepted", groups: [g("input.0.lock", 0, true)] },
+      ],
+    });
+    expect(out).toContain(
+      "rejected: rejected. Each group above ran on its own; the node stops at the first failing group, input.1.lock (session-lock), and reports no cycles for a rejected tx",
+    );
+    expect(out).toContain("  the node never runs: input.0.lock");
+    expect(out).not.toContain("accepted: rejected");
+  });
 });
 
 describe("runReport", () => {
@@ -125,6 +144,23 @@ describe("runReport", () => {
     }
     // Not "matched no cell dep": a binary that is not there was never offered.
     expect(r.errors).toEqual([]);
+  });
+
+  it("records where the node would stop in a rejected scenario, and nothing new in an accepted one", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "ckb-cycles-"));
+    const lockRejects = async (args: string[]): Promise<DebuggerOutput> =>
+      args.includes("input.0.lock") ? { stdout: "Run result: 12\nAll cycles: 900(0.0M)\n", stderr: "", exitCode: 254 } : anyDebugger(args);
+    const rejected = await runReport("cycles.json", { binariesRoot: empty, runDebugger: lockRejects });
+    for (const s of rejected.scenarios) {
+      expect(s.nodeStopsAt).toBe("input.0.lock");
+      expect(s.groups.find((g) => g.selector === "input.0.lock")?.nodeReaches).toBe(true);
+      for (const g of s.groups) expect(typeof g.nodeReaches).toBe("boolean");
+    }
+    const accepted = await runReport("cycles.json", { binariesRoot: empty, runDebugger: anyDebugger });
+    for (const s of accepted.scenarios) {
+      expect("nodeStopsAt" in s).toBe(false);
+      for (const g of s.groups) expect("nodeReaches" in g).toBe(false);
+    }
   });
 
   // Security review, 27 Oct: in CI the cycles.json is the pull request's.

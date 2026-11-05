@@ -154,6 +154,7 @@ export function groupResults(p: Profile): GroupResult[] {
     result: g.result,
     ...(g.error && { error: g.error }),
     cycles: Number(g.cycles),
+    ...(g.nodeReaches !== undefined && { nodeReaches: g.nodeReaches }),
   }));
 }
 
@@ -328,6 +329,7 @@ export async function runReport(
         ...(substituted.length && { substituted }),
         ...(unmatched.length && { unmatched }),
         ...(missing.length && { binaryMissing: true, missingBinaries: missing }),
+        ...(profile.nodeStopsAt !== undefined && { nodeStopsAt: profile.nodeStopsAt }),
       };
     } catch (e) {
       result = { name: s.name, error: e instanceof Error ? e.message : String(e), groups: [] };
@@ -491,6 +493,20 @@ export function formatReport(report: CycleReport): string {
   }
   for (const s of report.scenarios) {
     for (const g of s.groups.filter((g) => g.error)) out.push("", `${t(s.name)} ${t(g.selector)} stopped: ${t(g.error!)}`);
+  }
+  // A rejected scenario's cycles are each group on its own: not what the node spends.
+  for (const s of report.scenarios) {
+    if (s.nodeStopsAt === undefined) continue;
+    const stop = s.groups.find((g) => g.selector === s.nodeStopsAt);
+    const skipped = s.groups.filter((g) => g.nodeReaches === false).map((g) => t(g.selector));
+    out.push(
+      "",
+      `${t(s.name)}: rejected. Each group above ran on its own; the node stops at the first failing group, ` +
+        `${t(s.nodeStopsAt)}${stop ? ` (${t(stop.script)})` : ""}, and reports no cycles for a rejected tx`,
+    );
+    if (skipped.length) {
+      out.push(`  the node never runs: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? `, and ${skipped.length - 8} more` : ""}`);
+    }
   }
   for (const s of report.scenarios) {
     for (const g of s.groups) {

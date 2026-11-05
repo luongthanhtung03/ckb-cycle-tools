@@ -6,7 +6,7 @@ import { diffFailed, diffReports, formatMarkdown, formatText, termLine, termLine
 import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } from "./flame.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
-import { PUBLIC_RPC } from "./replay.js";
+import { PUBLIC_RPC, sumLines } from "./replay.js";
 import { formatReport, runReport } from "./report.js";
 import { formatScan, scanTestMocks } from "./scan.js";
 
@@ -106,7 +106,7 @@ function table(p: Profile): string {
 
   const title = p.nodeCycles === undefined && p.status === "not on chain" ? "tx not on chain" : `tx ${p.hash}  (${p.status})`;
   const out = [title, "", line(head), ...rows.map(line), ""];
-  out.push(`measured (sum of groups)  ${fmt(p.measuredCycles)}`);
+  out.push(...sumLines(p, termLine));
   if (p.nodeCycles !== undefined) {
     const match = p.nodeCycles === p.measuredCycles;
     out.push(`reported by node          ${fmt(p.nodeCycles)}  ${match ? "✓ match" : "✗ MISMATCH"}`);

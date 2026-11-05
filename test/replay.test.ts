@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs";
+import { ccc } from "@ckb-ccc/core";
 import { describe, expect, it } from "vitest";
 import type { MockTransaction } from "../src/mock.js";
 import {
   checkMockTransaction,
   debuggerArgs,
   groupsOf,
+  nodeOrder,
+  nodeStop,
   nodeVerdict,
   replayGroups,
+  sumLines,
   TYPE_ID_CODE_HASH,
   type Profile,
   type ReplayPlan,
@@ -149,6 +153,87 @@ describe("nodeVerdict", () => {
 });
 
 // The browser imports these; a Node built-in or Buffer anywhere in them breaks the page.
+// Review #46, point 7a: each group runs on its own here, but the node verifies
+// groups in its own order and stops at the first failing one (ckb-script
+// TransactionScriptsVerifier::verify; order from TxData::new / TxInfo::groups:
+// lock groups, then type groups, each a BTreeMap keyed by script hash).
+describe("node order and where the node stops", () => {
+  const lockOf = (args: string) => ({ code_hash: H("1"), hash_type: "type", args });
+  const at = (l: ReturnType<typeof lockOf>, type: typeof counter | null = null) => ({ capacity: "0x0", lock: l, type });
+  const hashOf = (l: ReturnType<typeof lockOf>) =>
+    ccc.Script.from({ codeHash: l.code_hash, hashType: l.hash_type as ccc.HashType, args: l.args }).hash();
+  // Two locks, named by which hash is smaller, so the test holds whichever it is.
+  const [low, high] = [lockOf("0x01"), lockOf("0x02")].sort((a, b) => (hashOf(a) < hashOf(b) ? -1 : 1));
+
+  it("puts every lock group before every type group, each by script hash", () => {
+    // First appearance: high lock, counter type, low lock.
+    const groups = groupsOf(mockOf([at(high, counter), at(low)], []));
+    expect(groups.map((g) => g.role)).toEqual(["lock", "type", "lock"]);
+    expect(nodeOrder(groups).map((g) => [g.role, g.scriptHash])).toEqual([
+      ["lock", hashOf(low)],
+      ["lock", hashOf(high)],
+      ["type", groups[1].scriptHash],
+    ]);
+  });
+
+  /** Replays `mock` with a debugger that answers each selector with `codes` (default 0), 100 cycles each. */
+  const replay = (mock: MockTransaction, codes: Record<string, number>) =>
+    replayGroups(
+      plan(mock),
+      async (args) => {
+        const code = codes[args[args.indexOf("--script") + 1]] ?? 0;
+        return { stdout: `Run result: ${code}\nAll cycles: 100(0.0M)\n`, stderr: "", exitCode: code === 0 ? 0 : 254 };
+      },
+      { txFile: "/tx.json", debugger: "x" },
+    );
+
+  it("marks the first failing group in the node's order, and the groups the node never runs", async () => {
+    // Shown first, the type rejects; but the node runs both locks before any type,
+    // and the low lock (input.1) rejects too: the node stops there.
+    const p = await replay(mockOf([at(high, counter), at(low)], []), { "input.0.type": 5, "input.1.lock": 7 });
+    expect(p.nodeStopsAt).toBe("input.1.lock");
+    expect(p.groups.map((g) => [g.selector, g.nodeReaches])).toEqual([
+      ["input.0.lock", false],
+      ["input.0.type", false],
+      ["input.1.lock", true],
+    ]);
+    // Every group still ran here, and the sum still counts them all.
+    expect(p.measuredCycles).toBe(300n);
+  });
+
+  it("counts a VM stop as a failure, and reaches every group up to it", async () => {
+    const p = await replayGroups(
+      plan(mockOf([at(low, counter), at(high)], [])),
+      async (args) =>
+        args.includes("input.0.type")
+          ? { stdout: "Run result: Invalid instruction\n", stderr: "", exitCode: 254 }
+          : { stdout: "Run result: 0\nAll cycles: 100(0.0M)\n", stderr: "", exitCode: 0 },
+      { txFile: "/tx.json", debugger: "x" },
+    );
+    expect(p.nodeStopsAt).toBe("input.0.type");
+    expect(p.groups.every((g) => g.nodeReaches === true)).toBe(true);
+  });
+
+  it("adds nothing when every group accepts", async () => {
+    const p = await replay(mockOf([at(high, counter), at(low)], []), {});
+    expect(p.nodeStopsAt).toBeUndefined();
+    expect(p.groups.some((g) => "nodeReaches" in g)).toBe(false);
+    expect(nodeStop(p.groups)).toBeUndefined();
+    expect(sumLines(p)).toEqual(["measured (sum of groups)  300"]);
+  });
+
+  it("labels a rejected transaction's sum as each group on its own, not what the node spent", async () => {
+    const p = await replay(mockOf([at(high, counter), at(low)], []), { "input.0.type": 5, "input.1.lock": 7 });
+    p.groups[2].name = "my-lock";
+    const text = sumLines(p).join("\n");
+    expect(text).not.toContain("measured (sum of groups)");
+    expect(text).toMatch(/^sum of groups, each run on its own {2}300\n/);
+    expect(text).toContain("not what the node spends: it stops at the first failing group, input.1.lock (my-lock),");
+    expect(text).toContain("reports no cycles for a rejected tx");
+    expect(text).toContain("the node never runs: input.0.lock, input.0.type");
+  });
+});
+
 describe("browser-safe modules", () => {
   const safe = ["analyze", "mock", "replay", "wasm"];
   it.each(safe)("src/%s.ts uses no Node built-ins and imports only browser-safe modules", (name) => {
