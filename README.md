@@ -4,7 +4,7 @@ Cycle measurement for CKB on-chain scripts.
 
 **Live demo:** [ckb-cycle-tools.vercel.app](https://ckb-cycle-tools.vercel.app/) — paste a testnet tx hash, see cycles and script groups (CKB testnet).
 
-**Status: v1.0.** Built in the open during my CKBuilder programme.
+**Status: v1.3** ([npm](https://www.npmjs.com/package/ckb-cycle-tools), [changelog](CHANGELOG.md)). Built in the open during my CKBuilder programme.
 
 | When | Milestone |
 |---|---|
@@ -518,6 +518,11 @@ the cycles.json from them, so nothing is written by hand.
 `make cycles` then builds the contracts, runs the tests, and reports each
 test's script groups, with the costliest functions of your own contracts. The
 fixture project below, its two steps run by hand:
+
+`--functions` reads each binary's unstripped `<name>.debug`, which the template
+writes when it builds. The fixture commits only the stripped binary, so in a
+fresh clone of this repository run the first step without `--functions`; the
+cycles are the same, only the function list is missing.
 
 ```
 $ npx -p ckb-cycle-tools ckb-cycles scan mocks --binaries build/release --functions -o cycles.json
