@@ -2,7 +2,7 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.3.0 (2026-11-07)
 
 From the review on #46 (5 Nov): failed gates on a script that starts rejecting,
 a reproducibility manifest, and what a rejected transaction's numbers mean.
