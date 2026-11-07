@@ -614,39 +614,54 @@ job summary.
 
 ## Mainnet cycle atlas
 
-A one-off snapshot of what the scripts in recent mainnet transactions cost, measured
-with the same replay as `ckb-cycles <tx-hash>`:
-[atlas/2026-10-28/report.md](atlas/2026-10-28/report.md), raw results in
-[data.json](atlas/2026-10-28/data.json).
+A snapshot of what the scripts in recent mainnet transactions cost, measured with
+the same replay as `ckb-cycles <tx-hash>`. Each run is a folder under `atlas/` with
+`report.md` and the raw results in `data.json`:
 
-1,000 transactions from every 12th block between 20,835,876 and 20,851,152
-(26 to 27 Oct 2026, about 39 hours), each replayed per script group in
-ckb-debugger 1.1.1. All 1,000 matched the node's cycle totals exactly, so none was
-excluded. secp256k1_blake160 accounts for 93.7% of the cycles, at a median of
-1,647,788 per group; it runs once per distinct owner, so the costliest transaction
-in the sample (68 owners) cost 111,979,599 cycles. 694 of the 1,000 transactions
-update d.id's on-chain time oracle (two type scripts at about 45k and 33k cycles),
-and the next most expensive type script is the Bitcoin SPV client behind RGB++
-(median 1,369,197). The report lists min, median, p90 and max per script, its
-share, an example transaction, and the cell each script's code came from.
+- [atlas/2026-11-07/report.md](atlas/2026-11-07/report.md) ([data.json](atlas/2026-11-07/data.json)):
+  ckb-cycle-tools 1.3.0 (a460954), blocks 20,932,885 to 20,946,673.
+- [atlas/2026-10-28/report.md](atlas/2026-10-28/report.md) ([data.json](atlas/2026-10-28/data.json)):
+  before 1.1.0 (95ec839), blocks 20,835,876 to 20,851,152.
 
-The random sample saw no xUDT, Omnilock, Spore or Type ID, so the report has a
-second, separate section of targeted samples: for each of 22 scripts, up to 40 of
+Latest run: 1,002 transactions from every 12th block between 20,932,885 and
+20,946,673 (5 Nov 12:54 to 7 Nov 04:00 UTC, about 39 hours), each replayed per
+script group in ckb-debugger 1.1.1. All 1,002 matched the node's cycle totals
+exactly, so none was excluded. secp256k1_blake160 accounts for 71.9% of the
+cycles, at a median of 1,647,946 per group. 648 of the transactions update d.id's
+on-chain time oracle (two type scripts at about 45k and 33k cycles). 175 follow
+one pattern that the 28 Oct window did not have: a Type ID cell, a type script not
+yet named here (code hash 0xa9267ff5…e981, median 1,801,237, 13.7% of the cycles)
+and four small unnamed locks; their code cells were deployed in October 2021 and June 2022. The report
+lists min, median, p90 and max per script, its share, an example transaction, and
+the cell each script's code came from.
+
+The random sample sees few xUDT, Omnilock or Spore transactions, so the report has
+a second, separate section of targeted samples: for each of 22 scripts, up to 40 of
 the most recent transactions in which it ran, found with the indexer RPC and
-replayed the same way (653 replays; 601 matched the node, none mismatched, and
-52 older transactions, all at or before block 19,011,137, have no cycle total
+replayed the same way (650 replays; 604 matched the node, none mismatched, and
+46 older transactions, all at or before block 19,011,137, have no cycle total
 on the public node and are listed as not recorded). Medians per group from that
-section: xUDT 20,498, Spore 103,953, Cluster 98,683, Omnilock 1,458,708
-(Ethereum displaying) and 1,458,571 (Bitcoin), JoyID 6,844,452, RGB++ lock
-1,418,522, COTA 1,134,820. These are costs per run, not shares of mainnet.
+section: xUDT 20,564, Spore 105,299, Cluster 98,683, Omnilock 1,460,165
+(Ethereum displaying) and 1,458,571 (Bitcoin), JoyID 6,815,869, RGB++ lock
+1,418,522, COTA 2,332,001. These are costs per run, not shares of mainnet.
+
+Compared with 28 Oct: the 389 transactions that are in both runs (mostly in the
+targeted samples) gave the same cycles for every group, with the same names, under
+both tool versions, so the differences between the two reports come from the chain
+(which transactions were in the window), not from the tool. The per-script costs
+that recur are close (secp256k1_blake160 median 1,647,788 then, 1,647,946 now); the
+shares moved because of the Type ID pattern above, and the costliest transaction
+fell from 111,979,599 cycles (68 owners) to 6,865,540. No transaction in either run
+comes near the node's per-transaction limit of 3,500,000,000 cycles, and every
+group accepted.
 
 Only a transaction whose groups add up to the node's total is aggregated; any other
 is listed in the report with its reason, never dropped. To reproduce the same window
-(read-only JSON-RPC against a public node, paced and retried; about 25 minutes):
+(read-only JSON-RPC against a public node, paced and retried; 25 to 65 minutes):
 
 ```bash
 npm ci
-npm run atlas -- --rpc https://mainnet.ckb.dev/ --to 20851152 --blocks 15277 --stride 12 --max-txs 1000
+npm run atlas -- --rpc https://mainnet.ckb.dev/ --to 20946673 --blocks 13789 --stride 12 --max-txs 1002
 ```
 
 Without `--to` it samples back from the current tip; `--out <dir>` chooses where
