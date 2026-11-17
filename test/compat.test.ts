@@ -21,8 +21,8 @@ const manifest: Manifest = JSON.parse(readFileSync("compat/debuggers.json", "utf
 
 describe("compat/debuggers.json", () => {
   it("pins the reference release the CLI and CI install, with the same checksum", () => {
-    expect(manifest.reference).toBe("1.1.1");
-    const ref = manifest.releases.find((r) => r.version === "1.1.1")!;
+    expect(manifest.reference).toBe("1.1.2");
+    const ref = manifest.releases.find((r) => r.version === "1.1.2")!;
     const ci = readFileSync(".github/workflows/ci.yml", "utf8");
     expect(ci).toContain(ref.native.linux!.sha256);
   });

@@ -684,7 +684,7 @@ section is at the end of the report.
 Do the numbers depend on which ckb-debugger you have? `npm run compat` replays the
 same 35 frozen scenarios under every release in
 [compat/debuggers.json](compat/debuggers.json) and compares each script group
-with the reference, 1.1.1 (the release the CLI and CI pin):
+with the reference, 1.1.2 (the release the CLI and CI pin):
 [compat/RESULTS.md](compat/RESULTS.md), raw runs in
 [results.json](compat/results.json).
 
@@ -730,7 +730,7 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
 - **Type ID is charged, not run.** The node verifies Type ID natively; the tools
   charge its fixed 1,000,000 cycles and check its rules the way the node does.
 - **Two debugger builds.** The CLI uses the native ckb-debugger you install
-  (1.1.1 here); the web page uses the WebAssembly build shipped in
+  (CI pins 1.1.2; the examples here ran 1.1.1); the web page uses the WebAssembly build shipped in
   `ckb-testtool` (0.200.1). They agree on every transaction checked, and so do
   the releases in between ([Across ckb-debugger versions](#across-ckb-debugger-versions)),
   but a future CKB-VM change could reach one before the other; each result names

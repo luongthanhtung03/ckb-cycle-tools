@@ -68,11 +68,11 @@ inputs:
     default: ${{ github.token }}
   ckb-debugger-version:
     description: ckb-standalone-debugger release to install when ckb-debugger is not on PATH.
-    default: v1.1.1
+    default: v1.1.2
   ckb-debugger-sha256:
     description: >
       SHA-256 of that release's x86_64-unknown-linux-gnu tarball. Pinned for the
-      default v1.1.1; required when ckb-debugger-version is changed.
+      default v1.1.2 and for v1.1.1; required for any other version.
     default: ""
 
 outputs:
@@ -125,7 +125,8 @@ runs:
           exit 1
         fi
         # A release asset can be replaced under the same tag: run only the tarball that was checked.
-        # v1.1.1's checksum is the one the release publishes (…-sha256.txt) and GitHub's asset digest.
+        # Each checksum is the one the release publishes (…-sha256.txt) and GitHub's asset digest.
+        if [ -z "$SHA256" ] && [ "$VERSION" = v1.1.2 ]; then SHA256=f51dacde2ad462424add10b704fbc01520cc9114e44117242129002209769054; fi
         if [ -z "$SHA256" ] && [ "$VERSION" = v1.1.1 ]; then SHA256=0dee02804af46386527c8bb94c2ee63592594ca1ec952ea42ffa9df07a9f005e; fi
         if [ -z "$SHA256" ]; then
           echo "::error::ckb-debugger $VERSION: set ckb-debugger-sha256 to the SHA-256 of its x86_64-unknown-linux-gnu tarball"

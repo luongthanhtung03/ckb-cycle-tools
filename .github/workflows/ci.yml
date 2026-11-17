@@ -58,11 +58,11 @@ jobs:
       - run: npm run build
       - name: Install ckb-debugger
         run: |
-          version=v1.1.1
+          version=v1.1.2
           url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${version}/ckb-debugger_${version}_x86_64-unknown-linux-gnu.tar.gz"
           curl -fsSL "$url" -o /tmp/ckb-debugger.tar.gz
-          # The checksum v1.1.1's release publishes: a replaced asset fails here.
-          echo "0dee02804af46386527c8bb94c2ee63592594ca1ec952ea42ffa9df07a9f005e  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
+          # The checksum v1.1.2's release publishes: a replaced asset fails here.
+          echo "f51dacde2ad462424add10b704fbc01520cc9114e44117242129002209769054  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
           mkdir -p "$HOME/.ckb-tools"
           tar -xzf /tmp/ckb-debugger.tar.gz -C "$HOME/.ckb-tools"
           echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
@@ -102,11 +102,11 @@ jobs:
         run: cargo build --release
       - name: Install ckb-debugger
         run: |
-          version=v1.1.1
+          version=v1.1.2
           url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${version}/ckb-debugger_${version}_x86_64-unknown-linux-gnu.tar.gz"
           curl -fsSL "$url" -o /tmp/ckb-debugger.tar.gz
-          # The checksum v1.1.1's release publishes: a replaced asset fails here.
-          echo "0dee02804af46386527c8bb94c2ee63592594ca1ec952ea42ffa9df07a9f005e  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
+          # The checksum v1.1.2's release publishes: a replaced asset fails here.
+          echo "f51dacde2ad462424add10b704fbc01520cc9114e44117242129002209769054  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
           mkdir -p "$HOME/.ckb-tools"
           tar -xzf /tmp/ckb-debugger.tar.gz -C "$HOME/.ckb-tools"
           echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
@@ -152,11 +152,11 @@ jobs:
           echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"
       - name: Install ckb-debugger
         run: |
-          version=v1.1.1
+          version=v1.1.2
           url="https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/${version}/ckb-debugger_${version}_x86_64-unknown-linux-gnu.tar.gz"
           curl -fsSL "$url" -o /tmp/ckb-debugger.tar.gz
-          # The checksum v1.1.1's release publishes: a replaced asset fails here.
-          echo "0dee02804af46386527c8bb94c2ee63592594ca1ec952ea42ffa9df07a9f005e  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
+          # The checksum v1.1.2's release publishes: a replaced asset fails here.
+          echo "f51dacde2ad462424add10b704fbc01520cc9114e44117242129002209769054  /tmp/ckb-debugger.tar.gz" | sha256sum -c -
           mkdir -p "$HOME/.ckb-tools"
           tar -xzf /tmp/ckb-debugger.tar.gz -C "$HOME/.ckb-tools"
           echo "$HOME/.ckb-tools" >> "$GITHUB_PATH"

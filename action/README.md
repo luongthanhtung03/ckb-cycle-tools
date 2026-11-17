@@ -37,7 +37,7 @@ would not trust with that token, use the
 [two-job setup](#two-jobs-the-build-never-shares-a-runner-with-the-comment-token)
 below.
 
-On `ubuntu-latest` it installs ckb-debugger (v1.1.1, the release CI here uses) if
+On `ubuntu-latest` it installs ckb-debugger (v1.1.2, the release CI here uses) if
 it is not already on PATH. It needs Node 20 or later, which the runner has, and
 `/bin/bash` and `gh` for the comment (Linux and macOS runners have both). In a
 private repository, check out with `fetch-depth: 0` as well: with
@@ -59,8 +59,8 @@ credentials, so the base must already be in the checkout.
 | `comment` | `true` | post or update the sticky comment |
 | `title` | `Cycle report` | the comment's heading |
 | `github-token` | `github.token` | needs `pull-requests: write` |
-| `ckb-debugger-version` | `v1.1.1` | release installed when none is on PATH |
-| `ckb-debugger-sha256` | v1.1.1's | SHA-256 of that release's `x86_64-unknown-linux-gnu` tarball; required with another version |
+| `ckb-debugger-version` | `v1.1.2` | release installed when none is on PATH |
+| `ckb-debugger-sha256` | v1.1.2's (v1.1.1's is built in too) | SHA-256 of that release's `x86_64-unknown-linux-gnu` tarball; required with any other version |
 
 Outputs: `report` (head report JSON), `markdown` (the comment), `failed`. The
 comment's markdown is at `$RUNNER_TEMP/ckb-cycles/comment.md` whenever the

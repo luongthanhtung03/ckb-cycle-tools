@@ -10,6 +10,15 @@ This project follows [semantic versioning](https://semver.org/).
   publishes it). Every script group gives 1.1.1's cycles and exit code, and the
   node's total where it has one: 525 scenario runs, 1,350 groups, no mismatch.
 
+### Changed
+- The Action installs ckb-debugger v1.1.2 by default (was v1.1.1), and CI and
+  the cross-version check's reference use 1.1.2. Group cycles are the same as
+  with 1.1.1 (see Added), but a report's manifest names the new version, so a
+  gated `diff` against a report saved with 1.1.1 fails as run under another
+  debugger (since 1.3.0); within one Action run both sides use the same. The
+  Action still knows v1.1.1's checksum, so `ckb-debugger-version: v1.1.1` works
+  without `ckb-debugger-sha256`.
+
 ### Documentation
 - `compat/notes.md`: what 1.1.2 changes in `--mode full`. Its `All cycles` line
   now counts loading the program (ckb-standalone-debugger#209), which no frame
