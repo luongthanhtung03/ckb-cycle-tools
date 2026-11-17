@@ -5,6 +5,32 @@ This project follows [semantic versioning](https://semver.org/).
 ## Unreleased
 
 ### Added
+- Per-child profiles of a script that spawns others (ckb-debugger 1.1.2 or
+  later). For a group whose script spawned, `flame` and `report` (with
+  `functions`) read the spawn tree from the flamegraph run, find each spawned
+  VM's binary in the transaction by its data hash, and replay that VM alone
+  (`--vm-id N`, `--vm-symbols` with the matching unstripped build, used only
+  when its code is the code the VM ran). `flame` prints each spawned script's
+  profiled cycles and costliest functions under its group and writes
+  `<selector>.vm<N>.svg` and `.folded`. The group total from the plain run
+  stays the source of truth; a child's numbers are its profiled frames (on the
+  spawn fixture, heavy: group 761,957, parent frames 14,974, child frames
+  635,605, `spawn_child::child_work` 606,720 self). With an older debugger, or
+  a replay that fails, the output is as before plus a note. At most 16 spawned
+  VMs per group; a VM that runs `exec` is replayed with its first program.
+- Report JSON: a spawning group may carry `children` (per spawned VM: `vm`,
+  `parent`, `script`, `codeHash`, `result`, `error`, `profiled`, `functions`,
+  `functionsWarning`, `failed`) and `childrenNote`. Additive: the report stays
+  `version: 1`, and older readers ignore the fields. `diff` matches children by
+  VM id and says which spawned script changed, in the terminal and in a
+  "Spawned scripts" block of the PR comment (dropped with the function blocks
+  when the comment would be too long). A base report without children shows
+  the head's children without a change.
+- Library: `FlameChild`, `MAX_CHILD_PROFILES`, `flameTransaction`'s
+  `vmSymbols` and `children` options; `spawnTree`, `profilesChildren`,
+  `CHILD_PROFILE_DEBUGGER` (also in `ckb-cycle-tools/flame`); `spawnedBinary`,
+  `resolvedCellDeps`; `childDeltas`, `childResult`, `CHILDREN_FOOTNOTE`;
+  types `ChildResult`, `ChildDelta`, `SpawnedVm`, `SpawnedBinary`.
 - ckb-debugger 1.1.2 (released 16 Nov 2026) in the check across releases
   (`compat/debuggers.json`, native and WebAssembly, sha256 as the release
   publishes it). Every script group gives 1.1.1's cycles and exit code, and the

@@ -286,10 +286,34 @@ the bytes each syscall copies, counted by the node but in no frame.
 
 **A script that spawns another** (CKB2023 `spawn`): its group's cycles include
 every script it spawned, as on the node, and the CLI and report say how many it
-spawned. The functions are the spawning script's own: ckb-debugger profiles only
-that one, and `--bin` replaces only its binary, so the spawned scripts' work is
-in the total but in no frame. [`test/fixtures/spawn-project`](test/fixtures/spawn-project)
-is such a pair.
+spawned. The group's own profile is the spawning script's: `--bin` replaces only
+its binary, and the spawned scripts' work is in the total but in none of its
+frames. With ckb-debugger 1.1.2 or later, each spawned script then gets a
+profile of its own: the tool reads the spawn tree the debugger prints (VM ids,
+and the cell each binary came from), finds that binary in the transaction by its
+data hash, and replays that VM alone (`--vm-id N`), naming its functions with
+the unstripped build whose data hash (or cell type hash) matches
+(`--vm-symbols`, after checking the build has the same code as what the VM ran).
+`flame` prints each spawned script's costliest functions under its group and
+writes `<selector>.vm<N>.svg` and `.folded`; `report` with `functions` records
+them as `children` of the group, and `diff` says which spawned script changed:
+
+```
+$ ckb-cycles report cycles.json        # test/fixtures/spawn-project, heavy scenario
+heavy input.0.lock: costliest functions (self cycles): spawn_parent::parent_work 7,180, __ckb_std_main 2,965, ckb_std::syscalls::native::syscall_load 1,066
+  This script spawned 1 other script: its cycles are in the group's total, but not in these functions, which are the spawning script's own (the profile covers 14,974 of its 761,957 cycles). Its own profile is listed separately.
+  spawned vm 1 (spawn-child): ok, 635,605 cycles in its profiled frames; costliest (self): spawn_child::child_work 606,720, __ckb_std_main 26,869, _start 509
+```
+
+The group total from the plain run stays the number that counts; a spawned
+script's numbers are its profiled frames, which leave out loading its binary
+and what the spawn costs the parent (on the fixture: 761,957 for the group,
+14,974 in the parent's frames, 635,605 in the child's). With an older
+ckb-debugger, or when a replay fails, the output is as before plus a note
+saying why. A VM that runs `exec` is replayed with its first program only
+(ckb-debugger replays generation 0), and at most 16 spawned VMs per group are
+profiled. [`test/fixtures/spawn-project`](test/fixtures/spawn-project) is such a
+pair.
 
 **Flamegraph fidelity: what is exact and what is attributed.** The group's cycle
 total is exact: it is ckb-debugger's run of the deployed binary, the same number
@@ -311,7 +335,8 @@ lists as a function start. So:
 - cycles the VM charges outside instructions (loading the binary, bytes copied by
   syscalls) are in no frame, so the profile is a little under the group total and
   the CLI prints both;
-- spawned scripts are in the total but in no frame (above).
+- spawned scripts are in the total but in none of the group's frames; their
+  own profiles (above) are separate replays, beside the group's, not a split of it.
 
 Per-function numbers are therefore exact sums of the instructions attributed to
 each frame, but which frame gets them depends on the build's inlining and symbols.
@@ -325,7 +350,12 @@ profile itself comes from the CLI.)
 
 In code: `flameTransaction(target, { bins, readFile })`, then `functionCosts`,
 `flameTree` and `renderFlameSvg` from `ckb-cycle-tools/flame` (no Node
-built-ins, so the browser can draw the same graph).
+built-ins, so the browser can draw the same graph). A spawning group's
+`children` (`FlameChild`: VM id, locator, data hash, result, folded stacks)
+come from `--vm-id` replays; `vmSymbols` gives builds for spawned binaries by
+data hash, and `children: false` turns the replays off. `spawnTree` and
+`profilesChildren` (in `ckb-cycle-tools/flame`) and `spawnedBinary` are the
+pieces.
 
 ## Cycle reports on pull requests
 
@@ -453,7 +483,11 @@ removal and an addition in a diff. `diff --markdown` then adds a folded block un
 group: the functions whose self cycles changed, base, head and Δ, the ten
 largest changes first. A report without functions (an older base, or a
 config without `symbols`) still diffs as before; a function shows `—` where
-its cycles are not known on that side.
+its cycles are not known on that side. A group whose script spawns others also
+gets a "Spawned scripts" block (ckb-debugger 1.1.2 or later on the head): each
+spawned VM's profiled cycles on both sides, matched by VM id, and the
+functions of the ones that changed. Its binary needs `symbols` too for
+function names.
 
 A Rust build keeps its symbols with `CARGO_PROFILE_RELEASE_STRIP=false`; build
 it next to the stripped one, from the same commit.
