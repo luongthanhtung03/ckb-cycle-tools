@@ -248,3 +248,79 @@ export function spawnedScripts(output: string): number {
   ids.delete("0");
   return ids.size;
 }
+
+/** One VM of a `Spawn tree:` that ckb-debugger prints in full mode (see spawnTree). */
+export interface SpawnedVm {
+  /** The VM id, as `--vm-id` takes it. 0 is the group's own script. */
+  vm: number;
+  /** 0 for the program the VM was spawned with; more after each `exec` (`1/1`). `--vm-id` replays only generation 0. */
+  generation: number;
+  /** The VM that spawned it (the root's own parent is itself, 0). */
+  parent: number;
+  /** Where its binary came from, as printed: `cell_dep[1][0..11552]`. */
+  locator: string;
+  /** The same, parsed: the source, its index, and the byte range of the binary in that cell's data. */
+  source?: "input" | "output" | "cell_dep" | "header_dep" | "group_input" | "group_output";
+  index?: number;
+  start?: number;
+  end?: number;
+}
+
+/**
+ * Every VM in the `Spawn tree:` lines ckb-debugger (full mode) prints for a
+ * group whose script spawns others, root first, each with its parent and the
+ * locator of the binary it ran:
+ *
+ *     Spawn tree: 0                    cell_dep[0][0..15992]
+ *     Spawn tree: └── 1                cell_dep[1][0..11552]
+ *     Spawn tree:     └── 2            cell_dep[2][0..9000]
+ *
+ * Each level of the tree is four characters of prefix. Empty when the script
+ * spawned nothing (no tree is printed). A script could print such lines itself
+ * (as a `Script log:` line, which does not start with `Spawn tree:`); only the
+ * debugger's own lines are read.
+ */
+export function spawnTree(output: string): SpawnedVm[] {
+  const vms: SpawnedVm[] = [];
+  const seen = new Set<string>();
+  /** The VM at each depth, as the tree is walked top to bottom. */
+  const path: number[] = [];
+  for (const m of output.matchAll(/^Spawn tree: ([ │├└─]*)(\d+)(?:\/(\d+))?[ \t]+(\S+)[ \t]*$/gmu)) {
+    const depth = [...m[1]].length / 4;
+    if (!Number.isInteger(depth) || depth > path.length) continue;
+    const vm = Number(m[2]);
+    const generation = Number(m[3] ?? 0);
+    const key = `${vm}/${generation}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    path.length = depth;
+    const parent = depth ? path[depth - 1] : vm;
+    path.push(vm);
+    const loc = /^(input|output|cell_dep|header_dep|group_input|group_output)\[(\d+)\]\[(\d+)\.\.(\d+)\]$/.exec(m[4]);
+    vms.push({
+      vm,
+      generation,
+      parent,
+      locator: m[4],
+      ...(loc && { source: loc[1] as SpawnedVm["source"], index: Number(loc[2]), start: Number(loc[3]), end: Number(loc[4]) }),
+    });
+  }
+  return vms;
+}
+
+/** The first ckb-debugger release whose `--vm-id` replay of a spawned script is faithful, with `--vm-symbols` (1.1.2). */
+export const CHILD_PROFILE_DEBUGGER = "1.1.2";
+
+/**
+ * Whether a ckb-debugger (its `--version` line) can profile a spawned script on
+ * its own: 1.1.2 or later. Before it, the replay of `inherited_fds` was wrong
+ * (the child of the spawn fixture exits 3) and full mode read only the root's
+ * symbols. An unknown version cannot.
+ */
+export function profilesChildren(version: string): boolean {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return false;
+  const [a, b, c] = m.slice(1).map(Number);
+  const [x, y, z] = CHILD_PROFILE_DEBUGGER.split(".").map(Number);
+  return a !== x ? a > x : b !== y ? b > y : c >= z;
+}

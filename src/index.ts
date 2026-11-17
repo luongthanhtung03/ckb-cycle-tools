@@ -31,8 +31,10 @@ export {
   sumLines,
 } from "./replay.js";
 export type { DebuggerOutput, GroupRun, Profile, ProfiledGroup, ReplayOptions, ReplayPlan, RunDebugger } from "./replay.js";
-export { flameTransaction, profileTransaction, runNativeDebugger } from "./profile.js";
-export type { FlameGroup, ProfileOptions } from "./profile.js";
+export { flameTransaction, MAX_CHILD_PROFILES, profileTransaction, runNativeDebugger } from "./profile.js";
+export type { FlameChild, FlameGroup, ProfileOptions } from "./profile.js";
+export { resolvedCellDeps, spawnedBinary } from "./spawn.js";
+export type { SpawnedBinary } from "./spawn.js";
 export {
   flameTree,
   foldedTotal,
@@ -41,16 +43,21 @@ export {
   functionCosts,
   parseFolded,
   profiledCycles,
+  profilesChildren,
   spawnedScripts,
+  spawnTree,
+  CHILD_PROFILE_DEBUGGER,
   renderFlameSvg,
   splitStack,
 } from "./flame.js";
-export type { FlameNode, Folded, FunctionCost } from "./flame.js";
+export type { FlameNode, Folded, FunctionCost, SpawnedVm } from "./flame.js";
 export { runWasmDebugger, wasmDebuggerVersion, wasmOutput, wasmRunner, WASM_TX_FILE } from "./wasm.js";
 export type { WasmRun } from "./wasm.js";
 export { substituteBinaries } from "./substitute.js";
 export type { AppliedSubstitution, BinarySubstitution } from "./substitute.js";
 export {
+  childDeltas,
+  CHILDREN_FOOTNOTE,
   COMMENT_MARKER,
   diffFailed,
   diffReports,
@@ -65,6 +72,8 @@ export {
   summarize,
 } from "./diff.js";
 export type {
+  ChildDelta,
+  ChildResult,
   CycleDiff,
   CycleReport,
   DiffOptions,
@@ -79,7 +88,7 @@ export type {
   ScenarioResult,
 } from "./diff.js";
 export { canonicalJson, fileDigest, gitCommit, inputsHash, scenarioInputs, toolchainOf } from "./manifest.js";
-export { formatReport, groupResults, parseCyclesConfig, runReport } from "./report.js";
+export { childResult, formatReport, groupResults, parseCyclesConfig, runReport } from "./report.js";
 export type { BinaryConfig, CyclesConfig, ReportOptions, ScenarioConfig } from "./report.js";
 export { configFromMocks, formatScan, scanTestMocks } from "./scan.js";
 export type { ScanOptions, ScanResult, ScannedBinary, ScannedMock } from "./scan.js";

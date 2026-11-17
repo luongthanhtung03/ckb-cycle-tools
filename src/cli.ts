@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { diffFailed, diffReports, formatMarkdown, formatText, termLine, termLines, type CycleReport } from "./diff.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } from "./flame.js";
-import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile } from "./profile.js";
+import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type FlameChild, type Profile } from "./profile.js";
 import { PUBLIC_RPC, sumLines } from "./replay.js";
 import { formatReport, runReport } from "./report.js";
 import { formatScan, scanTestMocks } from "./scan.js";
@@ -98,7 +98,10 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                one frame: --bin gives an unstripped build of the same code (its
                cycles are checked against the deployed binary's). The profile
                leaves out loading the binary, so it is a little under the group's
-               cycles`;
+               cycles. A script that spawns others: with ckb-debugger 1.1.2 or
+               later, each spawned script is profiled on its own (--vm-id) into
+               <dir>/<selector>.vm<N>.svg and .folded; --bin with the spawned
+               binary's data hash names its functions (--vm-symbols)`;
 
 const fmt = (n: bigint) => n.toLocaleString("en-US");
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -358,7 +361,9 @@ async function flameCommand(args: string[]): Promise<number> {
       const n = g.spawned;
       out.push(
         `  spawned ${n} other script${n === 1 ? "" : "s"}: ${n === 1 ? "its" : "their"} cycles are in the ${fmt(g.cycles)}, not in this profile`,
-        "  (ckb-debugger profiles only the spawning script; --bin replaces only its binary)",
+        g.children?.length
+          ? "  (this profile is the spawning script's own; each spawned script's follows, from a --vm-id replay)"
+          : "  (ckb-debugger profiles only the spawning script; --bin replaces only its binary)",
       );
     }
     out.push("  SELF        TOTAL       FUNCTION");
@@ -367,10 +372,32 @@ async function flameCommand(args: string[]): Promise<number> {
     await writeFile(`${base}.folded`, formatFolded(g.folded) + "\n");
     await writeFile(`${base}.svg`, renderFlameSvg(flameTree(g.folded, g.selector), { title: `${g.selector} · ${label}` }));
     out.push(`  → ${base}.svg, ${base}.folded`, "");
+    for (const c of g.children ?? []) out.push(...(await childOutput(g.selector, c, dir, top)));
+    if (g.childrenNote) out.push(`  spawned scripts: ${termLine(g.childrenNote)}`, "");
   }
   out.push(`${termLine(version)} · CKB-VM v${plan.scriptVersion} for type scripts · ${plan.network} · ${plan.rpcUrl}`);
   console.log(out.join("\n"));
   return bad || groups.some((g) => g.result !== 0) ? 1 : 0;
+}
+
+/** One spawned script's profile under its group in `flame`, and its own .folded and .svg (`<selector>.vm<N>`). */
+async function childOutput(selector: string, c: FlameChild, dir: string, top: number): Promise<string[]> {
+  const label = termLine(c.name ?? (c.codeHash ? short(c.codeHash) : c.locator));
+  const head = `  spawned vm ${c.vm}  ${label}  (${termLine(c.locator)}${c.parent ? `, spawned by vm ${c.parent}` : ""})`;
+  if (c.failed) return [`${head}  not profiled`, `    ${termLine(c.failed)}`, ""];
+  const out = [`${head}  ${c.error ? "error" : c.result === 0 ? "ok" : `exit ${c.result}`}`];
+  if (c.symbolsWarning) out.push(`    ${termLine(c.symbolsWarning)}`);
+  if (!c.folded.size) return [...out, "    no profile written", ""];
+  const costs = functionCosts(c.folded);
+  if (!c.symbols) out.push(`    no symbols build for it: pass --bin ${c.codeHash ?? "<data-hash>"}=<unstripped build> to name its functions`);
+  out.push(`    profiled ${fmt(foldedTotal(c.folded))} cycles in its own frames (inside the group's total; loading it and the spawn are not profiled)`);
+  out.push("    SELF        TOTAL       FUNCTION");
+  for (const f of costs.slice(0, top)) out.push(`    ${fmt(f.self).padStart(10)}  ${fmt(f.total).padStart(10)}  ${termLine(f.name)}`);
+  const base = join(dir, `${selector}.vm${c.vm}`);
+  await writeFile(`${base}.folded`, formatFolded(c.folded) + "\n");
+  await writeFile(`${base}.svg`, renderFlameSvg(flameTree(c.folded, `vm ${c.vm}`), { title: `${selector} · vm ${c.vm} · ${label}` }));
+  out.push(`    → ${base}.svg, ${base}.folded`, "");
+  return out;
 }
 
 async function main(): Promise<number> {

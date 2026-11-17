@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { MockTransaction, RpcTransaction } from "./mock.js";
-import { elfFunctionNames } from "./elf.js";
-import { nameAddresses, parseFolded, spawnedScripts, type Folded } from "./flame.js";
+import { elfFunctionNames, sameCode } from "./elf.js";
+import { nameAddresses, parseFolded, profilesChildren, spawnedScripts, spawnTree, CHILD_PROFILE_DEBUGGER, type Folded } from "./flame.js";
+import { spawnedBinary } from "./spawn.js";
 import {
   debuggerArgs,
   parseDebuggerRun,
@@ -137,7 +138,44 @@ export interface FlameGroup {
    * but in no frame of `folded`, and `--bin` replaces only the root's binary.
    */
   spawned?: number;
+  /**
+   * With `spawned`: each spawned script's own profile, from one `--vm-id`
+   * replay per spawned VM (ckb-debugger 1.1.2 and later). The group's
+   * `cycles` stay the source of truth; these are profiled frames, and they
+   * leave out what the spawn itself costs the parent.
+   */
+  children?: FlameChild[];
+  /** With `spawned`: why some or all spawned scripts have no profile of their own (an older debugger, an `exec`, too many). */
+  childrenNote?: string;
 }
+
+/** A spawned script's own profile (`--vm-id`), as `flameTransaction` records it. */
+export interface FlameChild {
+  /** Its VM id (`--vm-id`), and the VM that spawned it (0: the group's script). */
+  vm: number;
+  parent: number;
+  /** Where its binary came from, as ckb-debugger prints it: `cell_dep[1][0..11552]`. */
+  locator: string;
+  /** The data hash of the binary it ran, when the locator names a cell of the transaction. */
+  codeHash?: string;
+  /** A name for it: `scriptNames` by its data hash (or its cell's type hash). */
+  name?: string;
+  /** The unstripped build its frames were named with (`--vm-symbols`): `bins` or `vmSymbols` by its data or type hash. */
+  symbols?: string;
+  /** Why no symbols build was used although one was given (it is not the same code). */
+  symbolsWarning?: string;
+  /** The replay's exit code (-1 with `error` when the VM stopped it), and its own cycle count, which counts loading the binary. */
+  result: number;
+  error?: string;
+  cycles: bigint;
+  /** Its folded stacks: its own instructions only. */
+  folded: Folded;
+  /** Set when the replay could not be run or read: no result, no profile. */
+  failed?: string;
+}
+
+/** The most spawned scripts profiled one by one per group; each is three runs of the whole group. */
+export const MAX_CHILD_PROFILES = 16;
 
 /**
  * Profiles each script group with ckb-debugger's flamegraph mode. `bins` maps a
@@ -156,11 +194,22 @@ export async function flameTransaction(
     scripts?: string[];
     readFile: (path: string) => Promise<string>;
     readBinary?: (path: string) => Promise<Uint8Array>;
+    /**
+     * Unstripped builds of spawned scripts, by data hash (or the type hash of
+     * the cell they are in), to name a child's frames (`--vm-symbols`). `bins`
+     * is looked up too. Each must have the same code as the binary the child
+     * ran (elf.ts `sameCode`), or it is not used.
+     */
+    vmSymbols?: Record<string, string>;
+    /** Profile each spawned script on its own (default true; needs ckb-debugger 1.1.2). */
+    children?: boolean;
   },
 ): Promise<{ plan: ReplayPlan; groups: FlameGroup[]; debugger: string }> {
   const { exec, version: debuggerVersion } = await debuggerOf(options);
   const plan = await planReplay(target, options);
   const bins = Object.fromEntries(Object.entries(options.bins ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  const vmSymbols = Object.fromEntries(Object.entries(options.vmSymbols ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  const scriptNames = Object.fromEntries(Object.entries(options.scriptNames ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const dir = await mkdtemp(join(tmpdir(), "ckb-flame-"));
   try {
     const txFile = join(dir, "tx.json");
@@ -198,6 +247,23 @@ export async function flameTransaction(
       // build, and with the deployed binary to compare.
       const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(bin ? ["--bin", bin] : [])]));
       const deployed = bin ? parseDebuggerRun(await exec(base)) : undefined;
+      let children: FlameChild[] | undefined;
+      let childrenNote: string | undefined;
+      if (spawned && options.children !== false) {
+        ({ children, childrenNote } = await profileChildren(runOut.stdout, {
+          version: debuggerVersion,
+          base: [...base, ...(bin ? ["--bin", bin] : [])],
+          out: (vm) => join(dir, `${selector}.vm${vm}.folded`),
+          exec,
+          mock: plan.mock,
+          group: g,
+          symbolsOf: (hash) => vmSymbols[hash] ?? bins[hash],
+          names: scriptNames,
+          readFile: options.readFile,
+          readBinary,
+          namesOf,
+        }));
+      }
       groups.push({
         selector,
         ...(g.name && { name: g.name }),
@@ -208,6 +274,8 @@ export async function flameTransaction(
         cycles: parsed.cycles,
         folded,
         ...(spawned && { spawned }),
+        ...(children?.length && { children }),
+        ...(childrenNote && { childrenNote }),
         ...(bin &&
           deployed && {
             bin,
@@ -221,4 +289,101 @@ export async function flameTransaction(
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * One `--vm-id` flamegraph replay per spawned VM of a group (generation 0, at
+ * most MAX_CHILD_PROFILES), from the spawn tree in the root's flamegraph run.
+ * Nothing is thrown: a replay that fails is a child with `failed`, and a
+ * debugger that cannot replay a child at all is a note.
+ */
+async function profileChildren(
+  rootOutput: string,
+  ctx: {
+    version: string;
+    base: string[];
+    out: (vm: number) => string;
+    exec: (args: string[]) => Promise<DebuggerOutput>;
+    mock: MockTransaction;
+    group: { inputs: number[]; outputs: number[] };
+    symbolsOf: (hash: string) => string | undefined;
+    names: Record<string, string>;
+    readFile: (path: string) => Promise<string>;
+    readBinary: (path: string) => Promise<Uint8Array>;
+    namesOf: (bin: string) => Promise<Map<bigint, string>>;
+  },
+): Promise<{ children?: FlameChild[]; childrenNote?: string }> {
+  if (!profilesChildren(ctx.version)) {
+    return {
+      childrenNote:
+        `${ctx.version} cannot profile a spawned script on its own (ckb-debugger ${CHILD_PROFILE_DEBUGGER} or later can): ` +
+        "only the spawning script is profiled",
+    };
+  }
+  const tree = spawnTree(rootOutput);
+  const spawned = tree.filter((v) => v.vm !== 0 && v.generation === 0);
+  const notes: string[] = [];
+  const execd = new Set(tree.filter((v) => v.generation > 0).map((v) => v.vm)).size;
+  if (execd) notes.push(`${execd} VM${execd === 1 ? "" : "s"} ran exec: ckb-debugger replays only a VM's first program, so code reached by exec is not profiled`);
+  if (spawned.length > MAX_CHILD_PROFILES) notes.push(`${spawned.length} spawned scripts: the first ${MAX_CHILD_PROFILES} are profiled`);
+  if (!spawned.length && !notes.length) notes.push("the spawn tree could not be read: spawned scripts not profiled");
+  const children: FlameChild[] = [];
+  for (const v of spawned.slice(0, MAX_CHILD_PROFILES)) {
+    const binary = spawnedBinary(ctx.mock, v, ctx.group);
+    const hashes = binary ? [binary.dataHash, ...(binary.typeHash ? [binary.typeHash] : [])] : [];
+    const name =
+      binary &&
+      (["data2", "data1", "data"].map((t) => ctx.names[`${binary.dataHash}:${t}`]).find(Boolean) ??
+        (binary.typeHash ? ctx.names[`${binary.typeHash}:type`] : undefined));
+    let symbols = hashes.map(ctx.symbolsOf).find(Boolean);
+    let symbolsWarning: string | undefined;
+    if (symbols && binary) {
+      const same = await ctx.readBinary(symbols).then(
+        (b) => sameCode(b, binary.data),
+        () => undefined,
+      );
+      if (same !== true) {
+        symbolsWarning =
+          same === false
+            ? `${symbols} is not the same code as the binary VM ${v.vm} ran: its frames are left unnamed`
+            : `${symbols} could not be read as an ELF: VM ${v.vm}'s frames are left unnamed`;
+        symbols = undefined;
+      }
+    }
+    const child: FlameChild = {
+      vm: v.vm,
+      parent: v.parent,
+      locator: v.locator,
+      ...(binary && { codeHash: binary.dataHash }),
+      ...(name && { name }),
+      ...(symbols && { symbols }),
+      ...(symbolsWarning && { symbolsWarning }),
+      result: -1,
+      cycles: 0n,
+      folded: new Map(),
+    };
+    try {
+      const out = ctx.out(v.vm);
+      const run = await ctx.exec([
+        ...ctx.base,
+        "--vm-id",
+        String(v.vm),
+        ...(symbols ? ["--vm-symbols", symbols] : []),
+        "--enable-flamegraph",
+        "--flamegraph-output",
+        out,
+      ]);
+      if (!/^Actual run: start\s*$/m.test(run.stdout)) throw new Error(`no replay of VM ${v.vm} in ckb-debugger's output`);
+      const parsed = parseDebuggerRun(run);
+      child.result = parsed.result;
+      if (parsed.error) child.error = parsed.error;
+      child.cycles = parsed.cycles;
+      const names = symbols ? await ctx.namesOf(symbols) : new Map<bigint, string>();
+      child.folded = nameAddresses(parseFolded(await ctx.readFile(out).catch(() => "")), names);
+    } catch (e) {
+      child.failed = `the replay of VM ${v.vm} failed: ${e instanceof Error ? e.message : String(e)}`;
+    }
+    children.push(child);
+  }
+  return { ...(children.length && { children }), ...(notes.length && { childrenNote: notes.join("; ") }) };
 }

@@ -177,3 +177,50 @@ function demangleV0(name: string): string | undefined {
   const rest = name.slice(i);
   return rest === "" || rest.startsWith("C") || rest.startsWith(".") ? p : undefined;
 }
+
+/**
+ * The code a CKB-VM runs from an ELF: the entry point and each executable
+ * `PT_LOAD` segment (its address and the bytes the file gives it), in program
+ * header order. A build and its stripped copy have the same code; the
+ * stripped one only loses sections no segment loads (symbols, debug info).
+ * Undefined for anything that is not a 64-bit little-endian ELF with code.
+ */
+export function elfCode(elf: Uint8Array): Uint8Array | undefined {
+  if (elf.length < 64 || elf[0] !== 0x7f || elf[1] !== 0x45 || elf[2] !== 0x4c || elf[3] !== 0x46) return undefined;
+  if (elf[4] !== 2 || elf[5] !== 1) return undefined;
+  const view = new DataView(elf.buffer, elf.byteOffset, elf.byteLength);
+  const phoff = Number(view.getBigUint64(0x20, true));
+  const phentsize = view.getUint16(0x36, true);
+  const phnum = view.getUint16(0x38, true);
+  if (phentsize < 56 || phoff + phentsize * phnum > elf.length) return undefined;
+  const parts: Uint8Array[] = [elf.subarray(0x18, 0x20)];
+  for (let i = 0; i < phnum; i++) {
+    const o = phoff + i * phentsize;
+    const PT_LOAD = 1;
+    const PF_X = 1;
+    if (view.getUint32(o, true) !== PT_LOAD || !(view.getUint32(o + 4, true) & PF_X)) continue;
+    const offset = Number(view.getBigUint64(o + 8, true));
+    const size = Number(view.getBigUint64(o + 0x20, true));
+    if (offset + size > elf.length) return undefined;
+    parts.push(elf.subarray(o + 0x10, o + 0x18), elf.subarray(offset, offset + size));
+  }
+  if (parts.length === 1) return undefined;
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+/**
+ * Whether two ELFs run the same code (elfCode): an unstripped build and the
+ * binary it stands for. Undefined when either is not an ELF this can read.
+ */
+export function sameCode(a: Uint8Array, b: Uint8Array): boolean | undefined {
+  const x = elfCode(a);
+  const y = elfCode(b);
+  if (!x || !y) return undefined;
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}

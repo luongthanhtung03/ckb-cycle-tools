@@ -158,6 +158,37 @@ export interface GroupResult {
   spawned?: number;
   /** With `spawned`: the cycles the function profile covers (the root script's own run). */
   profiled?: number;
+  /**
+   * With `spawned` (added after 1.3.0, ckb-debugger 1.1.2 and later): each
+   * spawned script's own profile, from a `--vm-id` replay of it. Its numbers
+   * are profiled frames, not a split of `cycles`: they leave out loading the
+   * binary and what the spawn costs the parent. `cycles` stays the total.
+   */
+  children?: ChildResult[];
+  /** With `spawned`: why some or all spawned scripts have no profile of their own (an older ckb-debugger, a replay that failed). */
+  childrenNote?: string;
+}
+
+/** A spawned script's own profile, in a report (added after 1.3.0). */
+export interface ChildResult {
+  /** Its VM id (ckb-debugger's `--vm-id`): what a child is matched by across reports. */
+  vm: number;
+  /** The VM that spawned it: 0 is the group's own script. */
+  parent: number;
+  /** A name for the binary it ran (the config's binary name), or its short data hash. */
+  script: string;
+  /** The data hash of the binary it ran. */
+  codeHash?: string;
+  /** The replay's exit code: -1 with `error` when the VM stopped it. Absent with `failed`. */
+  result?: number;
+  error?: string;
+  /** The cycles in its profiled frames. Absent with `failed`. */
+  profiled?: number;
+  /** Its costliest functions, heaviest self first (at most FUNCTION_LIMIT), when its binary has a symbols build. */
+  functions?: FunctionResult[];
+  functionsWarning?: string;
+  /** Why it has no profile: the replay could not be run or read. */
+  failed?: string;
 }
 
 export interface FunctionResult {
@@ -182,6 +213,24 @@ export interface FunctionDelta {
   head?: number;
   /** Set when both sides are known. */
   delta?: number;
+}
+
+/** A spawned script on both sides of a diff, matched by VM id. Its numbers are profiled frames. */
+export interface ChildDelta {
+  vm: number;
+  /** The head's name for it (the base's when it is gone). */
+  script: string;
+  /** Each side's result (`ok`, `exit 9`, `not profiled`) and profiled cycles; a side is absent when it had no such VM. */
+  base?: { result: string; profiled?: number };
+  head?: { result: string; profiled?: number };
+  /** Set when both sides have profiled cycles. */
+  delta?: number;
+  /** Its profiled cycles or result differ, or it is on one side only. */
+  changed: boolean;
+  /** Its functions whose self cycles changed, when the head recorded them. */
+  functions?: FunctionDelta[];
+  /** Why the head has no functions or no profile for it. */
+  note?: string;
 }
 
 /** `error`: the head could not run the scenario. `base-error`: the base could not, so nothing was compared. */
@@ -210,6 +259,10 @@ export interface DiffRow {
   spawned?: number;
   /** With `spawned`: the cycles the head's function profile covers. */
   profiled?: number;
+  /** With `spawned`: each spawned script's profile on both sides, by VM id (head reports from 1.1.2 debuggers, added after 1.3.0). */
+  children?: ChildDelta[];
+  /** The head's reason some spawned scripts have no profile of their own. */
+  childrenNote?: string;
   /** Why the base side of this group was not compared (its binary was not in the base checkout, its inputs changed). */
   notCompared?: string;
   /** Not compared because the scenario's inputs differ between the two reports' manifests. */
@@ -548,8 +601,65 @@ function groupRow(
   if (h?.spawned) {
     row.spawned = h.spawned;
     if (h.profiled !== undefined) row.profiled = h.profiled;
+    const head = childrenOf(h);
+    if (head) row.children = childDeltas(childrenOf(b), head);
+    if (typeof h.childrenNote === "string" && h.childrenNote) row.childrenNote = h.childrenNote;
   }
   return row;
+}
+
+/** A group's `children`, read defensively (a report file is the PR's): entries without a VM id or a name are dropped. */
+function childrenOf(g: GroupResult | undefined): ChildResult[] | undefined {
+  const list = (g as { children?: unknown } | undefined)?.children;
+  if (!Array.isArray(list)) return undefined;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  return list
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === "object" && Number.isInteger(c.vm) && typeof c.script === "string")
+    .map((c): ChildResult => ({
+      vm: c.vm as number,
+      parent: num(c.parent) ?? 0,
+      script: c.script as string,
+      ...(num(c.result) !== undefined && { result: num(c.result) }),
+      ...(str(c.error) && { error: str(c.error) }),
+      ...(num(c.profiled) !== undefined && { profiled: num(c.profiled) }),
+      ...(Array.isArray(c.functions) && {
+        functions: (c.functions as unknown[]).filter(
+          (f): f is FunctionResult => !!f && typeof f === "object" && typeof (f as FunctionResult).name === "string" && num((f as FunctionResult).self) !== undefined,
+        ),
+      }),
+      ...(str(c.functionsWarning) && { functionsWarning: str(c.functionsWarning) }),
+      ...(str(c.failed) && { failed: str(c.failed) }),
+    }));
+}
+
+const childLabel = (c: ChildResult) =>
+  c.failed || c.result === undefined ? "not profiled" : resultLabel({ result: c.result, ...(c.error && { error: c.error }) });
+
+/**
+ * Each spawned script on both sides, by VM id, in VM order. Without base
+ * children (an older report, an older debugger) every head child has no base
+ * side: what it costs is shown, not a change.
+ */
+export function childDeltas(base: ChildResult[] | undefined, head: ChildResult[]): ChildDelta[] {
+  const vms = [...new Set([...head.map((c) => c.vm), ...(base ?? []).map((c) => c.vm)])].sort((x, y) => x - y);
+  return vms.map((vm): ChildDelta => {
+    const b = base?.find((c) => c.vm === vm);
+    const h = head.find((c) => c.vm === vm);
+    const side = (c: ChildResult) => ({ result: childLabel(c), ...(c.profiled !== undefined && !c.failed && { profiled: c.profiled }) });
+    const d: ChildDelta = {
+      vm,
+      script: (h ?? b)!.script,
+      ...(b && { base: side(b) }),
+      ...(h && { head: side(h) }),
+      changed: false,
+    };
+    if (d.base?.profiled !== undefined && d.head?.profiled !== undefined) d.delta = d.head.profiled - d.base.profiled;
+    d.changed = base !== undefined && (!b || !h || d.base!.result !== d.head!.result || (d.delta ?? 0) !== 0);
+    if (h?.functions) d.functions = functionDeltas(b?.functions, h.functions);
+    const note = h?.failed ?? h?.functionsWarning;
+    if (note) d.note = note;
+    return d;
+  });
 }
 
 /**
@@ -772,6 +882,7 @@ function functionBlocks(rows: DiffRow[]): string[] {
       if (spawn && r.functions && r.kind !== "same") {
         out.push(`<details><summary>Functions in ${where}: none of its own changed</summary>`, "", md(spawn), "", "</details>", "");
       }
+      out.push(...childBlock(r, where));
       continue;
     }
     const shown = r.functions.slice(0, FUNCTIONS_SHOWN);
@@ -791,22 +902,83 @@ function functionBlocks(rows: DiffRow[]): string[] {
       "</details>",
       "",
     );
+    out.push(...childBlock(r, where));
   }
+  return out;
+}
+
+/** A folded block per spawning group with child profiles: which spawned script changed, and its functions. */
+function childBlock(r: DiffRow, where: string): string[] {
+  if (r.kind === "same" || (!r.children?.length && !r.childrenNote)) return [];
+  const kids = r.children ?? [];
+  const compared = kids.some((c) => c.base);
+  const changed = kids.filter((c) => c.changed);
+  const summary = !kids.length
+    ? "not profiled"
+    : !compared
+      ? `${kids.length} profiled`
+      : changed.length
+        ? changed
+            .slice(0, 3)
+            .map((c) => `vm ${c.vm} ${html(c.script)} ${c.delta !== undefined && c.base && c.head ? signed(c.delta) : !c.base ? "new" : !c.head ? "gone" : html(c.head.result)}`)
+            .join(", ") + (changed.length > 3 ? `, and ${changed.length - 3} more` : "")
+        : "none changed";
+  const out = [`<details><summary>Spawned scripts in ${where}: ${summary}</summary>`, ""];
+  if (kids.length) {
+    out.push("| VM | Script | Base profiled | Head profiled | Δ |", "|---|---|---:|---:|---:|");
+    for (const c of kids) {
+      out.push(`| ${c.vm} | ${md(clipName(c.script))} | ${md(childSide(c.base))} | ${md(childSide(c.head))} | ${c.delta === undefined ? "" : signed(c.delta)} |`);
+    }
+    out.push("");
+  }
+  for (const c of kids) {
+    const fns = (c.functions ?? []).slice(0, FUNCTIONS_SHOWN);
+    if (fns.length && (c.changed || !compared)) {
+      out.push(
+        `Functions of vm ${c.vm} (${md(clipName(c.script))}):`,
+        "",
+        "| Function | Base self | Head self | Δ |",
+        "|---|---:|---:|---:|",
+        ...fns.map((f) => `| ${md(clipName(f.name))} | ${fnCell(f.base)} | ${fnCell(f.head)} | ${f.delta === undefined ? "" : signed(f.delta)} |`),
+        "",
+      );
+    }
+    if (c.note) out.push(`vm ${c.vm}: ${md(c.note)}`, "");
+  }
+  if (r.childrenNote) out.push(md(r.childrenNote), "");
+  out.push(`<sub>${md(CHILDREN_FOOTNOTE)}</sub>`, "", "</details>", "");
   return out;
 }
 
 const fnCell = (n: number | undefined) => (n === undefined ? "—" : fmt(n));
 
 /** What a function list leaves out when the script spawned others: their cycles. */
-export function spawnNote(r: { spawned?: number; profiled?: number; head?: { cycles?: number } }): string {
+export function spawnNote(r: { spawned?: number; profiled?: number; head?: { cycles?: number }; children?: unknown[] }): string {
   const n = r.spawned ?? 0;
   const covers =
     r.profiled !== undefined && r.head?.cycles !== undefined ? ` (the profile covers ${fmt(r.profiled)} of its ${fmt(r.head.cycles)} cycles)` : "";
+  const own = r.children?.length ? ` ${n === 1 ? "Its" : "Their"} own profile${n === 1 ? " is" : "s are"} listed separately.` : "";
   return (
     `This script spawned ${n} other script${n === 1 ? "" : "s"}: ${n === 1 ? "its" : "their"} cycles are in the group's total, ` +
-    `but not in these functions, which are the spawning script's own${covers}.`
+    `but not in these functions, which are the spawning script's own${covers}.${own}`
   );
 }
+
+/** What a spawned script's numbers are, under every list of them. */
+export const CHILDREN_FOOTNOTE =
+  "Profiled frames of each spawned script, from a ckb-debugger --vm-id replay of it: they leave out loading its binary and what the spawn costs the parent, so they do not add up to the group's cycles, which stay the total.";
+
+const childSide = (s: { result: string; profiled?: number } | undefined) =>
+  !s ? "—" : s.profiled === undefined ? s.result : s.result === "ok" ? fmt(s.profiled) : `${fmt(s.profiled)} (${s.result})`;
+
+/** `vm 1 (spawn-child): profiled 19,093 → 635,605 (+616,512)`, plain text: the caller cleans it. */
+function childLine(c: ChildDelta): string {
+  const what = !c.base ? `new, profiled ${childSide(c.head)}` : !c.head ? `gone (was ${childSide(c.base)})` : `profiled ${childSide(c.base)} → ${childSide(c.head)}${c.delta ? ` (${signed(c.delta)})` : ""}`;
+  return `vm ${c.vm} (${c.script}): ${what}`;
+}
+
+/** A spawned script's profile on the head alone (no base children to compare with). */
+const childHeadLine = (c: ChildDelta) => `vm ${c.vm} (${c.script}): profiled ${childSide(c.head)}`;
 
 /** The hidden marker that identifies the sticky comment, so it is updated instead of duplicated. */
 export const COMMENT_MARKER = "<!-- ckb-cycles-report -->";
@@ -998,6 +1170,20 @@ export function formatText(diff: CycleDiff): string {
       functions.push(`functions in ${where}: ${top.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
       if (r.spawned) functions.push(`  ${spawnNote(r)}`);
     } else if (r.functions && r.spawned) functions.push(`functions in ${where}: none of its own changed. ${spawnNote(r)}`);
+    if (r.children?.length) {
+      const compared = r.children.some((c) => c.base);
+      const kids = compared ? r.children.filter((c) => c.changed) : r.children;
+      if (!kids.length) functions.push(`  spawned scripts: none changed (profiled frames)`);
+      for (const c of kids) {
+        const fns = (c.functions ?? [])
+          .filter((f) => f.delta !== undefined)
+          .slice(0, 3)
+          .map((f) => `${termLine(f.name)} ${signed(f.delta!)}`);
+        functions.push(`  spawned ${termLine(compared ? childLine(c) : childHeadLine(c))}${fns.length ? `; ${fns.join(", ")}` : ""}`);
+        if (c.note) functions.push(`    ${termLine(c.note)}`);
+      }
+    }
+    if (r.childrenNote) functions.push(`  spawned scripts: ${termLine(r.childrenNote)}`);
   }
   const errors = [
     ...(diff.overTxLimit?.length ? overTxLimitBlock(diff.overTxLimit, termLine, "") : []),

@@ -17,12 +17,12 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
-import type { CycleReport, GroupResult, ReportManifest, ScenarioManifest, ScenarioResult } from "./diff.js";
+import type { ChildResult, CycleReport, GroupResult, ReportManifest, ScenarioManifest, ScenarioResult } from "./diff.js";
 import { FUNCTION_LIMIT, overTxLimitOf, resultLabel, spawnNote, termLine, termLines, unmatchedError } from "./diff.js";
 import { foldedTotal, functionCosts } from "./flame.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction, scriptVersionAt, type MockTransaction, type RpcOutPoint } from "./mock.js";
 import { fileDigest, gitCommit, inputsHash, scenarioInputs, sha256, toolchainOf, toolIdentity } from "./manifest.js";
-import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type Profile, type ProfileOptions } from "./profile.js";
+import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type FlameChild, type Profile, type ProfileOptions } from "./profile.js";
 import { consensusOf, nodeVerdict, overTxLimitLines, PUBLIC_RPC } from "./replay.js";
 import { substituteBinaries, targetScriptKeys, type BinarySubstitution } from "./substitute.js";
 
@@ -345,10 +345,13 @@ export async function runReport(
         });
         // The scripts whose code is a binary with symbols, when the scenario asks for functions.
         const symbols = new Map<string, string>();
+        // The same builds by data hash: a spawned script is found by the binary it ran, not by a group.
+        const vmSymbols = new Map<string, string>();
         if (s.functions ?? config.functions) {
           for (const a of applied) {
             const sym = config.binaries![a.name!].symbols;
             if (sym) for (const k of a.scriptKeys) symbols.set(k.toLowerCase(), sym);
+            if (sym) vmSymbols.set(a.newDataHash.toLowerCase(), sym);
           }
         }
         if (symbols.size) {
@@ -356,7 +359,8 @@ export async function runReport(
           await recordFunctions(groups, swapped, symbols, binDir, inside, {
             ...profileOptions,
             ...(scriptVersion !== undefined && { scriptVersion }),
-          });
+            scriptNames,
+          }, vmSymbols);
         }
       }
       debuggerVersion ??= profile.env.debugger;
@@ -446,6 +450,7 @@ async function recordFunctions(
   binDir: string,
   inside: (file: string) => Promise<string>,
   options: ProfileOptions,
+  vmSymbolPaths: Map<string, string> = new Map(),
 ): Promise<void> {
   const fmt = (n: bigint | number) => n.toLocaleString("en-US");
   const symbolsOf = (g: GroupResult) => symbols.get(`${g.codeHash}:${g.hashType}`.toLowerCase());
@@ -469,11 +474,18 @@ async function recordFunctions(
   }
   const run = wanted.filter((g) => bins[g.codeHash]);
   if (!run.length) return;
+  // Builds for spawned scripts: one that cannot be read leaves that child's frames unnamed (said on the child).
+  const vmSymbols: Record<string, string> = {};
+  for (const [hash, sym] of vmSymbolPaths) {
+    const file = await inside(resolve(binDir, sym)).catch(() => undefined);
+    if (file && (await stat(file).then((st) => st.isFile(), () => false))) vmSymbols[hash] = file;
+  }
   let flame: Awaited<ReturnType<typeof flameTransaction>>;
   try {
     flame = await flameTransaction(mock, {
       ...options,
       bins,
+      vmSymbols,
       scripts: run.map((g) => g.selector),
       readFile: (path) => readFile(path, "utf8"),
     });
@@ -497,8 +509,28 @@ async function recordFunctions(
       g.functions = functionCosts(f.folded)
         .slice(0, FUNCTION_LIMIT)
         .map((c) => ({ name: c.name, self: Number(c.self), total: Number(c.total) }));
+      // Only beside a profile that checked out: the children were replayed with the same build.
+      if (f.children?.length) g.children = f.children.map(childResult);
+      if (f.childrenNote) g.childrenNote = f.childrenNote;
     }
   }
+}
+
+/** A spawned script's profile as a report records it: profiled frames, never a share of the group's total. */
+export function childResult(c: FlameChild): ChildResult {
+  const script = c.name ?? (c.codeHash ? short(c.codeHash) : c.locator);
+  const base = { vm: c.vm, parent: c.parent, script, ...(c.codeHash && { codeHash: c.codeHash }) };
+  if (c.failed) return { ...base, failed: c.failed };
+  const out: ChildResult = { ...base, result: c.result, ...(c.error && { error: c.error }), profiled: Number(foldedTotal(c.folded)) };
+  if (c.symbolsWarning) out.functionsWarning = c.symbolsWarning;
+  else if (!c.symbols) out.functionsWarning = "no symbols build for the binary it ran: its frames have no names";
+  else if (!c.folded.size) out.functionsWarning = "the profiler recorded no stacks";
+  else {
+    out.functions = functionCosts(c.folded)
+      .slice(0, FUNCTION_LIMIT)
+      .map((f) => ({ name: f.name, self: Number(f.self), total: Number(f.total) }));
+  }
+  return out;
 }
 
 /**
@@ -537,6 +569,20 @@ async function realParent(p: string): Promise<string> {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     return join(await realParent(parent), basename(p));
   }
+}
+
+/** One spawned script under its group in the terminal report. */
+function childReportLine(c: ChildResult): string {
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  const t = termLine;
+  const head = `spawned vm ${c.vm} (${t(c.script)})`;
+  if (c.failed || c.result === undefined) return `${head}: not profiled: ${t(c.failed ?? "no result")}`;
+  const result = resultLabel({ result: c.result, ...(c.error && { error: c.error }) });
+  const top = (c.functions ?? []).slice(0, 3).map((f) => `${t(f.name)} ${fmt(f.self)}`);
+  return (
+    `${head}: ${t(result)}, ${fmt(c.profiled ?? 0)} cycles in its profiled frames` +
+    (top.length ? `; costliest (self): ${top.join(", ")}` : c.functionsWarning ? `; functions not recorded: ${t(c.functionsWarning)}` : "")
+  );
 }
 
 /**
@@ -601,6 +647,8 @@ export function formatReport(report: CycleReport): string {
         out.push("", `${t(s.name)} ${t(g.selector)}: costliest functions (self cycles): ${top.join(", ")}`);
         if (g.spawned) out.push(`  ${spawnNote({ ...g, head: g })}`);
       }
+      for (const c of g.children ?? []) out.push(`  ${childReportLine(c)}`);
+      if (g.childrenNote) out.push(`  spawned scripts: ${t(g.childrenNote)}`);
     }
   }
   if (report.debugger) out.push("", t(report.debugger));
