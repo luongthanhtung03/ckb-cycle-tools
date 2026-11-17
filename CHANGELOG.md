@@ -2,6 +2,26 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+- ckb-debugger 1.1.2 (released 16 Nov 2026) in the check across releases
+  (`compat/debuggers.json`, native and WebAssembly, sha256 as the release
+  publishes it). Every script group gives 1.1.1's cycles and exit code, and the
+  node's total where it has one: 525 scenario runs, 1,350 groups, no mismatch.
+
+### Documentation
+- `compat/notes.md`: what 1.1.2 changes in `--mode full`. Its `All cycles` line
+  now counts loading the program (ckb-standalone-debugger#209), which no frame
+  holds; the folded stacks are byte for byte the same as 1.1.1's, so `flame`
+  and `report`'s `profiled` do not change. The exported `profiledCycles()`
+  reads that line, so it returns more with 1.1.2 (18,801 against 14,974 on the
+  spawn fixture); its doc comment says so. Also: full mode now analyses the
+  `--vm-id` VM's own ELF (#210), and the `--vm-id` replay of a spawned script
+  that calls `inherited_fds` now runs (it exited 3 with 1.1.1).
+- README: the milestone table ends at 1.3.0 with dates, and the cross-version
+  section gives the 17 Nov run.
+
 ## 1.3.0 (2026-11-07)
 
 From the review on #46 (5 Nov): failed gates on a script that starts rejecting,

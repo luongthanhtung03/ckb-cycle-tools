@@ -36,6 +36,17 @@ describe("ckb-debugger's flamegraph run of a spawning script (1.1.1, recorded)",
   });
 });
 
+describe("the same run under ckb-debugger 1.1.2 (recorded)", () => {
+  const RUN_112 = readFileSync(join(PROJECT, "flamegraph-run-1.1.2.txt"), "utf8");
+
+  it("counts loading the program in the profiled run's total (ckb-standalone-debugger#209), the group total unchanged", () => {
+    // 14,974 in the frames (the folded stacks are the same as 1.1.1's) plus 3,827 for loading.
+    expect(profiledCycles(RUN_112)).toBe(18_801n);
+    expect(RUN_112).toMatch(/^All cycles: 761957\(/m);
+    expect(spawnedScripts(RUN_112)).toBe(1);
+  });
+});
+
 describe("swapping in a new build of a spawned script", () => {
   it("warns that the spawning cell's data still names the old hash", () => {
     const mock = mockOf("tests.test_spawn_light");

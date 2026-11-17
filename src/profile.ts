@@ -191,8 +191,11 @@ export async function flameTransaction(
       const spawned = spawnedScripts(runOut.stdout);
       const names = bin ? await namesOf(bin) : new Map<bigint, string>();
       const folded = nameAddresses(parseFolded(await options.readFile(out).catch(() => "")), names);
-      // Flamegraph mode leaves out loading the binary, so result and cycles come
-      // from plain runs: with the build, and with the deployed binary to compare.
+      // A flamegraph run's own total is not the group's: up to ckb-debugger 1.1.1 it
+      // leaves out loading the binary, 1.1.2 counts loading but is still a few
+      // cycles short (14 on the testtool fixture), and every release leaves out
+      // spawned scripts. So result and cycles come from plain runs: with the
+      // build, and with the deployed binary to compare.
       const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(bin ? ["--bin", bin] : [])]));
       const deployed = bin ? parseDebuggerRun(await exec(base)) : undefined;
       groups.push({

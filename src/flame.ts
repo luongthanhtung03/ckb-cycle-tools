@@ -216,10 +216,18 @@ function colour(name: string): string {
 }
 
 /**
- * The `All cycles: N` line ckb-debugger prints in flamegraph mode: what the
- * profile covers. The last one: when the script spawns other scripts, the
+ * The `All cycles: N` line ckb-debugger prints in flamegraph mode for the
+ * profiled run. The last one: when the script spawns other scripts, the
  * debugger first runs the whole group (printing its full total) to record
  * the syscalls, then profiles the root script alone ("Actual run").
+ *
+ * Up to ckb-debugger 1.1.1 this equals what the profile's frames cover. From
+ * 1.1.2 (nervosnetwork/ckb-standalone-debugger#209) it also counts loading the
+ * program, which no frame holds: on the spawn fixture 18,801 against 14,974 in
+ * the frames. It is not the group's total in either release (no spawned
+ * scripts, and 1.1.2 is still 14 cycles under the plain run on the testtool
+ * fixture). For what the frames cover, sum the folded stacks
+ * (`foldedTotal`), as `flame` and `report` do; it is the same in both releases.
  */
 export function profiledCycles(output: string): bigint | undefined {
   const all = [...output.matchAll(/^All cycles:\s*(\d+)/gm)];

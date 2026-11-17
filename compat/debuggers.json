@@ -138,6 +138,24 @@
         "asset": "ckb-debugger_v1.1.1_wasm32-wasip1.tar.gz",
         "sha256": "21feb7670fc058388c5212815858764ff5b4e535589fc8020a690ad1c3dd6a48"
       }
+    },
+    {
+      "version": "1.1.2",
+      "tag": "v1.1.2",
+      "native": {
+        "linux": {
+          "asset": "ckb-debugger_v1.1.2_x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "f51dacde2ad462424add10b704fbc01520cc9114e44117242129002209769054"
+        },
+        "win32": {
+          "asset": "ckb-debugger_v1.1.2_x86_64-pc-windows-msvc.tar.gz",
+          "sha256": "1b03e2b6b83be85c1fa2410140eb75aa699a08ab430ecfc6d4fad99443b5b690"
+        }
+      },
+      "wasm": {
+        "asset": "ckb-debugger_v1.1.2_wasm32-wasip1.tar.gz",
+        "sha256": "a8be47b77e9b7a3bea48bdf30aeff1e45ca591e384f89267db442dce64072214"
+      }
     }
   ]
 }

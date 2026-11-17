@@ -4,15 +4,15 @@ Cycle measurement for CKB on-chain scripts.
 
 **Live demo:** [ckb-cycle-tools.vercel.app](https://ckb-cycle-tools.vercel.app/) — paste a testnet tx hash, see cycles and script groups (CKB testnet).
 
-**Status: v1.3** ([npm](https://www.npmjs.com/package/ckb-cycle-tools), [changelog](CHANGELOG.md)). Built in the open during my CKBuilder programme.
+**Status: v1.3.0 on npm** (7 Nov 2026; [npm](https://www.npmjs.com/package/ckb-cycle-tools), [changelog](CHANGELOG.md)). Built in the open during my CKBuilder programme.
 
 | When | Milestone |
 |---|---|
 | w/c 5 Oct 2026 | ✅ Scaffold, CI, the Windows `ckb-debugger` shim fix |
 | w/c 12 Oct | ✅ CLI: per-script cycle table for a transaction |
 | w/c 19 Oct | ✅ Failure-path profiling; ✅ CI on Linux and Windows |
-| w/c 26 Oct | ✅ ckb-js-vm vs Rust comparison harness |
-| w/c 2 Nov | v1.0 on npm |
+| w/c 26 Oct | ✅ ckb-js-vm vs Rust comparison harness; ✅ v1.0.0 on npm (27 Oct, planned for w/c 2 Nov); ✅ v1.1.0 (30 Oct): `ckb-cycles scan`, the ckb-testtool integration, the check across ckb-debugger releases |
+| w/c 2 Nov | ✅ v1.2.0 (5 Nov): scripts that spawn other scripts; ✅ v1.3.0 (7 Nov): result-change gates, reproducibility manifest |
 
 ## The problem
 
@@ -696,11 +696,15 @@ are stored with every cell in
 [compat/scenarios.json.br](compat/scenarios.json.br), so every build reads the
 same bytes and the run needs no network.
 
-Measured on 28 Oct 2026 on Windows: native releases 0.121.0, 0.200.0, 0.200.1,
-0.200.2, 0.203.0, 1.0.0, 1.1.0 and 1.1.1, and the WebAssembly builds of 0.200.1
-to 1.1.1 (the web page's build in ckb-testtool is byte for byte the 0.200.1 one).
-All 455 scenario runs, 1,170 script groups, gave the reference's cycles and exit
-code, and every mainnet and testnet total matched the node. The same
+Measured on 17 Nov 2026 on Windows: native releases 0.121.0, 0.200.0, 0.200.1,
+0.200.2, 0.203.0, 1.0.0, 1.1.0, 1.1.1 and 1.1.2, and the WebAssembly builds of
+0.200.1 to 1.1.2 (the web page's build in ckb-testtool is byte for byte the
+0.200.1 one). All 525 scenario runs, 1,350 script groups, gave the reference's
+cycles and exit code, and every mainnet and testnet total matched the node.
+ckb-debugger 1.1.2 changes `--mode full` only: its own `All cycles` line now
+counts loading the program, which no frame holds, so `flame`'s functions and
+`profiled` numbers are the same as with 1.1.1
+([compat/notes.md](compat/notes.md#ckb-debugger-112-16-nov-2026-flamegraph-mode-changes-totals-do-not)). The same
 transactions on another CKB-VM version do cost differently (VM 2 is cheaper than
 VM 1, and VM 0 cannot run most of today's binaries); the results explain each
 case from the hardfork RFCs. That is why the replay takes the VM version from the
