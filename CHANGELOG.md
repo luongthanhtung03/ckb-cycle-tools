@@ -2,7 +2,7 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.4.0 (2026-11-18)
 
 ### Added
 - Per-child profiles of a script that spawns others (ckb-debugger 1.1.2 or
