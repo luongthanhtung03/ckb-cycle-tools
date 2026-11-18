@@ -47,7 +47,7 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
     } else {
       if (!module) throw new Error("ckb-debugger is not loaded");
       const r = await runWasmDebugger((await module).module, msg.args, { [WASM_TX_FILE.slice(1)]: msg.tx });
-      // The whole run, exit code included: the page checks the result lines against it.
+      // The whole run, exit code and written files included: the page checks the result lines against it.
       post({ type: "output", id: msg.id, run: r });
     }
   } catch (err) {

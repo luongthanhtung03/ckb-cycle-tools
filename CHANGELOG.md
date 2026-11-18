@@ -31,12 +31,34 @@ This project follows [semantic versioning](https://semver.org/).
   `CHILD_PROFILE_DEBUGGER` (also in `ckb-cycle-tools/flame`); `spawnedBinary`,
   `resolvedCellDeps`; `childDeltas`, `childResult`, `CHILDREN_FOOTNOTE`;
   types `ChildResult`, `ChildDelta`, `SpawnedVm`, `SpawnedBinary`.
+- Web page: a group whose script spawns others is split by script, as `flame`
+  does. After the per-group replay, each group gets one profiled run; under a
+  spawning group's row the page lists the spawning script's own frames (vm 0)
+  and each spawned VM (its locator and code hash, exit code, and its own
+  frames from a `--vm-id` replay), says these sit inside the group's total
+  (loading and the spawn are in no frame), and gives the CLI's note on a
+  spawned server that ends non-zero after its group verified. At most 16
+  spawned VMs per group; a failed replay leaves the group row as it is. On the
+  Crowns race `0x2502c0b4…`: group 123,718,667, vm 0 7,993,759, vm 1
+  115,556,444 (exit -1), the same as the CLI.
+- Library: `ckb-cycle-tools/children` (no Node built-ins): `profileSpawns`,
+  `profileChildren`, `serverExit`, `olderDebuggerNote`, and `SERVER_EXIT_NOTE`
+  and `MAX_CHILD_PROFILES` (both still exported where they were); `wasmFiles`
+  in `ckb-cycle-tools/wasm`. `runWasmDebugger` now returns the files a run
+  wrote (`files`).
 - ckb-debugger 1.1.2 (released 16 Nov 2026) in the check across releases
   (`compat/debuggers.json`, native and WebAssembly, sha256 as the release
   publishes it). Every script group gives 1.1.1's cycles and exit code, and the
   node's total where it has one: 525 scenario runs, 1,350 groups, no mismatch.
 
 ### Changed
+- The web page runs ckb-debugger 1.1.2's WebAssembly build (was 0.200.1, from
+  `ckb-testtool`): `demo/scripts/copy-wasm.mjs` downloads the release asset
+  `ckb-debugger_v1.1.2_wasm32-wasip1.tar.gz`, checks it against the sha256 in
+  `compat/debuggers.json` and the wasm in it against a pinned sha256, and
+  stops the build on any mismatch. Per-group cycles are unchanged: the page's
+  three examples, a 2023 VM v1 transaction and the Crowns race give the same
+  cycles per group, and the node's total, on both builds.
 - The Action installs ckb-debugger v1.1.2 by default (was v1.1.1), and CI and
   the cross-version check's reference use 1.1.2. Group cycles are the same as
   with 1.1.1 (see Added), but a report's manifest names the new version, so a

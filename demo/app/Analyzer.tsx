@@ -2,6 +2,7 @@
 
 import { ccc } from "@ckb-ccc/core";
 import { analyzeTransaction, type ScriptGroup, type TxAnalysis } from "ckb-cycle-tools/analyze";
+import type { FlameChild } from "ckb-cycle-tools/children";
 import type { Profile, ProfiledGroup } from "ckb-cycle-tools/replay";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { loadDebugger } from "./debugger";
@@ -311,6 +312,15 @@ async function nodeCyclesAt(url: string, hash: string): Promise<bigint | undefin
 
 type Verdict = ReturnType<typeof import("ckb-cycle-tools/replay").nodeVerdict>;
 
+/**
+ * A group's split by script, from profileSpawns: the spawning script's own
+ * frames and each spawned script's, with the CLI's note on a child whose own
+ * replay ended non-zero in a group that verified. Or why it was not checked.
+ */
+type Split =
+  | { spawned: number; own: bigint; kids: { c: FlameChild; frames: bigint; note?: string }[]; childrenNote?: string }
+  | { error: string };
+
 const mb = (n: number) => (n / 1e6).toFixed(1);
 
 /**
@@ -327,6 +337,9 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
   const [nodeFrom, setNodeFrom] = useState<string>();
   const [error, setError] = useState<string>();
   const [openLogs, setOpenLogs] = useState<string>();
+  // By selector: only groups whose script spawned others, or whose check failed.
+  const [splits, setSplits] = useState<Record<string, Split>>({});
+  const [spawnNote, setSpawnNote] = useState<string>();
   const say = (line: string) => setLines((l) => [...l, line]);
 
   const go = async () => {
@@ -336,12 +349,17 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
     setProfile(undefined);
     setNodeFrom(undefined);
     setError(undefined);
+    setSplits({});
+    setSpawnNote(undefined);
     try {
       say("loading ckb-debugger (WebAssembly)…");
       // The shim and the debugger stay in the worker; the page only loads the replay logic.
-      const [dbg, replay] = await Promise.all([
+      const [dbg, replay, children, flame, wasm] = await Promise.all([
         loadDebugger((loaded, total) => setDownload(total ? `${mb(loaded)} / ${mb(total)} MB` : `${mb(loaded)} MB`)),
         import("ckb-cycle-tools/replay"),
+        import("ckb-cycle-tools/children"),
+        import("ckb-cycle-tools/flame"),
+        import("ckb-cycle-tools/wasm"),
       ]);
       setDownload(undefined);
       say(`${dbg.version} ready`);
@@ -357,14 +375,56 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
       const n = plan.groups.length;
       say(`${n} group${n === 1 ? "" : "s"} to run on CKB-VM v${plan.scriptVersion}`);
       const tx = new TextEncoder().encode(JSON.stringify(plan.mock));
-      const p = await replay.replayGroups(plan, dbg.runner(tx), {
+      const run = dbg.runner(tx);
+      const p = await replay.replayGroups(plan, run, {
         txFile: dbg.txFile,
         debugger: `${dbg.version} (wasm)`,
         onGroup: (i, selector) => say(`[${i + 1}/${n}] ${selector}`),
       });
-      say("done");
       setProfile(p);
       setVerdict(replay.nodeVerdict(p));
+
+      // Groups whose script spawns others, split by script as the CLI's flame does:
+      // a profiled run of each group, then one --vm-id replay per spawned VM.
+      if (!flame.profilesChildren(dbg.version)) {
+        setSpawnNote(`${children.olderDebuggerNote(dbg.version)}: a group whose script spawns others shows its total only`);
+      } else {
+        say("checking each group for spawned scripts (a profiled run of each)…");
+        for (const g of plan.groups) {
+          if (g.role === "type" && g.codeHash === replay.TYPE_ID_CODE_HASH) continue; // built into the node
+          const selector = replay.selectorFor(g);
+          try {
+            const split = await children.profileSpawns({
+              version: dbg.version,
+              base: replay.debuggerArgs(dbg.txFile, selector, plan.scriptVersion),
+              ...wasm.wasmFiles(run),
+              mock: plan.mock,
+              group: g,
+            });
+            if (!split) continue;
+            const k = split.spawned;
+            const kids = split.children ?? [];
+            say(`${selector}: spawned ${k} other script${k === 1 ? "" : "s"}, ${kids.length} replayed on its own (--vm-id)`);
+            const pg = p.groups.find((x) => x.selector === selector);
+            const groupOk = pg !== undefined && pg.result === 0 && !pg.error;
+            const view: Split = {
+              spawned: k,
+              own: flame.foldedTotal(split.own),
+              kids: kids.map((c) => ({
+                c,
+                frames: flame.foldedTotal(c.folded),
+                ...(children.serverExit(c, groupOk) && { note: children.SERVER_EXIT_NOTE }),
+              })),
+              ...(split.childrenNote && { childrenNote: split.childrenNote }),
+            };
+            setSplits((s) => ({ ...s, [selector]: view }));
+          } catch (e) {
+            // One group's check failing (a timeout ends the worker) leaves its row as it is.
+            setSplits((s) => ({ ...s, [selector]: { error: e instanceof Error ? e.message : String(e) } }));
+          }
+        }
+      }
+      say("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -427,6 +487,7 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
                     label={label(g)}
                     open={openLogs === g.selector}
                     toggle={() => setOpenLogs(openLogs === g.selector ? undefined : g.selector)}
+                    split={splits[g.selector]}
                   />
                 ))}
               </tbody>
@@ -452,6 +513,7 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
               {profile.env.debugger}, CKB-VM v{profile.env.scriptVersion}
             </dd>
           </dl>
+          {spawnNote && <p className="hint"># spawned scripts: {spawnNote}</p>}
         </>
       )}
     </div>
@@ -464,12 +526,14 @@ function GroupRow({
   label,
   open,
   toggle,
+  split,
 }: {
   g: ProfiledGroup;
   total: bigint;
   label: string;
   open: boolean;
   toggle: () => void;
+  split?: Split;
 }) {
   const pct = total > 0n ? (Number(g.cycles) / Number(total)) * 100 : 0;
   return (
@@ -506,6 +570,80 @@ function GroupRow({
           </td>
         </tr>
       )}
+      {split && <SpawnRows g={g} split={split} />}
+    </>
+  );
+}
+
+const childResult = (c: FlameChild) => (c.failed ? "not profiled" : c.error ? "error" : c.result === 0 ? "ok" : `exit ${c.result}`);
+
+/**
+ * A group whose script spawned others, split by script: the spawning script's
+ * own frames (vm 0) and each spawned script's, from its own --vm-id replay,
+ * with the numbers and wording of the CLI's `flame`. Each is profiled frames
+ * inside the group's total, never a share of it.
+ */
+function SpawnRows({ g, split }: { g: ProfiledGroup; split: Split }) {
+  if ("error" in split) {
+    return (
+      <tr className="detail">
+        <td colSpan={5}>
+          <div className="mono warn"># spawned scripts: not checked: {split.error}</div>
+        </td>
+      </tr>
+    );
+  }
+  const n = split.spawned;
+  return (
+    <>
+      <tr className="spawn">
+        <td />
+        <td>
+          <span className="dim">└ vm 0</span> spawning script
+        </td>
+        <td className="dim">—</td>
+        <td>{fmt(split.own)}</td>
+        <td className="dim">own frames</td>
+      </tr>
+      {split.kids.map(({ c, frames }) => (
+        <tr key={c.vm} className="spawn">
+          <td />
+          <td title={`${c.codeHash ? `code hash ${c.codeHash} · ` : ""}${c.locator}`}>
+            <span className="dim">└ vm {c.vm}</span> {c.name ?? (c.codeHash ? short(c.codeHash, 6) : c.locator)}{" "}
+            <span className="dim">
+              ({c.locator}
+              {c.parent ? `, spawned by vm ${c.parent}` : ""})
+            </span>
+          </td>
+          <td className={c.failed ? "warn" : c.result === 0 && !c.error ? "ok" : "bad"} title={c.error ?? c.failed}>
+            {childResult(c)}
+          </td>
+          <td>{c.failed ? "—" : fmt(frames)}</td>
+          <td className="dim">{c.failed ? "" : "own frames"}</td>
+        </tr>
+      ))}
+      <tr className="detail">
+        <td colSpan={5}>
+          <div className="mono dim">
+            # spawned {n} other script{n === 1 ? "" : "s"}: {n === 1 ? "its" : "their"} cycles are in the {fmt(g.cycles)}, not in
+            vm 0&apos;s own frames.
+            {split.kids.length > 0 &&
+              " Each spawned vm's row is its own profiled frames, from a --vm-id replay (inside the group's total; loading it and the spawn are not profiled), so the rows do not add up to the group."}
+          </div>
+          {split.kids.map(({ c, note }) =>
+            c.failed ? (
+              <div key={c.vm} className="mono warn">
+                # vm {c.vm}: {c.failed}
+              </div>
+            ) : note ? (
+              <div key={c.vm} className="mono dim">
+                # vm {c.vm}: {note}
+              </div>
+            ) : null,
+          )}
+          {split.childrenNote && <div className="mono dim"># spawned scripts: {split.childrenNote}</div>}
+        </td>
+      </tr>
     </>
   );
 }

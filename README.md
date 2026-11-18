@@ -150,15 +150,28 @@ as everywhere else in this repo (see the Windows fix above).
 ### In the browser: per-group cycles on the web page
 
 The page's **per-group cycles** button runs the same replay without installing
-anything: ckb-debugger's WebAssembly build (0.200.1, shipped in `ckb-testtool`)
-runs in a Web Worker through a WASI shim, with the mock transaction as an
-in-memory file. It downloads ~4 MB (about 1.1 MB compressed) only when pressed,
-then shows each group's result, cycles, share and logs, and whether the total
-matches the node. It gives the same numbers as the native ckb-debugger 1.1.1:
-15,675,038 (counter), 2,607,561 (Type ID deploy) and 1,787,335 (a 2023, VM v1
-transaction), and `test/wasm.test.ts` checks that offline on recorded transactions.
+anything: ckb-debugger's WebAssembly build (1.1.2, the release's
+wasm32-wasip1 asset; `demo/scripts/copy-wasm.mjs` fetches it at build time and
+checks its sha256 against `compat/debuggers.json`) runs in a Web Worker through
+a WASI shim, with the mock transaction as an in-memory file. It downloads ~4 MB
+(about 1.2 MB compressed) only when pressed, then shows each group's result,
+cycles, share and logs, and whether the total matches the node. It gives the
+same numbers as the native ckb-debugger: 15,675,038 (counter), 2,607,561 (Type
+ID deploy) and 1,787,335 (a 2023, VM v1 transaction), and `test/wasm.test.ts`
+checks that offline on recorded transactions.
+
+A group whose script spawns others is split by script, as `flame` does: under
+the group's row, the spawning script's own profiled frames (vm 0) and each
+spawned VM's (its binary, by data hash and locator, its exit code and its
+frames, from its own `--vm-id` replay), all inside the group's total; loading
+and the spawn itself are in no frame. On a Crowns race
+(testnet `0x2502c0b4…71997c4d`): group 123,718,667, vm 0 7,993,759, vm 1
+115,556,444 (exit -1, a ckb-script-ipc server still waiting after its client
+finished, which the page says).
 From code: `wasmRunner(module, tx)` from `ckb-cycle-tools/wasm` plugs into
-`replayGroups` from `ckb-cycle-tools/replay`, neither of which uses Node built-ins.
+`replayGroups` from `ckb-cycle-tools/replay`, and `profileSpawns` from
+`ckb-cycle-tools/children` with `wasmFiles(run)` splits a group; none of them
+uses Node built-ins.
 
 ### Before you send: the failure path
 
@@ -732,8 +745,8 @@ same bytes and the run needs no network.
 
 Measured on 17 Nov 2026 on Windows: native releases 0.121.0, 0.200.0, 0.200.1,
 0.200.2, 0.203.0, 1.0.0, 1.1.0, 1.1.1 and 1.1.2, and the WebAssembly builds of
-0.200.1 to 1.1.2 (the web page's build in ckb-testtool is byte for byte the
-0.200.1 one). All 525 scenario runs, 1,350 script groups, gave the reference's
+0.200.1 to 1.1.2 (the web page runs the 1.1.2 one; ckb-testtool's build is byte
+for byte the 0.200.1 one). All 525 scenario runs, 1,350 script groups, gave the reference's
 cycles and exit code, and every mainnet and testnet total matched the node.
 ckb-debugger 1.1.2 changes `--mode full` only: its own `All cycles` line now
 counts loading the program, which no frame holds, so `flame`'s functions and
@@ -764,8 +777,8 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
 - **Type ID is charged, not run.** The node verifies Type ID natively; the tools
   charge its fixed 1,000,000 cycles and check its rules the way the node does.
 - **Two debugger builds.** The CLI uses the native ckb-debugger you install
-  (CI pins 1.1.2; the examples here ran 1.1.1); the web page uses the WebAssembly build shipped in
-  `ckb-testtool` (0.200.1). They agree on every transaction checked, and so do
+  (CI pins 1.1.2; the examples here ran 1.1.1); the web page uses the WebAssembly build of
+  the 1.1.2 release. They agree on every transaction checked, and so do
   the releases in between ([Across ckb-debugger versions](#across-ckb-debugger-versions)),
   but a future CKB-VM change could reach one before the other; each result names
   the version it used.

@@ -4,13 +4,13 @@
  * fails or runs past RUN_TIMEOUT_MS is thrown away, and the next run starts a
  * fresh one.
  */
-import type { DebuggerOutput, RunDebugger } from "ckb-cycle-tools/replay";
+import type { RunWithFiles, WasmRun } from "ckb-cycle-tools/wasm";
 
 export type WorkerIn = { type: "load"; url: string } | { type: "run"; id: number; args: string[]; tx: Uint8Array };
 export type WorkerOut =
   | { type: "progress"; loaded: number; total?: number }
   | { type: "ready"; version: string; txFile: string }
-  | { type: "output"; id: number; run: DebuggerOutput }
+  | { type: "output"; id: number; run: WasmRun }
   | { type: "error"; id?: number; message: string };
 
 /** Served from public/ (copied there by scripts/copy-wasm.mjs). */
@@ -26,14 +26,18 @@ export interface Debugger {
   version: string;
   /** Where the debugger reads the transaction: replayGroups' txFile. */
   txFile: string;
-  /** A replayGroups runner with `tx` (the mock transaction's JSON, encoded) at txFile. */
-  runner(tx: Uint8Array): RunDebugger;
+  /**
+   * A replayGroups runner with `tx` (the mock transaction's JSON, encoded) at
+   * txFile. Each run also returns the files it wrote (a flamegraph run's folded
+   * stacks), for profileSpawns through wasmFiles.
+   */
+  runner(tx: Uint8Array): RunWithFiles;
 }
 
 let worker: Worker | undefined;
 let loading: Promise<Debugger> | undefined;
 let nextId = 0;
-const pending = new Map<number, { resolve: (run: DebuggerOutput) => void; reject: (e: Error) => void }>();
+const pending = new Map<number, { resolve: (run: WasmRun) => void; reject: (e: Error) => void }>();
 
 /** Ends the worker and fails whatever it was running; the next load starts a new one. */
 function discard(err: Error) {
@@ -76,14 +80,14 @@ function settle(id: number) {
   return p;
 }
 
-function runner(tx: Uint8Array): RunDebugger {
+function runner(tx: Uint8Array): RunWithFiles {
   return (args) =>
-    new Promise<DebuggerOutput>((resolve, reject) => {
+    new Promise<WasmRun>((resolve, reject) => {
       if (!worker) return reject(new Error("the ckb-debugger worker stopped; run again"));
       const id = ++nextId;
       // A run cannot be interrupted inside the worker: on timeout the worker goes.
       const timer = setTimeout(
-        () => discard(new Error(`a script group ran for more than ${RUN_TIMEOUT_MS / 1000} s; stopped`)),
+        () => discard(new Error(`a ckb-debugger run took more than ${RUN_TIMEOUT_MS / 1000} s; stopped`)),
         RUN_TIMEOUT_MS,
       );
       const done = <T>(f: (v: T) => void) => (v: T) => (clearTimeout(timer), f(v));

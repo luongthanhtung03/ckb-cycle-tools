@@ -26,6 +26,9 @@
       "ckb-cycle-tools/analyze": [
         "../dist/analyze.d.ts"
       ],
+      "ckb-cycle-tools/children": [
+        "../dist/children.d.ts"
+      ],
       "ckb-cycle-tools/flame": [
         "../dist/flame.d.ts"
       ],
