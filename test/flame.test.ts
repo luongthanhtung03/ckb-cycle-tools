@@ -40,6 +40,31 @@ describe("splitStack", () => {
   });
 });
 
+describe("a ';' inside a name written as U+037E (ckb-standalone-debugger#212)", () => {
+  // Newer ckb-debugger writes `[u8\u037e 32]` where older ones write `[u8; 32]`; frames are still joined by "; ".
+  const frames = (semi: string) => [
+    String.raw`??:func_0x114e4`,
+    String.raw`E:\src\session-lock\src\main.rs:session_lock::each::<[u8` + semi + String.raw` 32], F>`,
+    String.raw`E:\src\session-lock\src\main.rs:session_lock::lock_hash`,
+  ];
+  const folded = (semi: string) => `${frames(semi).join("; ")} 300\n${frames(semi).slice(0, 2).join("; ")} 70`;
+  const OLD = folded(";");
+  const NEW = folded("\u037e");
+
+  it("reads it as ';', so both debuggers give the same frames, names and costs", () => {
+    expect(NEW).toContain("\u037e");
+    expect(frameName("main.rs:sum::<[u8\u037e 32]>")).toBe("sum::<[u8; 32]>");
+    const old = parseFolded(OLD);
+    const now = parseFolded(NEW);
+    expect([...now]).toEqual([...old]);
+    expect(splitStack([...now.keys()][0])).toEqual(["func_0x114e4", "session_lock::each::<[u8; 32], F>", "session_lock::lock_hash"]);
+    expect(functionCosts(now)).toEqual(functionCosts(old));
+    expect(functionCosts(now).find((c) => c.name === "session_lock::each::<[u8; 32], F>")).toMatchObject({ self: 70n, total: 370n });
+    expect(formatFolded(now)).not.toContain("\u037e");
+    expect(renderFlameSvg(flameTree(now))).toBe(renderFlameSvg(flameTree(old)));
+  });
+});
+
 describe("parseFolded on real ckb-debugger output", () => {
   const folded = parseFolded(RAW);
 

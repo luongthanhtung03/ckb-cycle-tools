@@ -14,11 +14,22 @@
 export type Folded = Map<string, bigint>;
 
 /**
+ * A frame name with each U+037E (GREEK QUESTION MARK, which looks like `;`)
+ * turned back into `;`. Newer ckb-debugger and ckb-vm-pprof write a `;` inside
+ * a name that way, so it cannot be read as a frame separator
+ * (nervosnetwork/ckb-standalone-debugger#211, #212); older ones write `;`.
+ * Reading both as `;` keeps a function's name, and so its costs and diffs, the
+ * same whichever debugger profiled it.
+ */
+export const asciiFrame = (name: string): string => name.replace(/\u037e/g, ";");
+
+/**
  * `E:\…\src\main.rs:session_lock::lock_hash` → `session_lock::lock_hash`. The
- * path ends at the first `.<ext>:`; `??:func_0x114e4` (no symbols) keeps its address.
+ * path ends at the first `.<ext>:`; `??:func_0x114e4` (no symbols) keeps its
+ * address. A U+037E in the name is read as `;` (asciiFrame).
  */
 export function frameName(frame: string): string {
-  const f = frame.trim();
+  const f = asciiFrame(frame.trim());
   if (f.startsWith("??:")) return f.slice(3);
   const m = /^.*?\.[A-Za-z0-9]+:(.+)$/.exec(f);
   return m ? m[1] : f;

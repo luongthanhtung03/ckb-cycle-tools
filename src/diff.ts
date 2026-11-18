@@ -5,6 +5,8 @@
  * Pure: no network, no file system.
  */
 
+import { asciiFrame } from "./flame.js";
+
 /** What `ckb-cycles report` writes. */
 export interface CycleReport {
   tool: "ckb-cycles";
@@ -668,6 +670,11 @@ export function childDeltas(base: ChildResult[] | undefined, head: ChildResult[]
  * by the side that is.
  */
 export function functionDeltas(base: FunctionResult[] | undefined, head: FunctionResult[]): FunctionDelta[] {
+  // A report written by an older ckb-cycle-tools with a newer ckb-debugger can
+  // name `[u8; 32]` with a U+037E for the `;`: the same function either way.
+  const ascii = (list: FunctionResult[]) => list.map((f) => ({ ...f, name: asciiFrame(f.name) }));
+  base = base && ascii(base);
+  head = ascii(head);
   const side = (list: FunctionResult[] | undefined, name: string) => {
     if (!list) return undefined;
     const f = list.find((f) => f.name === name);

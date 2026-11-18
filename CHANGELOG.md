@@ -67,6 +67,14 @@ This project follows [semantic versioning](https://semver.org/).
   Action still knows v1.1.1's checksum, so `ckb-debugger-version: v1.1.1` works
   without `ckb-debugger-sha256`.
 
+### Fixed
+- A function keeps its name whichever ckb-debugger profiled it. Newer
+  ckb-debugger and ckb-vm-pprof write a `;` inside a frame name (`[u8; 32]`) as
+  U+037E, which looks the same (ckb-standalone-debugger#211, #212); frames,
+  function costs, report JSON and SVGs now read it back as `;`, and `diff`
+  does the same for function names in a saved report, so a base and a head
+  profiled with different debuggers show a change, not a rename.
+
 ### Documentation
 - `compat/notes.md`: what 1.1.2 changes in `--mode full`. Its `All cycles` line
   now counts loading the program (ckb-standalone-debugger#209), which no frame

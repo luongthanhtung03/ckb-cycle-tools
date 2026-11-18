@@ -383,6 +383,14 @@ describe("functions", () => {
     expect(out).toContain("Function details left out");
   });
 
+  it("reads a U+037E for ';' in a function name as ';': a delta, not a rename (ckb-standalone-debugger#212)", () => {
+    const d = diffReports(
+      report({ name: "s", groups: [fg(1_000, [f("sum::<[u8\u037e 32]>", 100), f("main", 50)])] }),
+      report({ name: "s", groups: [fg(1_040, [f("sum::<[u8; 32]>", 140), f("main", 50)])] }),
+    );
+    expect(d.rows[0].functions).toEqual([{ name: "sum::<[u8; 32]>", base: 100, head: 140, delta: 40 }]);
+  });
+
   it("keeps a base with functions and a head without them as a plain diff", () => {
     const d = diffReports(report({ name: "s", groups: [fg(1, [f("a", 5)])] }), report({ name: "s", groups: [fg(2)] }));
     expect(d.rows[0]).not.toHaveProperty("functions");
