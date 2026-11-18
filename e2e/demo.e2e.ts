@@ -100,3 +100,20 @@ test("with a ckb-debugger older than 1.1.2, the page says so and replays no spaw
   await expect(page.locator("tr.spawn")).toHaveCount(0);
   await expect(page.getByText("checking each group for spawned scripts", { exact: false })).toHaveCount(0);
 });
+
+test("inspecting another tx mid-replay cancels the old replay; the new one runs on its own", async ({ page }) => {
+  await page.goto(`/?tx=${SPAWN_TX}`);
+  await page.getByRole("button", { name: "per-group cycles" }).click();
+  // The old replay is in its spawn check (the Crowns group's profiled runs take seconds) when the page moves on.
+  await expect(page.getByText("checking each group for spawned scripts", { exact: false })).toBeVisible({ timeout: 170_000 });
+  await page.getByRole("button", { name: "counter (ckb-js-vm)" }).click();
+  await expect(page.getByText(`tx ${TX}`)).toBeVisible();
+  await page.getByRole("button", { name: "per-group cycles" }).click();
+  await expect(page.getByRole("button", { name: "run again" })).toBeVisible({ timeout: 170_000 });
+  await expect(page.locator("dt", { hasText: "measured" }).locator("+ dd")).toHaveText(NODE_CYCLES);
+  await expect(page.locator("dt", { hasText: "vs node" }).locator("+ dd")).toHaveText("✓ match");
+  // Nothing from the cancelled replay reached this page.
+  await expect(page.locator("tr.spawn")).toHaveCount(0);
+  await expect(page.getByText("not checked", { exact: false })).toHaveCount(0);
+  await expect(page.getByText(SPAWN_TX.slice(0, 10), { exact: false })).toHaveCount(0);
+});

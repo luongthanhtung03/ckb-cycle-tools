@@ -1,7 +1,8 @@
 /**
  * ckb-debugger (WebAssembly) in a Web Worker, so a long script does not freeze
  * the page. It downloads and compiles the module on the first "load", then
- * runs one group per "run" message with the mock transaction in memory.
+ * runs one group per "run" message with the mock transaction in memory, one
+ * at a time, in the order they came; "started" tells the page when each begins.
  */
 import { runWasmDebugger, WASM_TX_FILE, wasmDebuggerVersion } from "ckb-cycle-tools/wasm";
 import type { WorkerIn, WorkerOut } from "./debugger";
@@ -9,6 +10,8 @@ import type { WorkerIn, WorkerOut } from "./debugger";
 const post = (m: WorkerOut) => (self as unknown as { postMessage(m: WorkerOut): void }).postMessage(m);
 
 let module: Promise<{ module: WebAssembly.Module; version: string }> | undefined;
+/** Runs, one after another: a run's "started" means it is the one running. */
+let queue: Promise<void> = Promise.resolve();
 
 async function load(url: string) {
   const res = await fetch(url);
@@ -35,8 +38,13 @@ async function load(url: string) {
   return { module: m, version: await wasmDebuggerVersion(m) };
 }
 
-self.onmessage = async (e: MessageEvent<WorkerIn>) => {
+self.onmessage = (e: MessageEvent<WorkerIn>) => {
   const msg = e.data;
+  if (msg.type === "load") void handle(msg);
+  else queue = queue.then(() => handle(msg));
+};
+
+async function handle(msg: WorkerIn) {
   try {
     if (msg.type === "load") {
       module ??= load(msg.url);
@@ -46,11 +54,13 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
       post({ type: "ready", version, txFile: WASM_TX_FILE });
     } else {
       if (!module) throw new Error("ckb-debugger is not loaded");
-      const r = await runWasmDebugger((await module).module, msg.args, { [WASM_TX_FILE.slice(1)]: msg.tx });
+      const m = (await module).module;
+      post({ type: "started", id: msg.id });
+      const r = await runWasmDebugger(m, msg.args, { [WASM_TX_FILE.slice(1)]: msg.tx });
       // The whole run, exit code and written files included: the page checks the result lines against it.
       post({ type: "output", id: msg.id, run: r });
     }
   } catch (err) {
     post({ type: "error", ...(msg.type === "run" && { id: msg.id }), message: err instanceof Error ? err.message : String(err) });
   }
-};
+}

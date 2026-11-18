@@ -12,10 +12,12 @@
  * Anything else stops the build.
  */
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 
 const VERSION = "1.1.2";
+/** The most the download may take before the build stops. */
+const FETCH_TIMEOUT_MS = 60_000;
 /** sha256 of ckb-debugger.wasm inside ckb-debugger_v1.1.2_wasm32-wasip1.tar.gz. */
 const WASM_SHA256 = "14c59a70b8a80226faabdde2b5b679e9331e785746427c319ecb9137ea7d0cfb";
 
@@ -61,9 +63,15 @@ function untarGz(bytes) {
 }
 
 async function fetchWasm() {
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok) fail(`${url}: HTTP ${res.status}`);
-  const tarball = new Uint8Array(await res.arrayBuffer());
+  let tarball;
+  try {
+    const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!res.ok) fail(`${url}: HTTP ${res.status}`);
+    tarball = new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    const why = e?.name === "TimeoutError" ? `no complete answer within ${FETCH_TIMEOUT_MS / 1000} s` : e instanceof Error ? e.message : String(e);
+    fail(`cannot download ${url}: ${why}`);
+  }
   const got = sha256(tarball);
   if (got !== release.wasm.sha256) fail(`${url}: sha256 ${got}, expected ${release.wasm.sha256}`);
   const entry = [...untarGz(tarball)].find(([name]) => name.split("/").at(-1) === "ckb-debugger.wasm");
@@ -76,11 +84,15 @@ let from = "cache";
 if (!wasm || sha256(wasm) !== WASM_SHA256) {
   wasm = await fetchWasm();
   from = url;
+  // Checked before it is cached: a wrong file never lands where the next build would look.
+  const got = sha256(wasm);
+  if (got !== WASM_SHA256) fail(`ckb-debugger.wasm ${VERSION}: sha256 ${got}, expected ${WASM_SHA256}`);
   mkdirSync(cacheDir, { recursive: true });
   writeFileSync(cached, wasm);
 }
 const got = sha256(wasm);
 if (got !== WASM_SHA256) fail(`ckb-debugger.wasm ${VERSION}: sha256 ${got}, expected ${WASM_SHA256}`);
 mkdirSync(new URL("../public/", import.meta.url), { recursive: true });
-copyFileSync(cached, to);
+// The bytes just checked, not the cache file again (which could change in between).
+writeFileSync(to, wasm);
 console.log(`public/ckb-debugger.wasm: ckb-debugger ${VERSION} (wasm32-wasip1), sha256 ${got.slice(0, 12)}… ok, from ${from}`);

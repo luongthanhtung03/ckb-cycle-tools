@@ -4,8 +4,8 @@ import { ccc } from "@ckb-ccc/core";
 import { analyzeTransaction, type ScriptGroup, type TxAnalysis } from "ckb-cycle-tools/analyze";
 import type { FlameChild } from "ckb-cycle-tools/children";
 import type { Profile, ProfiledGroup } from "ckb-cycle-tools/replay";
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { loadDebugger } from "./debugger";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { loadDebugger, WorkerStopped } from "./debugger";
 import { Flame } from "./Flame";
 import { Prompt, Terminal } from "./Terminal";
 
@@ -318,7 +318,8 @@ type Verdict = ReturnType<typeof import("ckb-cycle-tools/replay").nodeVerdict>;
  * replay ended non-zero in a group that verified. Or why it was not checked.
  */
 type Split =
-  | { spawned: number; own: bigint; kids: { c: FlameChild; frames: bigint; note?: string }[]; childrenNote?: string }
+  // own and frames are undefined when no profile was written (an empty folded file).
+  | { spawned: number; own?: bigint; kids: { c: FlameChild; frames?: bigint; note?: string }[]; childrenNote?: string }
   | { error: string };
 
 const mb = (n: number) => (n / 1e6).toFixed(1);
@@ -340,9 +341,21 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
   // By selector: only groups whose script spawned others, or whose check failed.
   const [splits, setSplits] = useState<Record<string, Split>>({});
   const [spawnNote, setSpawnNote] = useState<string>();
-  const say = (line: string) => setLines((l) => [...l, line]);
+  // The run in progress, if any: aborted when this block goes (another tx, or the same one inspected again),
+  // so a replay left behind stops sending runs to the shared worker and stops updating a page that moved on.
+  const current = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => current.current?.abort(), []);
 
   const go = async () => {
+    current.current?.abort();
+    const ctl = new AbortController();
+    current.current = ctl;
+    const live = () => !ctl.signal.aborted;
+    /** Stops this replay here if it was cancelled: nothing after this point runs or updates the page. */
+    const check = () => {
+      if (!live()) throw new DOMException("the replay was cancelled", "AbortError");
+    };
+    const say = (line: string) => live() && setLines((l) => [...l, line]);
     setBusy(true);
     setLines([]);
     setDownload(undefined);
@@ -361,12 +374,15 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
         import("ckb-cycle-tools/flame"),
         import("ckb-cycle-tools/wasm"),
       ]);
+      check();
       setDownload(undefined);
       say(`${dbg.version} ready`);
       say("fetching the transaction, its input cells and cell deps…");
       const plan = await replay.planReplay(hash);
+      check();
       if (plan.nodeCycles === undefined && plan.status === "committed") {
         const cycles = await nodeCyclesAt(SECOND_NODE, hash).catch(() => undefined);
+        check();
         if (cycles !== undefined) {
           plan.nodeCycles = cycles;
           setNodeFrom(SECOND_NODE);
@@ -375,12 +391,14 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
       const n = plan.groups.length;
       say(`${n} group${n === 1 ? "" : "s"} to run on CKB-VM v${plan.scriptVersion}`);
       const tx = new TextEncoder().encode(JSON.stringify(plan.mock));
-      const run = dbg.runner(tx);
+      // Every run checks the signal first: a cancelled replay sends nothing more to the worker.
+      const run = dbg.runner(tx, ctl.signal);
       const p = await replay.replayGroups(plan, run, {
         txFile: dbg.txFile,
         debugger: `${dbg.version} (wasm)`,
         onGroup: (i, selector) => say(`[${i + 1}/${n}] ${selector}`),
       });
+      check();
       setProfile(p);
       setVerdict(replay.nodeVerdict(p));
 
@@ -389,9 +407,12 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
       if (!flame.profilesChildren(dbg.version)) {
         setSpawnNote(`${children.olderDebuggerNote(dbg.version)}: a group whose script spawns others shows its total only`);
       } else {
+        // ckb-debugger prints the spawn tree only in flamegraph mode, and a plain run says
+        // nothing of a spawn, so each group needs this one profiled run to know.
         say("checking each group for spawned scripts (a profiled run of each)…");
-        for (const g of plan.groups) {
-          if (g.role === "type" && g.codeHash === replay.TYPE_ID_CODE_HASH) continue; // built into the node
+        const groups = plan.groups.filter((g) => !(g.role === "type" && g.codeHash === replay.TYPE_ID_CODE_HASH)); // Type ID: built into the node
+        for (const [i, g] of groups.entries()) {
+          check();
           const selector = replay.selectorFor(g);
           try {
             const split = await children.profileSpawns({
@@ -401,6 +422,7 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
               mock: plan.mock,
               group: g,
             });
+            check();
             if (!split) continue;
             const k = split.spawned;
             const kids = split.children ?? [];
@@ -409,26 +431,36 @@ function Cycles({ hash, label }: { hash: string; label: (g: ScriptGroup) => stri
             const groupOk = pg !== undefined && pg.result === 0 && !pg.error;
             const view: Split = {
               spawned: k,
-              own: flame.foldedTotal(split.own),
+              ...(split.own.size > 0 && { own: flame.foldedTotal(split.own) }),
               kids: kids.map((c) => ({
                 c,
-                frames: flame.foldedTotal(c.folded),
+                ...(c.folded.size > 0 && { frames: flame.foldedTotal(c.folded) }),
                 ...(children.serverExit(c, groupOk) && { note: children.SERVER_EXIT_NOTE }),
               })),
               ...(split.childrenNote && { childrenNote: split.childrenNote }),
             };
             setSplits((s) => ({ ...s, [selector]: view }));
           } catch (e) {
-            // One group's check failing (a timeout ends the worker) leaves its row as it is.
-            setSplits((s) => ({ ...s, [selector]: { error: e instanceof Error ? e.message : String(e) } }));
+            check();
+            const message = e instanceof Error ? e.message : String(e);
+            if (e instanceof WorkerStopped) {
+              // The worker is gone (a run timed out, or it failed): every check after this one would fail
+              // the same way, so stop and say it once for the transaction. The group rows stay as they are.
+              const left = groups.slice(i).map((x) => replay.selectorFor(x));
+              setSpawnNote(`not checked for ${left.join(", ")}: ${message}`);
+              say(`spawn check stopped: ${message}`);
+              break;
+            }
+            // This group's check failed (e.g. its profiled run did not finish): said under its row.
+            setSplits((s) => ({ ...s, [selector]: { error: message } }));
           }
         }
       }
       say("done");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (live()) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (live()) setBusy(false);
     }
   };
 
@@ -602,8 +634,8 @@ function SpawnRows({ g, split }: { g: ProfiledGroup; split: Split }) {
           <span className="dim">└ vm 0</span> spawning script
         </td>
         <td className="dim">—</td>
-        <td>{fmt(split.own)}</td>
-        <td className="dim">own frames</td>
+        <td>{split.own === undefined ? <span className="dim">no profile written</span> : fmt(split.own)}</td>
+        <td className="dim">{split.own === undefined ? "" : "own frames"}</td>
       </tr>
       {split.kids.map(({ c, frames }) => (
         <tr key={c.vm} className="spawn">
@@ -618,8 +650,8 @@ function SpawnRows({ g, split }: { g: ProfiledGroup; split: Split }) {
           <td className={c.failed ? "warn" : c.result === 0 && !c.error ? "ok" : "bad"} title={c.error ?? c.failed}>
             {childResult(c)}
           </td>
-          <td>{c.failed ? "—" : fmt(frames)}</td>
-          <td className="dim">{c.failed ? "" : "own frames"}</td>
+          <td>{c.failed ? "—" : frames === undefined ? <span className="dim">no profile written</span> : fmt(frames)}</td>
+          <td className="dim">{c.failed || frames === undefined ? "" : "own frames"}</td>
         </tr>
       ))}
       <tr className="detail">

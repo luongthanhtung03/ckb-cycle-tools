@@ -13,7 +13,7 @@ import { foldedTotal } from "../src/flame.js";
 import type { MockTransaction } from "../src/mock.js";
 import { SERVER_EXIT_NOTE as REPORT_SERVER_EXIT_NOTE } from "../src/report.js";
 import { debuggerArgs, groupsOf, replayGroups, selectorFor, type DebuggerOutput, type ReplayPlan } from "../src/replay.js";
-import { runWasmDebugger, WASM_TX_FILE, wasmDebuggerVersion, wasmFiles, wasmRunner, type WasmRun } from "../src/wasm.js";
+import { runWasmDebugger, WASM_TX_FILE, wasmDebuggerVersion, wasmFiles, wasmRunner, type RunWithFiles, type WasmRun } from "../src/wasm.js";
 
 const PROJECT = resolve("test/fixtures/spawn-project");
 const RUN_112 = readFileSync(join(PROJECT, "flamegraph-run-1.1.2.txt"), "utf8");
@@ -39,7 +39,7 @@ const out = (stdout: string, exitCode = 0): DebuggerOutput & { exitCode: number 
 
 const heavy = mockOf("heavy");
 const [GROUP] = groupsOf(heavy);
-const ctx = (run: (args: string[]) => Promise<WasmRun>, version = "ckb-debugger 1.1.2") => ({
+const ctx = (run: RunWithFiles, version = "ckb-debugger 1.1.2") => ({
   version,
   base: debuggerArgs(WASM_TX_FILE, selectorFor(GROUP), 2),
   ...wasmFiles(run),
@@ -103,6 +103,38 @@ describe("profileSpawns", () => {
     const split = await profileSpawns(ctx(d.run));
     expect(foldedTotal(split!.own)).toBe(14_974n);
     expect(split!.children![0].failed).toBe("the replay of VM 1 failed: a ckb-debugger run took more than 180 s; stopped");
+  });
+
+  it("says the check failed, rather than that nothing was spawned, when the profiled run did not finish", async () => {
+    const trapped = { stdout: "Pre gather: collect vm creation\n", stderr: "RuntimeError: unreachable", exitCode: -1, files: {} };
+    await expect(profileSpawns(ctx(async () => trapped))).rejects.toThrow(
+      /^the spawn check \(a profiled run of the group\) failed: ckb-debugger crashed: RuntimeError: unreachable/,
+    );
+    await expect(profileSpawns(ctx(async () => ({ stdout: "", stderr: "", exitCode: null, files: {} })))).rejects.toThrow(
+      "the spawn check (a profiled run of the group) failed: ckb-debugger was killed before it finished",
+    );
+    await expect(profileSpawns(ctx(async () => ({ ...out("Pre gather: collect vm creation\n", 2), files: {} })))).rejects.toThrow(
+      /^the spawn check \(a profiled run of the group\) failed: unexpected ckb-debugger output/,
+    );
+    // A spawn tree, but the spawning script's own run never came.
+    const cut = RUN_112.slice(0, RUN_112.indexOf("Pre gather: collect syscalls")) + "Run result: 0\nAll cycles: 761957(744.1K)\n";
+    await expect(profileSpawns(ctx(async () => ({ ...out(cut), files: {} })))).rejects.toThrow(
+      "the spawn check (a profiled run of the group) failed: no profiled run of the spawning script in ckb-debugger's output",
+    );
+  });
+
+  it("is not a failed check when the script rejects: its run still says it spawned nothing", async () => {
+    const split = await profileSpawns(ctx(async () => ({ ...out("Run result: 7\nAll cycles: 2186(2.1K)\n", 7), files: {} })));
+    expect(split).toBeUndefined();
+  });
+
+  it("leaves the frames empty when no folded stacks were written (the page says no profile written)", async () => {
+    const split = await profileSpawns(
+      ctx(async (args) => (args.includes("--vm-id") ? { ...out(CHILD_REPLAY), files: {} } : { ...out(RUN_112), files: {} })),
+    );
+    expect(split!.own.size).toBe(0);
+    expect(split!.children![0]).toMatchObject({ result: 0, cycles: 638_327n });
+    expect(split!.children![0].folded.size).toBe(0);
   });
 
   it(`replays at most ${MAX_CHILD_PROFILES} spawned VMs, and says how many there were`, async () => {

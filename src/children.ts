@@ -173,17 +173,32 @@ export interface SpawnSplit {
  * spawn tree), then, if its script spawned others, one `--vm-id` replay per
  * spawned VM (profileChildren). Undefined when it spawned nothing. The
  * group's cycles are not read here: they come from its plain run
- * (replayGroups), the total these frames sit inside. Throws when the
- * flamegraph run itself cannot be run, and, before running anything, for a
- * debugger older than 1.1.2 (olderDebuggerNote): 0.200.1, for one, has no
- * flamegraph mode at all, so a spawn could not even be seen.
+ * (replayGroups), the total these frames sit inside. Throws (so the caller
+ * can say the spawn check failed, rather than that nothing was spawned) when
+ * the flamegraph run cannot be run or did not finish: no result lines, a
+ * crash (the WebAssembly build trapped, exit -1), a kill, cut-off output, or,
+ * for a script that spawned, no "Actual run" of its own. Also throws, before
+ * running anything, for a debugger older than 1.1.2 (olderDebuggerNote):
+ * 0.200.1, for one, has no flamegraph mode at all, so a spawn could not even
+ * be seen. A script that rejects is not a failed check: its run still shows
+ * what it spawned.
  */
 export async function profileSpawns(ctx: ChildContext): Promise<SpawnSplit | undefined> {
   if (!profilesChildren(ctx.version)) throw new Error(olderDebuggerNote(ctx.version));
   const rootOut = ctx.out(0);
   const run = await ctx.exec([...ctx.base, "--enable-flamegraph", "--flamegraph-output", rootOut]);
+  const failed = (why: string) => new Error(`the spawn check (a profiled run of the group) failed: ${why}`);
+  // parseDebuggerRun turns a crash, a kill or cut-off output into an error (and throws on no result lines).
+  let parsed: ReturnType<typeof parseDebuggerRun>;
+  try {
+    parsed = parseDebuggerRun(run);
+  } catch (e) {
+    throw failed(e instanceof Error ? e.message : String(e));
+  }
+  if (run.failure || run.exitCode === null || run.exitCode === -1) throw failed(parsed.error ?? "the run did not finish");
   const spawned = spawnedScripts(run.stdout);
   if (!spawned) return undefined;
+  if (!/^Actual run: start\s*$/m.test(run.stdout)) throw failed("no profiled run of the spawning script in ckb-debugger's output");
   const own = parseFolded(await ctx.readFile(rootOut).catch(() => ""));
   const { children, childrenNote } = await profileChildren(run.stdout, ctx);
   return { spawned, own, ...(children && { children }), ...(childrenNote && { childrenNote }) };
