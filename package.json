@@ -64,6 +64,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./analyze": "./dist/analyze.js",
+    "./children": "./dist/children.js",
     "./flame": "./dist/flame.js",
     "./replay": "./dist/replay.js",
     "./wasm": "./dist/wasm.js"

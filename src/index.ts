@@ -31,8 +31,10 @@ export {
   sumLines,
 } from "./replay.js";
 export type { DebuggerOutput, GroupRun, Profile, ProfiledGroup, ReplayOptions, ReplayPlan, RunDebugger } from "./replay.js";
-export { flameTransaction, MAX_CHILD_PROFILES, profileTransaction, runNativeDebugger } from "./profile.js";
-export type { FlameChild, FlameGroup, ProfileOptions } from "./profile.js";
+export { flameTransaction, profileTransaction, runNativeDebugger } from "./profile.js";
+export type { FlameGroup, ProfileOptions } from "./profile.js";
+export { MAX_CHILD_PROFILES, olderDebuggerNote, profileChildren, profileSpawns, SERVER_EXIT_NOTE, serverExit } from "./children.js";
+export type { ChildContext, FlameChild, SpawnSplit } from "./children.js";
 export { resolvedCellDeps, spawnedBinary } from "./spawn.js";
 export type { SpawnedBinary } from "./spawn.js";
 export {
@@ -51,7 +53,7 @@ export {
   splitStack,
 } from "./flame.js";
 export type { FlameNode, Folded, FunctionCost, SpawnedVm } from "./flame.js";
-export { runWasmDebugger, wasmDebuggerVersion, wasmOutput, wasmRunner, WASM_TX_FILE } from "./wasm.js";
+export { runWasmDebugger, wasmDebuggerVersion, wasmFiles, wasmOutput, wasmRunner, WASM_TX_FILE } from "./wasm.js";
 export type { WasmRun } from "./wasm.js";
 export { substituteBinaries } from "./substitute.js";
 export type { AppliedSubstitution, BinarySubstitution } from "./substitute.js";

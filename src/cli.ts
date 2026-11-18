@@ -7,7 +7,8 @@ import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } from "./flame.js";
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type FlameChild, type Profile } from "./profile.js";
 import { PUBLIC_RPC, sumLines } from "./replay.js";
-import { formatReport, runReport, SERVER_EXIT_NOTE } from "./report.js";
+import { serverExit, SERVER_EXIT_NOTE } from "./children.js";
+import { formatReport, runReport } from "./report.js";
 import { formatScan, scanTestMocks } from "./scan.js";
 
 const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout <s>] [--debugger <path>]
@@ -386,7 +387,7 @@ async function childOutput(selector: string, c: FlameChild, dir: string, top: nu
   const head = `  spawned vm ${c.vm}  ${label}  (${termLine(c.locator)}${c.parent ? `, spawned by vm ${c.parent}` : ""})`;
   if (c.failed) return [`${head}  not profiled`, `    ${termLine(c.failed)}`, ""];
   const out = [`${head}  ${c.error ? "error" : c.result === 0 ? "ok" : `exit ${c.result}`}`];
-  if (groupOk && (c.error || c.result !== 0)) out.push(`    ${SERVER_EXIT_NOTE}`);
+  if (serverExit(c, groupOk)) out.push(`    ${SERVER_EXIT_NOTE}`);
   if (c.symbolsWarning) out.push(`    ${termLine(c.symbolsWarning)}`);
   if (!c.folded.size) return [...out, "    no profile written", ""];
   const costs = functionCosts(c.folded);

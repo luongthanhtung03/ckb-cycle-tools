@@ -16,6 +16,7 @@
  */
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { SERVER_EXIT_NOTE } from "./children.js";
 import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { ChildResult, CycleReport, GroupResult, ReportManifest, ScenarioManifest, ScenarioResult } from "./diff.js";
 import { FUNCTION_LIMIT, overTxLimitOf, resultLabel, spawnNote, termLine, termLines, unmatchedError } from "./diff.js";
@@ -25,6 +26,8 @@ import { fileDigest, gitCommit, inputsHash, scenarioInputs, sha256, toolchainOf,
 import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type FlameChild, type Profile, type ProfileOptions } from "./profile.js";
 import { consensusOf, nodeVerdict, overTxLimitLines, PUBLIC_RPC } from "./replay.js";
 import { substituteBinaries, targetScriptKeys, type BinarySubstitution } from "./substitute.js";
+
+export { SERVER_EXIT_NOTE };
 
 export interface BinaryConfig {
   /** The built binary, relative to the config file. */
@@ -570,15 +573,6 @@ async function realParent(p: string): Promise<string> {
     return join(await realParent(parent), basename(p));
   }
 }
-
-/**
- * Shown when a spawned script's own replay ends non-zero but its group
- * verified: typically a ckb-script-ipc server (`run_server`) that waits for
- * another request after the spawning script has finished, and fails on the
- * closed pipe. Its cycles up to there are the ones the group paid for.
- */
-export const SERVER_EXIT_NOTE =
-  "the group verified: a spawned script whose own replay ends non-zero is usually a server (ckb-script-ipc run_server) still waiting after the spawning script finished; its profile up to there is complete";
 
 /** One spawned script under its group in the terminal report. */
 function childReportLine(c: ChildResult, groupOk = false): string {
