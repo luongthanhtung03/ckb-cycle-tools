@@ -571,8 +571,17 @@ async function realParent(p: string): Promise<string> {
   }
 }
 
+/**
+ * Shown when a spawned script's own replay ends non-zero but its group
+ * verified: typically a ckb-script-ipc server (`run_server`) that waits for
+ * another request after the spawning script has finished, and fails on the
+ * closed pipe. Its cycles up to there are the ones the group paid for.
+ */
+export const SERVER_EXIT_NOTE =
+  "the group verified: a spawned script whose own replay ends non-zero is usually a server (ckb-script-ipc run_server) still waiting after the spawning script finished; its profile up to there is complete";
+
 /** One spawned script under its group in the terminal report. */
-function childReportLine(c: ChildResult): string {
+function childReportLine(c: ChildResult, groupOk = false): string {
   const fmt = (n: number) => n.toLocaleString("en-US");
   const t = termLine;
   const head = `spawned vm ${c.vm} (${t(c.script)})`;
@@ -581,7 +590,8 @@ function childReportLine(c: ChildResult): string {
   const top = (c.functions ?? []).slice(0, 3).map((f) => `${t(f.name)} ${fmt(f.self)}`);
   return (
     `${head}: ${t(result)}, ${fmt(c.profiled ?? 0)} cycles in its profiled frames` +
-    (top.length ? `; costliest (self): ${top.join(", ")}` : c.functionsWarning ? `; functions not recorded: ${t(c.functionsWarning)}` : "")
+    (top.length ? `; costliest (self): ${top.join(", ")}` : c.functionsWarning ? `; functions not recorded: ${t(c.functionsWarning)}` : "") +
+    (groupOk && (c.error || c.result !== 0) ? ` (${SERVER_EXIT_NOTE})` : "")
   );
 }
 
@@ -647,7 +657,7 @@ export function formatReport(report: CycleReport): string {
         out.push("", `${t(s.name)} ${t(g.selector)}: costliest functions (self cycles): ${top.join(", ")}`);
         if (g.spawned) out.push(`  ${spawnNote({ ...g, head: g })}`);
       }
-      for (const c of g.children ?? []) out.push(`  ${childReportLine(c)}`);
+      for (const c of g.children ?? []) out.push(`  ${childReportLine(c, g.result === 0 && !g.error)}`);
       if (g.childrenNote) out.push(`  spawned scripts: ${t(g.childrenNote)}`);
     }
   }

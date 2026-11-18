@@ -363,6 +363,29 @@ describe("the terminal report", () => {
     const old = formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "heavy", groups: [{ ...g, children: undefined, childrenNote: "ckb-debugger 1.1.1 cannot" }] }] });
     expect(old).toContain("  spawned scripts: ckb-debugger 1.1.1 cannot");
   });
+
+  it("explains a spawned server that ends non-zero in its own replay when the group verified", () => {
+    const server: ChildResult = { vm: 1, parent: 0, script: "game", result: -1, profiled: 115_556_444 };
+    const g: GroupResult = {
+      selector: "input.0.type",
+      role: "type",
+      script: "live-match",
+      codeHash: PARENT_HASH,
+      hashType: "data2",
+      result: 0,
+      cycles: 123_718_667,
+      spawned: 1,
+      profiled: 7_993_759,
+      children: [server],
+    };
+    const ok = formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "race", groups: [g] }] });
+    expect(ok).toContain("spawned vm 1 (game): exit -1, 115,556,444 cycles in its profiled frames (the group verified: ");
+    expect(ok).toContain("ckb-script-ipc run_server");
+    // The group rejects too: the child's exit is a real failure, no note.
+    const bad = formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "race", groups: [{ ...g, result: 7 }] }] });
+    expect(bad).toContain("spawned vm 1 (game): exit -1, 115,556,444 cycles in its profiled frames");
+    expect(bad).not.toContain("run_server");
+  });
 });
 
 /** A native ckb-debugger 1.1.2 or later: the resolved one, or the one `npm run compat -- fetch` caches. */
