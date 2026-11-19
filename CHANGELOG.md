@@ -2,6 +2,23 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+- A spawned script's replay that did not finish (killed, with or without a
+  signal; output cut off; the WebAssembly ckb-debugger trapping, exit -1) is
+  now a child that failed, shown as not profiled. It used to be a result of -1
+  with an error, so a group that verified printed the ckb-script-ipc server
+  note, which calls the child's profile complete. A replay that finished with
+  exit -1 (ckb-debugger exits 254 for it) still gets the note.
+- `diff` no longer compares two different scripts that ran at the same VM id
+  on the two sides as one: the child shows both names (`child-a → child-b`,
+  and `baseScript` in the diff JSON), counts as changed, and has no delta. A
+  rebuild of the same script (same name, new data hash) compares as before.
+- README: a spawned VM's locator does not say whether its binary came from a
+  cell or a witness, so for a binary spawned from a witness the data hash and
+  name shown can be those of the cell at the same index.
+
 ## 1.4.0 (2026-11-18)
 
 ### Added

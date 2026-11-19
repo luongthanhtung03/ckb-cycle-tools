@@ -329,6 +329,17 @@ saying why. A VM that runs `exec` is replayed with its first program only
 profiled. [`test/fixtures/spawn-project`](test/fixtures/spawn-project) is such a
 pair.
 
+A spawned VM's binary is found from the locator ckb-debugger prints for it
+(`input[0][0..11552]`: the source, the index and the byte range), and that
+locator does not say whether the bytes came from the cell's data or from a
+witness (`spawn` can load either). For a binary spawned from a witness, the data
+hash and name shown for that VM can therefore be those of the cell at the same
+index; when the cell's data is shorter than the range, no hash or name is shown
+at all. Function names are never wrong: a symbols build is used only after its
+code is checked against the bytes the VM ran, and left out otherwise. A child
+replay that does not finish (killed, output cut off, the WebAssembly build
+crashing) is shown as not profiled, never as a result.
+
 **Flamegraph fidelity: what is exact and what is attributed.** The group's cycle
 total is exact: it is ckb-debugger's run of the deployed binary, the same number
 the node counts (and `--bin` checks that the symbols build costs the same). How
@@ -500,7 +511,9 @@ config without `symbols`) still diffs as before; a function shows `—` where
 its cycles are not known on that side. A group whose script spawns others also
 gets a "Spawned scripts" block (ckb-debugger 1.1.2 or later on the head): each
 spawned VM's profiled cycles on both sides, matched by VM id, and the
-functions of the ones that changed. Its binary needs `symbols` too for
+functions of the ones that changed. When the two sides ran different scripts
+at the same VM id, it shows both names (`child-a → child-b`) as a change, with
+no delta between them. Its binary needs `symbols` too for
 function names.
 
 A Rust build keeps its symbols with `CARGO_PROFILE_RELEASE_STRIP=false`; build
