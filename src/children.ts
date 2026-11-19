@@ -32,7 +32,7 @@ export interface FlameChild {
   cycles: bigint;
   /** Its folded stacks: its own instructions only. */
   folded: Folded;
-  /** Set when the replay could not be run or read: no result, no profile. */
+  /** Set when the replay could not be run or read, or did not finish (killed, cut off, crashed): no result, no complete profile. */
   failed?: string;
 }
 
@@ -141,6 +141,11 @@ export async function profileChildren(rootOutput: string, ctx: ChildContext): Pr
         "--flamegraph-output",
         out,
       ]);
+      // As profileSpawns does for the root run: cut-off output, a kill, or a crash (exit -1 is only
+      // ever the WebAssembly build trapping, see wasm.ts: ckb-debugger exits 254 for any non-zero
+      // script result, -1 included) leaves no trustworthy result and an incomplete profile. Failed,
+      // never a result with an error, so serverExit cannot call its profile complete.
+      if (run.failure || run.exitCode === null || run.exitCode === -1) throw new Error(parseDebuggerRun(run).error ?? "the replay did not finish");
       if (!/^Actual run: start\s*$/m.test(run.stdout)) throw new Error(`no replay of VM ${v.vm} in ckb-debugger's output`);
       const parsed = parseDebuggerRun(run);
       child.result = parsed.result;

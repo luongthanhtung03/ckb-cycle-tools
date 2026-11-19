@@ -8,10 +8,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ccc } from "@ckb-ccc/core";
 import { describe, expect, it } from "vitest";
-import { MAX_CHILD_PROFILES, olderDebuggerNote, profileSpawns, serverExit, SERVER_EXIT_NOTE, type FlameChild } from "../src/children.js";
+import { MAX_CHILD_PROFILES, olderDebuggerNote, profileChildren, profileSpawns, serverExit, SERVER_EXIT_NOTE, type FlameChild } from "../src/children.js";
+import type { GroupResult } from "../src/diff.js";
 import { foldedTotal } from "../src/flame.js";
 import type { MockTransaction } from "../src/mock.js";
-import { SERVER_EXIT_NOTE as REPORT_SERVER_EXIT_NOTE } from "../src/report.js";
+import { childResult, formatReport, SERVER_EXIT_NOTE as REPORT_SERVER_EXIT_NOTE } from "../src/report.js";
 import { debuggerArgs, groupsOf, replayGroups, selectorFor, type DebuggerOutput, type ReplayPlan } from "../src/replay.js";
 import { runWasmDebugger, WASM_TX_FILE, wasmDebuggerVersion, wasmFiles, wasmRunner, type RunWithFiles, type WasmRun } from "../src/wasm.js";
 
@@ -103,6 +104,61 @@ describe("profileSpawns", () => {
     const split = await profileSpawns(ctx(d.run));
     expect(foldedTotal(split!.own)).toBe(14_974n);
     expect(split!.children![0].failed).toBe("the replay of VM 1 failed: a ckb-debugger run took more than 180 s; stopped");
+  });
+
+  describe("a child replay that did not finish is failed, never a server exit", () => {
+    // Killed, cut off or trapped after it printed "Actual run: start": no result lines of its own.
+    const cut = RUN_112.split("\n").slice(0, -3).join("\n") + "\n";
+    const childCtx = (child: DebuggerOutput) => ({
+      version: "ckb-debugger 1.1.2",
+      base: [],
+      out: (vm: number) => `/vm${vm}.folded`,
+      exec: async (args: string[]): Promise<DebuggerOutput> => (args.includes("--vm-id") ? child : out(RUN_112)),
+      readFile: async () => CHILD_FOLDED,
+      mock: heavy,
+      group: GROUP,
+    });
+    const groupOf = (c: FlameChild): GroupResult => ({
+      selector: "input.0.lock",
+      role: "lock",
+      script: "spawn-parent",
+      codeHash: CHILD_HASH,
+      hashType: "data2",
+      result: 0,
+      cycles: 761_957,
+      spawned: 1,
+      profiled: 14_974,
+      children: [childResult(c)],
+    });
+    for (const [label, run, why] of [
+      ["killed with a signal", { stdout: cut, stderr: "", exitCode: null, failure: "ckb-debugger was killed (SIGTERM)" }, "ckb-debugger was killed (SIGTERM)"],
+      ["killed without a signal", { stdout: cut, stderr: "", exitCode: null }, "ckb-debugger was killed before it finished"],
+      ["trapped (the WebAssembly build)", { stdout: cut, stderr: "RuntimeError: unreachable", exitCode: -1 }, "ckb-debugger crashed: RuntimeError: unreachable"],
+      ["cut off at the buffer limit", { stdout: "", stderr: "", exitCode: null, failure: "output exceeded 64 MB (script logs?): not trusted" }, "output exceeded 64 MB"],
+      ["cut off with an exit code", { stdout: cut, stderr: "", exitCode: 254 }, "unexpected ckb-debugger output"],
+    ] as const) {
+      it(label, async () => {
+        const { children } = await profileChildren(RUN_112, childCtx(run));
+        const [c] = children!;
+        expect(c.failed).toMatch(new RegExp(`^the replay of VM 1 failed: ${why.replace(/[()?]/g, "\\$&")}`));
+        expect(serverExit(c, true)).toBe(false);
+        const report = formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "heavy", groups: [groupOf(c)] }] });
+        expect(report).toContain("spawned vm 1 (");
+        expect(report).toContain("not profiled: the replay of VM 1 failed: ");
+        expect(report).not.toContain(SERVER_EXIT_NOTE);
+      });
+    }
+    it("still a server exit when the replay finished with exit -1 (a ckb-script-ipc server, as in the Crowns transaction)", async () => {
+      // ckb-debugger prints the script's -1 and exits 254 for it, native and WebAssembly alike.
+      const server = { stdout: RUN_112.replace(/Run result: 0\r?\nAll cycles: 18801\(18\.4K\)\s*$/, "Run result: -1\nAll cycles: 638327(623.4K)\n"), stderr: "", exitCode: 254 };
+      const { children } = await profileChildren(RUN_112, childCtx(server));
+      const [c] = children!;
+      expect(c).toMatchObject({ result: -1, cycles: 638_327n });
+      expect(c.failed).toBeUndefined();
+      expect(c.error).toBeUndefined();
+      expect(serverExit(c, true)).toBe(true);
+      expect(formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "heavy", groups: [groupOf(c)] }] })).toContain(`its frames have no names (${SERVER_EXIT_NOTE})`);
+    });
   });
 
   it("says the check failed, rather than that nothing was spawned, when the profiled run did not finish", async () => {
