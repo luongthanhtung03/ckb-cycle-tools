@@ -9,7 +9,7 @@
  */
 
 /** `__text_start`, `__init_array_end`, `_etext`, `_stext`, `end` and the like: labels, not functions. */
-const LINKER_MARKER = /^(__\w*_(start|end)|_?_?(etext|edata|end|stext|ftext)|__executable_start|__ehdr_start|__global_pointer\$)$/;
+export const LINKER_MARKER = /^(__\w*_(start|end)|_?_?(etext|edata|end|stext|ftext)|__executable_start|__ehdr_start|__global_pointer\$)$/;
 
 /** Start address → name (demangled when it can be), of every function symbol in `.symtab`. */
 export function elfFunctionNames(elf: Uint8Array): Map<bigint, string> {

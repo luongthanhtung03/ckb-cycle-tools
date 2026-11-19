@@ -1,0 +1,61 @@
+Archive member included to satisfy reference by file (symbol)
+
+/opt/riscv/lib/libc.a(memcpy.o)
+                              /build/crowns.o (memcpy)
+
+Discarded input sections
+
+ .text          0x0000000000000000        0x0 /build/start.o
+ .text._ZN6crowns6unused17h6666666666666666E
+                0x0000000000000000       0x18 /build/crowns.o
+ .text.dead     0x0000000000000000       0x10 /build/crowns.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+LOAD /build/start.o
+LOAD /build/crowns.o
+LOAD /opt/riscv/lib/libc.a
+                [!provide]                        PROVIDE (__executable_start = SEGMENT_START ("text-segment", 0x10000))
+                0x00000000000100e8                . = (SEGMENT_START ("text-segment", 0x10000) + SIZEOF_HEADERS)
+
+.rodata         0x00000000000100e8       0x20
+ .rodata._ZN6crowns5TABLE17h1111111111111111E
+                0x00000000000100e8       0x20 /build/crowns.o
+                0x00000000000100e8                _ZN6crowns5TABLE17h1111111111111111E
+
+.text           0x0000000000010108      0x1a2
+ *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+ *(.text.exit .text.exit.*)
+ *(.text.startup .text.startup.*)
+ *(.text.hot .text.hot.*)
+ *(.text .stub .text.* .gnu.linkonce.t.*)
+ .text          0x0000000000010108       0x2c /build/start.o
+                0x0000000000010108                _start
+ .text._ZN6crowns4game6replay17h0123456789abcdefE
+                0x0000000000010134       0xa4 /build/crowns.o
+ .text._ZN6crowns6helper17h4444444444444444E
+                0x00000000000101d8       0x28 /build/crowns.o
+                0x00000000000101d8                crowns_helper_alias
+ .text.unlikely.cold_path
+                0x0000000000010200       0x10 /build/crowns.o
+ *fill*         0x0000000000010210        0x2
+ .text          0x0000000000010212       0x40 /opt/riscv/lib/libc.a(memcpy.o)
+                0x0000000000010212                memcpy
+ .text.empty    0x0000000000010252        0x0 /build/crowns.o
+ .text._RNvNtCs1234abcd_6crowns4game4step
+                0x0000000000010252       0x58 /build/crowns.o
+                0x00000000000102aa                PROVIDE (etext = .)
+                0x00000000000102aa                _etext = .
+                0x00000000000102aa                etext = .
+
+.data           0x0000000000011000       0x30
+ .data          0x0000000000011000       0x30 /build/crowns.o
+                0x0000000000011000                crowns_state
+                0x0000000000011800                __global_pointer$ = (. + 0x800)
+OUTPUT(crowns elf64-littleriscv)
+garbage 0xZZ line
