@@ -220,8 +220,10 @@ export interface FunctionDelta {
 /** A spawned script on both sides of a diff, matched by VM id. Its numbers are profiled frames. */
 export interface ChildDelta {
   vm: number;
-  /** The head's name for it (the base's when it is gone). */
+  /** The head's name for it (the base's when it is gone); `base → head` when the two sides ran different scripts. */
   script: string;
+  /** Set when the base ran a different script at this VM id: its name. Nothing is compared then, no `delta`. */
+  baseScript?: string;
   /** Each side's result (`ok`, `exit 9`, `not profiled`) and profiled cycles; a side is absent when it had no such VM. */
   base?: { result: string; profiled?: number };
   head?: { result: string; profiled?: number };
@@ -648,16 +650,21 @@ export function childDeltas(base: ChildResult[] | undefined, head: ChildResult[]
     const b = base?.find((c) => c.vm === vm);
     const h = head.find((c) => c.vm === vm);
     const side = (c: ChildResult) => ({ result: childLabel(c), ...(c.profiled !== undefined && !c.failed && { profiled: c.profiled }) });
+    // Another script at this VM id (the spawning script spawns in another order, or something
+    // else): not one script's change. Matched by name, not by data hash, which every rebuild of
+    // the same script changes (an unnamed binary's name is its short data hash anyway).
+    const swapped = !!b && !!h && b.script !== h.script;
     const d: ChildDelta = {
       vm,
-      script: (h ?? b)!.script,
+      script: swapped ? `${b.script} → ${h.script}` : (h ?? b)!.script,
+      ...(swapped && { baseScript: b.script }),
       ...(b && { base: side(b) }),
       ...(h && { head: side(h) }),
       changed: false,
     };
-    if (d.base?.profiled !== undefined && d.head?.profiled !== undefined) d.delta = d.head.profiled - d.base.profiled;
-    d.changed = base !== undefined && (!b || !h || d.base!.result !== d.head!.result || (d.delta ?? 0) !== 0);
-    if (h?.functions) d.functions = functionDeltas(b?.functions, h.functions);
+    if (!swapped && d.base?.profiled !== undefined && d.head?.profiled !== undefined) d.delta = d.head.profiled - d.base.profiled;
+    d.changed = base !== undefined && (!b || !h || swapped || d.base!.result !== d.head!.result || (d.delta ?? 0) !== 0);
+    if (h?.functions) d.functions = functionDeltas(swapped ? undefined : b?.functions, h.functions);
     const note = h?.failed ?? h?.functionsWarning;
     if (note) d.note = note;
     return d;

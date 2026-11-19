@@ -327,6 +327,30 @@ describe("children in a diff", () => {
     expect(formatMarkdown(d)).toContain("Spawned scripts in heavy · <code>input.0.lock</code> (spawn-parent): not profiled");
   });
 
+  it("never compares two different scripts at the same VM id: both names, changed, no delta", () => {
+    const a = child(1_000, { script: "child-a", codeHash: "0x" + "aa".repeat(32), functions: [{ name: "a::work", self: 900, total: 900 }] });
+    const b = child(1_000, { script: "child-b", codeHash: "0x" + "bb".repeat(32), functions: [{ name: "b::work", self: 900, total: 900 }] });
+    const [k] = childDeltas([a], [b]);
+    expect(k).toEqual({
+      vm: 1,
+      script: "child-a → child-b",
+      baseScript: "child-a",
+      base: { result: "ok", profiled: 1_000 },
+      head: { result: "ok", profiled: 1_000 },
+      changed: true,
+      functions: [{ name: "b::work", head: 900 }],
+    });
+    const d = diffReports(report(group(761_957, { children: [a] })), report(group(761_990, { children: [b] })));
+    expect(formatText(d)).toMatch(/^ {2}spawned vm 1 \(child-a → child-b\): profiled 1,000 → 1,000$/m);
+    const md = formatMarkdown(d);
+    expect(md).toContain("(spawn-parent): vm 1 child-a → child-b ok</summary>");
+    expect(md).toContain("| 1 | child-a → child-b | 1,000 | 1,000 |  |");
+    // The same script rebuilt (another data hash, the same name) is still one script's change.
+    const rebuilt = childDeltas([a], [{ ...a, codeHash: "0x" + "cc".repeat(32), profiled: 1_200 }]);
+    expect(rebuilt[0]).toMatchObject({ script: "child-a", delta: 200, changed: true });
+    expect(rebuilt[0].baseScript).toBeUndefined();
+  });
+
   it("reads children defensively: a malformed entry is dropped, not a crash", () => {
     const bad = group(200, { children: [null, { vm: "1" }, { vm: 1, script: "ok", profiled: "x", functions: [null, { name: "f", self: 3, total: 3 }] }] as unknown as ChildResult[] });
     const d = diffReports(report(group(100)), report(bad));
