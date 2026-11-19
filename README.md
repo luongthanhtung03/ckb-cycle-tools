@@ -4,7 +4,7 @@ Cycle measurement for CKB on-chain scripts.
 
 **Live demo:** [ckb-cycle-tools.vercel.app](https://ckb-cycle-tools.vercel.app/) — paste a testnet tx hash, see cycles and script groups (CKB testnet).
 
-**Status: v1.3.0 on npm** (7 Nov 2026; [npm](https://www.npmjs.com/package/ckb-cycle-tools), [changelog](CHANGELOG.md)). Built in the open during my CKBuilder programme.
+**Status: v1.4.0 on npm** (19 Nov 2026; [npm](https://www.npmjs.com/package/ckb-cycle-tools), [changelog](CHANGELOG.md)). Built in the open during my CKBuilder programme.
 
 | When | Milestone |
 |---|---|
@@ -13,6 +13,7 @@ Cycle measurement for CKB on-chain scripts.
 | w/c 19 Oct | ✅ Failure-path profiling; ✅ CI on Linux and Windows |
 | w/c 26 Oct | ✅ ckb-js-vm vs Rust comparison harness; ✅ v1.0.0 on npm (27 Oct, planned for w/c 2 Nov); ✅ v1.1.0 (30 Oct): `ckb-cycles scan`, the ckb-testtool integration, the check across ckb-debugger releases |
 | w/c 2 Nov | ✅ v1.2.0 (5 Nov): scripts that spawn other scripts; ✅ v1.3.0 (7 Nov): result-change gates, reproducibility manifest |
+| w/c 16 Nov | ✅ v1.4.0 (19 Nov): each spawned script profiled on its own (`--vm-id`, ckb-debugger 1.1.2), in the CLI, the PR diff and the web page |
 
 ## The problem
 
