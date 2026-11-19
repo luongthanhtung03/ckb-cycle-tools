@@ -335,10 +335,58 @@ locator does not say whether the bytes came from the cell's data or from a
 witness (`spawn` can load either). For a binary spawned from a witness, the data
 hash and name shown for that VM can therefore be those of the cell at the same
 index; when the cell's data is shorter than the range, no hash or name is shown
-at all. Function names are never wrong: a symbols build is used only after its
+at all. Names from a symbols build are never wrong: it is used only after its
 code is checked against the bytes the VM ran, and left out otherwise. A child
 replay that does not finish (killed, output cut off, the WebAssembly build
 crashing) is shown as not profiled, never as a result.
+
+**No unstripped build, but a linker map** (`--map <hash>=<file>`): when the
+deployed binary is stripped and the build that produced it wrote a linker map
+(`-C link-arg=-Map=crowns.map` for rustc, `-Wl,-Map=…` for gcc; GNU ld and
+lld / rust-lld formats are read), pass the map instead of `--bin`, with the
+same hash (the group's code hash; for a spawned script its data hash or cell
+type hash). Naming frames after the run would not be enough: ckb-debugger's
+profiler opens a frame only where a jump lands on a function the ELF symbol
+table lists, so a stripped binary profiles as one frame. So the tool takes the
+deployed binary from the transaction, appends a symbol table built from the
+map's `.text` functions (after every byte the VM loads; a copy that would
+change the loaded code is refused), and runs that copy as `--bin` or
+`--vm-symbols`. The group's cycles are still checked against the deployed
+binary. On [`test/fixtures/spawn-project`](test/fixtures/spawn-project), the
+stripped `spawn-parent` and `spawn-child` with the maps rust-lld wrote for a
+byte-identical rebuild give the same `.folded` files, byte for byte, as their
+unstripped builds:
+
+```
+$ ckb-cycles flame --file heavy-tx.json --map 0xb95123…b4324a=spawn-parent.map \
+    --map 0x907733…00774d=spawn-child.map
+input.0.lock  0xb95123…b4324a  ok  761,957 cycles
+  --map spawn-parent.map: same cycles as the deployed binary
+  names from spawn-parent.map: the map is not checked against the code; frames sit where the map says
+  …
+  spawned vm 1  0x907733…00774d  (cell_dep[1][0..11552])  ok
+    names from spawn-child.map: the map is not checked against the code; frames sit where the map says
+       606,720     606,720  spawn_child::child_work
+```
+
+What to keep in mind:
+
+- A map is a claim, not evidence. An ELF build can be checked against the
+  deployed code; a map cannot. If the map is from another build, frames open at
+  the wrong places and carry the wrong names, though the group's cycles stay
+  right. Use a map only from a build you reproduced byte for byte.
+- lld writes symbol names already demangled, including trait impls
+  (`<buddy_alloc::non_threadsafe_alloc::NonThreadsafeAlloc as
+  core::alloc::global::GlobalAlloc>::dealloc`), where `--bin` shows some such
+  functions by their mangled symbol. So a function can have a different name
+  with `--map` than with `--bin`: compare functions (`diff`) only between
+  profiles named the same way. GNU ld lists only global symbols; local
+  functions are named from `-ffunction-sections` section names (`.text.<fn>`),
+  which Rust uses by default.
+- A `--bin` for the same hash wins, and the map is ignored with a note. A
+  binary that already has a symbol table is refused (pass it with `--bin`).
+- `report` and cycles.json have no map option yet: there, functions still need
+  a `symbols` build.
 
 **Flamegraph fidelity: what is exact and what is attributed.** The group's cycle
 total is exact: it is ckb-debugger's run of the deployed binary, the same number
@@ -378,7 +426,8 @@ In code: `flameTransaction(target, { bins, readFile })`, then `functionCosts`,
 built-ins, so the browser can draw the same graph). A spawning group's
 `children` (`FlameChild`: VM id, locator, data hash, result, folded stacks)
 come from `--vm-id` replays; `vmSymbols` gives builds for spawned binaries by
-data hash, and `children: false` turns the replays off. `spawnTree` and
+data hash, and `children: false` turns the replays off. `maps` gives linker
+maps by the same hashes (`linkerMapFunctionNames`, `addSymbolTable`). `spawnTree` and
 `profilesChildren` (in `ckb-cycle-tools/flame`) and `spawnedBinary` are the
 pieces.
 
@@ -798,7 +847,8 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
   the version it used.
 - **Flamegraphs need symbols.** On-chain binaries are stripped; `flame` names
   functions only with an unstripped build passed by `--bin` (or `symbols` in a
-  cycles.json). The CLI draws the graphs, the PR comment lists the changed
+  cycles.json), or the linker map of a byte-identical build (`--map`, `flame`
+  only; the map is not checked against the code). The CLI draws the graphs, the PR comment lists the changed
   functions, and the web page draws a `.folded` file the CLI made.
 - **Groups run on their own.** Every group is a separate ckb-debugger run with
   its own 3,500,000,000-cycle limit; the node runs them in its own order under

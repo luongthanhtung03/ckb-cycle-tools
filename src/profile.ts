@@ -7,6 +7,9 @@ import { checkDebuggerPath, resolveDebugger } from "./debugger.js";
 import type { MockTransaction, RpcTransaction } from "./mock.js";
 import { profileChildren, type FlameChild } from "./children.js";
 import { elfFunctionNames } from "./elf.js";
+import { addSymbolTable } from "./elfsym.js";
+import { linkerMapFunctionNames } from "./linkmap.js";
+import { groupBinary } from "./spawn.js";
 import { nameAddresses, parseFolded, spawnedScripts, type Folded } from "./flame.js";
 import {
   debuggerArgs,
@@ -38,6 +41,9 @@ export { MAX_CHILD_PROFILES } from "./children.js";
 export type { FlameChild } from "./children.js";
 
 const run = promisify(execFile);
+
+/** The largest linker map read (`--map`): a real one is a few megabytes at most. */
+export const MAX_LINKER_MAP = 64 << 20;
 
 /** The most a run may print. More is a script flooding its logs: the run is an error, not a result. */
 export const MAX_DEBUGGER_OUTPUT = 64 << 20;
@@ -127,12 +133,21 @@ export interface FlameGroup {
   /** The binary used instead of the one in the transaction (`--bin`), if any. */
   bin?: string;
   /**
-   * With `bin`: the cycles of the same group run with the transaction's own
+   * With `bin` or `map`: the cycles of the same group run with the transaction's own
    * binary. Different cycles mean the build is not the deployed code, and the
    * flamegraph describes the build.
    */
   deployedCycles?: bigint;
-  /** With `bin`: the exit code of that run (with the deployed binary), and whether the VM stopped it. */
+  /**
+   * The linker map (`--map`) whose functions were written into a copy of the
+   * deployed binary as a symbol table; that copy ran instead of it (same
+   * loaded bytes), and `deployedCycles` checks it. Its names are where the map
+   * says the functions are: a map cannot be checked against the code.
+   */
+  map?: string;
+  /** Why a map given for this script was not used (`--bin` given too, the binary not found, the map refused). */
+  mapNote?: string;
+  /** With `bin` or `map`: the exit code of that run (with the deployed binary), and whether the VM stopped it. */
   deployedResult?: number;
   deployedError?: string;
   /**
@@ -178,6 +193,17 @@ export async function flameTransaction(
     vmSymbols?: Record<string, string>;
     /** Profile each spawned script on its own (default true; needs ckb-debugger 1.1.2). */
     children?: boolean;
+    /**
+     * Linker maps (`-Map` of GNU ld or lld) of the deployed builds, by the same
+     * hashes as `bins` (a group's code hash) and `vmSymbols` (a spawned
+     * binary's data or type hash). The map's functions are written into a copy
+     * of the deployed binary as a symbol table (elfsym.ts), which runs as
+     * `--bin` or `--vm-symbols`: the frames an unstripped build would give,
+     * without one. A `bins` or `vmSymbols` entry for the same hash wins.
+     */
+    maps?: Record<string, string>;
+    /** Reads a map (node:fs, as UTF-8, when not given). */
+    readMap?: (path: string) => Promise<string>;
   },
 ): Promise<{ plan: ReplayPlan; groups: FlameGroup[]; debugger: string }> {
   const { exec, version: debuggerVersion } = await debuggerOf(options);
@@ -185,6 +211,7 @@ export async function flameTransaction(
   const bins = Object.fromEntries(Object.entries(options.bins ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const vmSymbols = Object.fromEntries(Object.entries(options.vmSymbols ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const scriptNames = Object.fromEntries(Object.entries(options.scriptNames ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  const maps = Object.fromEntries(Object.entries(options.maps ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const dir = await mkdtemp(join(tmpdir(), "ckb-flame-"));
   try {
     const txFile = join(dir, "tx.json");
@@ -198,36 +225,85 @@ export async function flameTransaction(
       if (!symbols.has(bin)) symbols.set(bin, readBinary(bin).then(elfFunctionNames, () => new Map<bigint, string>()));
       return symbols.get(bin)!;
     };
+    // Each map read and parsed once; one that cannot be read or used is a note on the script it was for.
+    const readMap = options.readMap ?? ((path: string) => readFile(path, "utf8"));
+    const mapNames = new Map<string, Promise<Map<bigint, string>>>();
+    const namesInMap = (map: string) => {
+      if (!mapNames.has(map)) {
+        mapNames.set(
+          map,
+          readMap(map).then(
+            (text) => {
+              if (text.length > MAX_LINKER_MAP) throw new Error(`it is over ${MAX_LINKER_MAP >> 20} MB: not a linker map?`);
+              return linkerMapFunctionNames(text);
+            },
+            (e: Error) => {
+              throw new Error(`cannot read it: ${e.message}`);
+            },
+          ),
+        );
+      }
+      return mapNames.get(map)!;
+    };
+    // A copy of a deployed binary with the map's functions as its symbol table, in the run's directory.
+    let written = 0;
+    const symbolize = async (map: string, binary: Uint8Array): Promise<string> => {
+      const names = await namesInMap(map);
+      if (!names.size) throw new Error("it lists no function in .text: not a GNU ld or lld map?");
+      const { elf } = addSymbolTable(binary, names);
+      const file = join(dir, `map-${written++}.elf`);
+      await writeFile(file, elf);
+      symbols.set(file, Promise.resolve(elfFunctionNames(elf)));
+      return file;
+    };
     for (const g of plan.groups) {
       const selector = selectorFor(g);
       if (options.scripts && !options.scripts.includes(selector)) continue;
       if (g.role === "type" && g.codeHash === TYPE_ID_CODE_HASH) continue; // built into the node: nothing to profile
       const base = debuggerArgs(txFile, selector, plan.scriptVersion);
       const bin = bins[g.codeHash.toLowerCase()];
+      const mapGiven = maps[g.codeHash.toLowerCase()];
+      // What runs as --bin: the build given, or the deployed binary with the map's symbols.
+      let runBin = bin;
+      let map: string | undefined;
+      let mapNote: string | undefined;
+      if (mapGiven && bin) mapNote = `--map ${mapGiven} ignored: --bin ${bin} is given for the same script`;
+      else if (mapGiven) {
+        const binary = groupBinary(plan.mock, g);
+        if (!binary) mapNote = `--map ${mapGiven} not used: the script's binary is not in the transaction's cell deps`;
+        else {
+          try {
+            runBin = await symbolize(mapGiven, binary.data);
+            map = mapGiven;
+          } catch (e) {
+                mapNote = `--map ${mapGiven} not used: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        }
+      }
       const out = join(dir, `${selector}.folded`);
       const runOut = await exec([
         ...base,
-        ...(bin ? ["--bin", bin] : []),
+        ...(runBin ? ["--bin", runBin] : []),
         "--enable-flamegraph",
         "--flamegraph-output",
         out,
       ]);
       const spawned = spawnedScripts(runOut.stdout);
-      const names = bin ? await namesOf(bin) : new Map<bigint, string>();
+      const names = runBin ? await namesOf(runBin) : new Map<bigint, string>();
       const folded = nameAddresses(parseFolded(await options.readFile(out).catch(() => "")), names);
       // A flamegraph run's own total is not the group's: up to ckb-debugger 1.1.1 it
       // leaves out loading the binary, 1.1.2 counts loading but is still a few
       // cycles short (14 on the testtool fixture), and every release leaves out
       // spawned scripts. So result and cycles come from plain runs: with the
       // build, and with the deployed binary to compare.
-      const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(bin ? ["--bin", bin] : [])]));
-      const deployed = bin ? parseDebuggerRun(await exec(base)) : undefined;
+      const parsed = runOut.exitCode === null ? parseDebuggerRun(runOut) : parseDebuggerRun(await exec([...base, ...(runBin ? ["--bin", runBin] : [])]));
+      const deployed = runBin ? parseDebuggerRun(await exec(base)) : undefined;
       let children: FlameChild[] | undefined;
       let childrenNote: string | undefined;
       if (spawned && options.children !== false) {
         ({ children, childrenNote } = await profileChildren(runOut.stdout, {
           version: debuggerVersion,
-          base: [...base, ...(bin ? ["--bin", bin] : [])],
+          base: [...base, ...(runBin ? ["--bin", runBin] : [])],
           out: (vm) => join(dir, `${selector}.vm${vm}.folded`),
           exec,
           mock: plan.mock,
@@ -237,6 +313,8 @@ export async function flameTransaction(
           readFile: options.readFile,
           readBinary,
           namesOf,
+          mapOf: (hash) => maps[hash],
+          symbolize,
         }));
       }
       groups.push({
@@ -251,9 +329,11 @@ export async function flameTransaction(
         ...(spawned && { spawned }),
         ...(children?.length && { children }),
         ...(childrenNote && { childrenNote }),
-        ...(bin &&
+        ...(map && { map }),
+        ...(mapNote && { mapNote }),
+        ...(runBin &&
           deployed && {
-            bin,
+            ...(bin && { bin }),
             deployedCycles: deployed.cycles,
             deployedResult: deployed.result,
             ...(deployed.error && { deployedError: deployed.error }),

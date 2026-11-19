@@ -4,6 +4,28 @@ This project follows [semantic versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+- `flame --map <hash>=<linker map>` (repeatable): named frames for a stripped
+  deployed binary from the linker map (`-Map`, GNU ld or lld / rust-lld) of a
+  byte-identical build, with no unstripped ELF. ckb-debugger's profiler only
+  opens a frame at a function its ELF symbol table lists, so a stripped binary
+  is one frame and cannot be named afterwards; instead the map's `.text`
+  functions are written into a copy of the deployed binary (taken from the
+  transaction) as a `.symtab`, appended after every byte the VM loads, and that
+  copy runs as `--bin` (a group's code hash) or `--vm-symbols` (a spawned
+  binary's data or type hash). The copy is refused unless its loaded code is
+  the deployed binary's (elf.ts `sameCode`), and the root group's cycles are
+  checked against the deployed binary as with `--bin`. On the spawn fixture the
+  stripped binaries plus their rust-lld maps give the same `.folded` files,
+  byte for byte, as the unstripped builds. The output says the names come from
+  the map, which is not checked against the code. A `--bin` for the same hash
+  wins (with a note). A binary that already has a symbol table is refused
+  (pass it with `--bin`). Not in `report` yet.
+- Library: `linkerMapFunctionNames` (linkmap.ts), `addSymbolTable`
+  (elfsym.ts), `groupBinary` (spawn.ts), all without Node built-ins;
+  `flameTransaction`'s `maps` and `readMap` options; `FlameGroup.map` /
+  `mapNote` and `FlameChild.map` / `mapNote`.
+
 ### Fixed
 - A spawned script's replay that did not finish (killed, with or without a
   signal; output cut off; the WebAssembly ckb-debugger trapping, exit -1) is

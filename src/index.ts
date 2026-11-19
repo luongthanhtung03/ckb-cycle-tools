@@ -35,7 +35,9 @@ export { flameTransaction, profileTransaction, runNativeDebugger } from "./profi
 export type { FlameGroup, ProfileOptions } from "./profile.js";
 export { MAX_CHILD_PROFILES, olderDebuggerNote, profileChildren, profileSpawns, SERVER_EXIT_NOTE, serverExit } from "./children.js";
 export type { ChildContext, FlameChild, SpawnSplit } from "./children.js";
-export { resolvedCellDeps, spawnedBinary } from "./spawn.js";
+export { groupBinary, resolvedCellDeps, spawnedBinary } from "./spawn.js";
+export { linkerMapFunctionNames } from "./linkmap.js";
+export { addSymbolTable, MAX_SYMBOLIZED_ELF } from "./elfsym.js";
 export type { SpawnedBinary } from "./spawn.js";
 export {
   flameTree,

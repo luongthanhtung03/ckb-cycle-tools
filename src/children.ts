@@ -26,6 +26,14 @@ export interface FlameChild {
   symbols?: string;
   /** Why no symbols build was used although one was given (it is not the same code). */
   symbolsWarning?: string;
+  /**
+   * The linker map (`--map`) whose functions named its frames: written into a
+   * copy of the binary it ran as a symbol table, replayed with `--vm-symbols`.
+   * Not checked against the code: frames sit where the map says.
+   */
+  map?: string;
+  /** Why a map given for it was not used. */
+  mapNote?: string;
   /** The replay's exit code (-1 with `error` when the VM stopped it), and its own cycle count, which counts loading the binary. */
   result: number;
   error?: string;
@@ -75,6 +83,10 @@ export interface ChildContext {
   symbolsOf?: (hash: string) => string | undefined;
   readBinary?: (path: string) => Promise<Uint8Array>;
   namesOf?: (bin: string) => Promise<Map<bigint, string>>;
+  /** A linker map for a data or type hash (`--map`); a `symbolsOf` build for the same binary wins. */
+  mapOf?: (hash: string) => string | undefined;
+  /** Writes a copy of `binary` with the map's functions as its symbol table and gives its path (profile.ts); throws when it cannot. */
+  symbolize?: (map: string, binary: Uint8Array) => Promise<string>;
 }
 
 /**
@@ -118,14 +130,29 @@ export async function profileChildren(rootOutput: string, ctx: ChildContext): Pr
         symbols = undefined;
       }
     }
+    // A map, when no build is given: the binary the VM ran, with the map's functions as symbols.
+    const mapGiven = ctx.mapOf ? hashes.map(ctx.mapOf).find(Boolean) : undefined;
+    let map: string | undefined;
+    let mapNote: string | undefined;
+    if (mapGiven && (symbols || symbolsWarning)) mapNote = `--map ${mapGiven} ignored: a build is given for VM ${v.vm}'s binary`;
+    else if (mapGiven && binary && ctx.symbolize) {
+      try {
+        symbols = await ctx.symbolize(mapGiven, binary.data);
+        map = mapGiven;
+      } catch (e) {
+        mapNote = `--map ${mapGiven} not used for VM ${v.vm}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
     const child: FlameChild = {
       vm: v.vm,
       parent: v.parent,
       locator: v.locator,
       ...(binary && { codeHash: binary.dataHash }),
       ...(name && { name }),
-      ...(symbols && { symbols }),
+      ...(symbols && !map && { symbols }),
       ...(symbolsWarning && { symbolsWarning }),
+      ...(map && { map }),
+      ...(mapNote && { mapNote }),
       result: -1,
       cycles: 0n,
       folded: new Map(),

@@ -90,3 +90,30 @@ export function spawnedBinary(
       }),
   };
 }
+
+/**
+ * The binary a script group runs, from the mock transaction's cell deps (as
+ * the node resolves them): the first whose data hash is the script's code
+ * hash (`data`, `data1`, `data2`), or whose cell's type script hash is
+ * (`type`). Undefined when no cell dep has it.
+ */
+export function groupBinary(mock: MockTransaction, group: { codeHash: string; hashType: string }): SpawnedBinary | undefined {
+  const want = group.codeHash.toLowerCase();
+  let deps: ReturnType<typeof resolvedCellDeps>;
+  try {
+    deps = resolvedCellDeps(mock);
+  } catch {
+    return undefined;
+  }
+  for (const cell of deps) {
+    const data = ccc.bytesFrom(cell.data);
+    const type = cell.output.type;
+    const typeHash = type
+      ? ccc.Script.from({ codeHash: type.code_hash, hashType: type.hash_type as ccc.HashType, args: type.args }).hash().toLowerCase()
+      : undefined;
+    if (group.hashType === "type" ? typeHash === want : ccc.hashCkb(data).toLowerCase() === want) {
+      return { data, dataHash: ccc.hashCkb(data).toLowerCase(), ...(typeHash && { typeHash }) };
+    }
+  }
+  return undefined;
+}

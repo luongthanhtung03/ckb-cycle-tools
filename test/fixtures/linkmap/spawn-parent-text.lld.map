@@ -1,0 +1,146 @@
+             VMA              LMA     Size Align Out     In      Symbol
+           12514            12514     25ee     2 .text
+           12514            12514       16     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text)
+           12514            12514        0     1                 _start
+           1252a            1252a        8     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvCsdtSMxSA38aw_7___rustc12___rust_alloc)
+           1252a            1252a        8     1                 __rustc::__rust_alloc
+           12532            12532        8     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvCsdtSMxSA38aw_7___rustc14___rust_dealloc)
+           12532            12532        8     1                 __rustc::__rust_dealloc
+           1253a            1253a       4a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvCsdtSMxSA38aw_7___rustc14___rust_realloc)
+           1253a            1253a       4a     1                 __rustc::__rust_realloc
+           12584            12584        a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvCsdtSMxSA38aw_7___rustc17rust_begin_unwind)
+           12584            12584        a     1                 __rustc::rust_begin_unwind
+           1258e            1258e       2c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvCsjQCV7blxwhG_12spawn_parent11parent_work)
+           1258e            1258e       2c     1                 spawn_parent::parent_work
+           125ba            125ba      432     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.__ckb_std_main)
+           125ba            125ba      432     1                 __ckb_std_main
+           129ec            129ec        8     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvCsdtSMxSA38aw_7___rustc26___rust_alloc_error_handler)
+           129ec            129ec        8     1                 __rustc::__rust_alloc_error_handler
+           129f4            129f4       10     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvCsdtSMxSA38aw_7___rustc25___rdl_alloc_error_handler)
+           129f4            129f4       10     1                 __rustc::__rdl_alloc_error_handler
+           12a04            12a04       1c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCs8J5WGaTWgRY_5alloc7raw_vec12handle_error)
+           12a04            12a04       1c     1                 alloc::raw_vec::handle_error
+           12a20            12a20       10     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCs8J5WGaTWgRY_5alloc5alloc18handle_alloc_error)
+           12a20            12a20       10     1                 alloc::alloc::handle_alloc_error
+           12a30            12a30       24     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCs8J5WGaTWgRY_5alloc7raw_vec17capacity_overflow)
+           12a30            12a30       24     1                 alloc::raw_vec::capacity_overflow
+           12a54            12a54       5c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvMs5_NtCs8J5WGaTWgRY_5alloc7raw_vecNtB5_11RawVecInner11finish_growB7_)
+           12a54            12a54       5c     1                 <alloc::raw_vec::RawVecInner>::finish_grow
+           12ab0            12ab0       84     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs_NtNtCs8J5WGaTWgRY_5alloc3ffi5c_strNtB4_7CString19__from_vec_unchecked)
+           12ab0            12ab0       84     1                 <alloc::ffi::c_str::CString>::_from_vec_unchecked
+           12b34            12b34       90     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs0_NtCs2srUEHoeiQ7_11buddy_alloc10fast_allocNtB5_9FastAlloc3new)
+           12b34            12b34       90     1                 <buddy_alloc::fast_alloc::FastAlloc>::new
+           12bc4            12bc4      36e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs1_NtCs2srUEHoeiQ7_11buddy_alloc11buddy_allocNtB5_10BuddyAlloc3new)
+           12bc4            12bc4      36e     1                 <buddy_alloc::buddy_alloc::BuddyAlloc>::new
+           12f32            12f32       16     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RINvNtCsaB8EJeqqoun_4core9panicking13panic_displayReECs2srUEHoeiQ7_11buddy_alloc)
+           12f32            12f32       16     1                 core::panicking::panic_display::<&str>
+           12f48            12f48       38     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNtCs2srUEHoeiQ7_11buddy_alloc11buddy_alloc7roundup)
+           12f48            12f48       38     1                 buddy_alloc::buddy_alloc::roundup
+           12f80            12f80       4c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNtCs2srUEHoeiQ7_11buddy_alloc11buddy_alloc6nblock)
+           12f80            12f80       4c     1                 buddy_alloc::buddy_alloc::nblock
+           12fcc            12fcc       48     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs1_NtCs2srUEHoeiQ7_11buddy_alloc11buddy_allocNtB5_10BuddyAlloc11block_index)
+           12fcc            12fcc       48     1                 <buddy_alloc::buddy_alloc::BuddyAlloc>::block_index
+           13014            13014      2ee     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs_NtCs2srUEHoeiQ7_11buddy_alloc20non_threadsafe_allocNtB4_18NonThreadsafeAllocNtNtNtCsaB8EJeqqoun_4core5alloc6global11GlobalAlloc5alloc)
+           13014            13014      2ee     1                 <buddy_alloc::non_threadsafe_alloc::NonThreadsafeAlloc as core::alloc::global::GlobalAlloc>::alloc
+           13302            13302      2dc     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs_NtCs2srUEHoeiQ7_11buddy_alloc20non_threadsafe_allocNtB4_18NonThreadsafeAllocNtNtNtCsaB8EJeqqoun_4core5alloc6global11GlobalAlloc7dealloc)
+           13302            13302      2dc     1                 <buddy_alloc::non_threadsafe_alloc::NonThreadsafeAlloc as core::alloc::global::GlobalAlloc>::dealloc
+           135de            135de       2a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs3_NtCs8J5WGaTWgRY_5alloc7raw_vecNtB5_11RawVecInner10deallocateCskC87GU0Rc4v_5bytes)
+           135de            135de       2a     1                 <alloc::raw_vec::RawVecInner>::deallocate
+           13608            13608       20     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RINvNvMs2_NtCs8J5WGaTWgRY_5alloc7raw_vecINtB8_11RawVecInnerpE7reserve21do_reserve_and_handleNtNtBa_5alloc6GlobalECskC87GU0Rc4v_5bytes)
+           13608            13608       20     1                 <alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>
+           13628            13628       5e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs5_NtCs8J5WGaTWgRY_5alloc7raw_vecNtB5_11RawVecInner14grow_amortizedCskC87GU0Rc4v_5bytes)
+           13628            13628       5e     1                 <alloc::raw_vec::RawVecInner>::grow_amortized
+           13686            13686       c4     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvMs5_NtCs8J5WGaTWgRY_5alloc7raw_vecNtB5_11RawVecInner11finish_growCskC87GU0Rc4v_5bytes)
+           13686            13686       c4     1                 <alloc::raw_vec::RawVecInner>::finish_grow
+           1374a            1374a       28     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs1_NtCs8J5WGaTWgRY_5alloc7raw_vecINtB5_6RawVechENtNtNtCsaB8EJeqqoun_4core3ops4drop4Drop4dropCskC87GU0Rc4v_5bytes)
+           1374a            1374a       28     1                 <alloc::raw_vec::RawVec<u8> as core::ops::drop::Drop>::drop
+           13772            13772       2a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs1g_NtCsaB8EJeqqoun_4core3fmtRhNtB6_5Debug3fmtCsklytUBFv5x1_7ckb_std)
+           13772            13772       2a     1                 <&u8 as core::fmt::Debug>::fmt
+           1379c            1379c       28     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs4_NtCs8J5WGaTWgRY_5alloc7raw_vecINtB5_6RawVecyE8grow_oneCsklytUBFv5x1_7ckb_std)
+           1379c            1379c       28     1                 <alloc::raw_vec::RawVec<u64>>::grow_one
+           137c4            137c4       28     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsZ_NtNtCsaB8EJeqqoun_4core3fmt3numjNtB7_5Debug3fmt.18)
+           137c4            137c4       28     1                 <usize as core::fmt::Debug>::fmt (.18)
+           137ec            137ec        e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RINvNtCsaB8EJeqqoun_4core3ptr9drop_glueNtNtNtCs8J5WGaTWgRY_5alloc3ffi5c_str8NulErrorECsklytUBFv5x1_7ckb_std)
+           137ec            137ec        e     1                 core::ptr::drop_glue::<alloc::ffi::c_str::NulError>
+           137fa            137fa       1e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsX_NtNtCs8J5WGaTWgRY_5alloc3ffi5c_strNtB5_8NulErrorNtNtCsaB8EJeqqoun_4core3fmt5Debug3fmt)
+           137fa            137fa       1e     1                 <alloc::ffi::c_str::NulError as core::fmt::Debug>::fmt
+           13818            13818       4a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs1g_NtCsaB8EJeqqoun_4core3fmtRINtNtCs8J5WGaTWgRY_5alloc3vec3VechENtB6_5Debug3fmtCsklytUBFv5x1_7ckb_std)
+           13818            13818       4a     1                 <&alloc::vec::Vec<u8> as core::fmt::Debug>::fmt
+           13862            13862        a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsK_NtCsaB8EJeqqoun_4core3fmtNtB5_5ErrorNtB5_5Debug3fmt.21)
+           13862            13862        a     1                 <core::fmt::Error as core::fmt::Debug>::fmt (.21)
+           1386c            1386c       58     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNtNtCsklytUBFv5x1_7ckb_std8syscalls6native12syscall_load)
+           1386c            1386c       58     1                 ckb_std::syscalls::native::syscall_load
+           138c4            138c4       14     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNtNtCsklytUBFv5x1_7ckb_std8syscalls6native4exit)
+           138c4            138c4       14     1                 ckb_std::syscalls::native::exit
+           138d8            138d8       10     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCsaB8EJeqqoun_4core9panicking9panic_fmt)
+           138d8            138d8       10     1                 core::panicking::panic_fmt
+           138e8            138e8      1bc     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNtCsaB8EJeqqoun_4core3fmt5write)
+           138e8            138e8      1bc     1                 core::fmt::write
+           13aa4            13aa4       14     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMsa_NtCsaB8EJeqqoun_4core3fmtNtB5_9Formatter9write_str)
+           13aa4            13aa4       14     1                 <core::fmt::Formatter>::write_str
+           13ab8            13ab8      208     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMsa_NtCsaB8EJeqqoun_4core3fmtNtB5_9Formatter12pad_integral)
+           13ab8            13ab8      208     1                 <core::fmt::Formatter>::pad_integral
+           13cc0            13cc0      13a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsi_NtNtNtCsaB8EJeqqoun_4core3fmt3num3impjNtB9_7Display3fmt)
+           13cc0            13cc0      13a     1                 <usize as core::fmt::Display>::fmt
+           13dfa            13dfa       5e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNvMsa_NtCsaB8EJeqqoun_4core3fmtNtB7_9Formatter12pad_integral12write_prefix)
+           13dfa            13dfa       5e     1                 <core::fmt::Formatter>::pad_integral::write_prefix
+           13e58            13e58      1da     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs0_NtNtCsaB8EJeqqoun_4core3fmt8buildersNtB5_10PadAdapterNtB7_5Write9write_str)
+           13e58            13e58      1da     1                 <core::fmt::builders::PadAdapter as core::fmt::Write>::write_str
+           14032            14032       6e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs0_NtNtCsaB8EJeqqoun_4core3fmt8buildersNtB5_10PadAdapterNtB7_5Write10write_char)
+           14032            14032       6e     1                 <core::fmt::builders::PadAdapter as core::fmt::Write>::write_char
+           140a0            140a0       14     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvYNtNtNtCsaB8EJeqqoun_4core3fmt8builders10PadAdapterNtB6_5Write9write_fmtB8_)
+           140a0            140a0       14     1                 <core::fmt::builders::PadAdapter as core::fmt::Write>::write_fmt
+           140b4            140b4       22     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCsaB8EJeqqoun_4core9panicking5panic)
+           140b4            140b4       22     1                 core::panicking::panic
+           140d6            140d6       ea     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs6_NtNtCsaB8EJeqqoun_4core3fmt8buildersNtB5_9DebugList5entry)
+           140d6            140d6       ea     1                 <core::fmt::builders::DebugList>::entry
+           141c0            141c0       38     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMs6_NtNtCsaB8EJeqqoun_4core3fmt8buildersNtB5_9DebugList6finish)
+           141c0            141c0       38     1                 <core::fmt::builders::DebugList>::finish
+           141f8            141f8       3c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMsa_NtCsaB8EJeqqoun_4core3fmtNtB5_9Formatter10debug_list)
+           141f8            141f8       3c     1                 <core::fmt::Formatter>::debug_list
+           14234            14234      178     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvMsa_NtCsaB8EJeqqoun_4core3fmtNtB5_9Formatter25debug_tuple_field2_finish)
+           14234            14234      178     1                 <core::fmt::Formatter>::debug_tuple_field2_finish
+           143ac            143ac       1c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCsaB8EJeqqoun_4core4cell22panic_already_borrowed)
+           143ac            143ac       1c     1                 core::cell::panic_already_borrowed
+           143c8            143c8       1a     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCsaB8EJeqqoun_4core6result13unwrap_failed)
+           143c8            143c8       1a     1                 core::result::unwrap_failed
+           143e2            143e2       10     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtCsaB8EJeqqoun_4core9panicking18panic_nounwind_fmt)
+           143e2            143e2       10     1                 core::panicking::panic_nounwind_fmt
+           143f2            143f2       5c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs6_NtNtCsaB8EJeqqoun_4core3fmt3numjNtB7_8LowerHex3fmt)
+           143f2            143f2       5c     1                 <usize as core::fmt::LowerHex>::fmt
+           1444e            1444e       a2     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvNtNtCsaB8EJeqqoun_4core5slice6memchr14memchr_aligned)
+           1444e            1444e       a2     1                 core::slice::memchr::memchr_aligned
+           144f0            144f0       1e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtNtCsaB8EJeqqoun_4core9panicking11panic_const24panic_const_add_overflow)
+           144f0            144f0       1e     1                 core::panicking::panic_const::panic_const_add_overflow
+           1450e            1450e       24     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtNtCsaB8EJeqqoun_4core9panicking11panic_const24panic_const_mul_overflow)
+           1450e            1450e       24     1                 core::panicking::panic_const::panic_const_mul_overflow
+           14532            14532       1e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtNtCsaB8EJeqqoun_4core9panicking11panic_const24panic_const_shl_overflow)
+           14532            14532       1e     1                 core::panicking::panic_const::panic_const_shl_overflow
+           14550            14550       1e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtNtCsaB8EJeqqoun_4core9panicking11panic_const24panic_const_shr_overflow)
+           14550            14550       1e     1                 core::panicking::panic_const::panic_const_shr_overflow
+           1456e            1456e       1e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text.unlikely._RNvNtNtCsaB8EJeqqoun_4core9panicking11panic_const24panic_const_sub_overflow)
+           1456e            1456e       1e     1                 core::panicking::panic_const::panic_const_sub_overflow
+           1458c            1458c       92     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXNtNtNtCsaB8EJeqqoun_4core3fmt3num3imphNtB6_7Display3fmt)
+           1458c            1458c       92     1                 <u8 as core::fmt::Display>::fmt
+           1461e            1461e       64     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsg_NtNtCsaB8EJeqqoun_4core3fmt3numhNtB7_8UpperHex3fmt)
+           1461e            1461e       64     1                 <u8 as core::fmt::UpperHex>::fmt
+           14682            14682       64     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXse_NtNtCsaB8EJeqqoun_4core3fmt3numhNtB7_8LowerHex3fmt)
+           14682            14682       64     1                 <u8 as core::fmt::LowerHex>::fmt
+           146e6            146e6       5c     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXs8_NtNtCsaB8EJeqqoun_4core3fmt3numjNtB7_8UpperHex3fmt)
+           146e6            146e6       5c     1                 <usize as core::fmt::UpperHex>::fmt
+           14742            14742       14     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvYNtNtCs8J5WGaTWgRY_5alloc6string6StringNtNtCsaB8EJeqqoun_4core3fmt5Write9write_fmtCs5v3T6uD2K9Q_8molecule)
+           14742            14742       14     1                 <alloc::string::String as core::fmt::Write>::write_fmt
+           14756            14756        e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RINvNtCsaB8EJeqqoun_4core3ptr9drop_glueNtNtCs8J5WGaTWgRY_5alloc6string6StringECs5v3T6uD2K9Q_8molecule)
+           14756            14756        e     1                 core::ptr::drop_glue::<alloc::string::String>
+           14764            14764       5e     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsZ_NtCs8J5WGaTWgRY_5alloc6stringNtB5_6StringNtNtCsaB8EJeqqoun_4core3fmt5Write9write_str.171)
+           14764            14764       5e     1                 <alloc::string::String as core::fmt::Write>::write_str (.171)
+           147c2            147c2       f6     2         /build/deps/spawn_parent-d3dbece072ab84ec.spawn_parent.e7311063738929f2-cgu.0.rcgu.o:(.text._RNvXsZ_NtCs8J5WGaTWgRY_5alloc6stringNtB5_6StringNtNtCsaB8EJeqqoun_4core3fmt5Write10write_char.172)
+           147c2            147c2       f6     1                 <alloc::string::String as core::fmt::Write>::write_char (.172)
+           148b8            148b8       20     2         /rustlib/riscv64imac-unknown-none-elf/lib/libcompiler_builtins-bf965b95660f20de.rlib(compiler_builtins-bf965b95660f20de.compiler_builtins.50e99fb47efb1cc5-cgu.112.rcgu.o):(.text.memcmp)
+           148b8            148b8       20     1                 memcmp
+           148d8            148d8       72     2         /rustlib/riscv64imac-unknown-none-elf/lib/libcompiler_builtins-bf965b95660f20de.rlib(compiler_builtins-bf965b95660f20de.compiler_builtins.50e99fb47efb1cc5-cgu.202.rcgu.o):(.text.memset)
+           148d8            148d8       72     1                 memset
+           1494a            1494a        8     2         /rustlib/riscv64imac-unknown-none-elf/lib/libcompiler_builtins-bf965b95660f20de.rlib(compiler_builtins-bf965b95660f20de.compiler_builtins.50e99fb47efb1cc5-cgu.295.rcgu.o):(.text.memcpy)
+           1494a            1494a        8     1                 memcpy
+           14952            14952      1b0     2         /rustlib/riscv64imac-unknown-none-elf/lib/libcompiler_builtins-bf965b95660f20de.rlib(compiler_builtins-bf965b95660f20de.compiler_builtins.50e99fb47efb1cc5-cgu.013.rcgu.o):(.text._RNvNtCs6WH8MU7QYkH_17compiler_builtins3mem6memcpy)
+           14952            14952      1b0     1                 compiler_builtins::mem::memcpy

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { diffFailed, diffReports, formatMarkdown, formatText, termLine, termLines, type CycleReport } from "./diff.js";
@@ -24,7 +24,8 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
                   [--timeout <s>]
        ckb-cycles scan <mocks-dir> [--binaries <dir>] [-o <cycles.json>] [--functions]
        ckb-cycles flame <tx-hash> | --file <tx.json>  [-o <dir>] [--script <selector> ...]
-                  [--bin <code-hash>=<elf> ...] [--top <n>] [--mainnet] [--rpc <url>] [--debugger <path>]
+                  [--bin <code-hash>=<elf> ...] [--map <code-hash>=<linker map> ...] [--top <n>]
+                  [--mainnet] [--rpc <url>] [--debugger <path>]
 
 Replays a CKB transaction in ckb-debugger, one run per script group, and prints
 the cycles each group cost.
@@ -102,7 +103,14 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                cycles. A script that spawns others: with ckb-debugger 1.1.2 or
                later, each spawned script is profiled on its own (--vm-id) into
                <dir>/<selector>.vm<N>.svg and .folded; --bin with the spawned
-               binary's data hash names its functions (--vm-symbols)`;
+               binary's data hash names its functions (--vm-symbols).
+               --map <hash>=<file> instead of --bin: the linker map (-Map, GNU ld
+               or lld) of a byte-identical build of the deployed binary. Its
+               functions are written into a copy of the deployed binary as a
+               symbol table, which runs in its place (the same loaded bytes,
+               and the cycles are checked the same way). The map itself is not
+               checked against the code: frames sit where it says. A --bin for
+               the same hash wins`;
 
 const fmt = (n: bigint) => n.toLocaleString("en-US");
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -286,12 +294,12 @@ async function scanCommand(args: string[]): Promise<number> {
   return 0;
 }
 
-/** `--bin 0xabc…=target/release/my-script` → flameTransaction's bins. */
-function parseBins(flags: string[]): Record<string, string> {
+/** `--bin 0xabc…=target/release/my-script` → flameTransaction's bins (and `--map` → maps). */
+function parseBins(flags: string[], flag = "--bin", what = "an ELF"): Record<string, string> {
   const bins: Record<string, string> = {};
-  for (const flag of flags) {
-    const m = /^(0x[0-9a-fA-F]{64})=(.+)$/.exec(flag);
-    if (!m) throw new Error(`--bin expects <code-hash>=<path to an ELF>, got "${flag}"`);
+  for (const f of flags) {
+    const m = /^(0x[0-9a-fA-F]{64})=(.+)$/.exec(f);
+    if (!m) throw new Error(`${flag} expects <code-hash>=<path to ${what}>, got "${f}"`);
     bins[m[1].toLowerCase()] = m[2];
   }
   return bins;
@@ -306,6 +314,7 @@ async function flameCommand(args: string[]): Promise<number> {
       out: { type: "string", short: "o" },
       script: { type: "string", multiple: true },
       bin: { type: "string", multiple: true },
+      map: { type: "string", multiple: true },
       top: { type: "string" },
       mainnet: { type: "boolean" },
       rpc: { type: "string" },
@@ -321,6 +330,11 @@ async function flameCommand(args: string[]): Promise<number> {
   }
   const top = values.top === undefined ? 8 : Number(values.top);
   if (!(Number.isInteger(top) && top > 0)) throw new Error("--top expects a positive whole number");
+  const maps = parseBins(values.map ?? [], "--map", "a linker map");
+  // A map that is not there is a usage error, before anything runs.
+  for (const m of Object.values(maps)) {
+    if (!(await stat(m).then((s) => s.isFile(), () => false))) throw new Error(`--map ${m}: no such file`);
+  }
   const target = values.file ? readTransactionJson(await readFile(values.file, "utf8")) : hash;
   const { plan, groups, debugger: version } = await flameTransaction(target, {
     ...(values.mainnet && { network: "mainnet" as const }),
@@ -329,6 +343,7 @@ async function flameCommand(args: string[]): Promise<number> {
     ...(values.debugger && { debuggerPath: values.debugger }),
     scriptNames: parseNames(values.name ?? []),
     bins: parseBins(values.bin ?? []),
+    maps,
     ...(values.script && { scripts: values.script }),
     readFile: (path) => readFile(path, "utf8"),
   });
@@ -344,19 +359,22 @@ async function flameCommand(args: string[]): Promise<number> {
     const label = termLine(g.name ?? short(g.codeHash));
     const profiled = foldedTotal(g.folded);
     out.push(`${g.selector}  ${label}  ${g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`}  ${fmt(g.cycles)} cycles`);
-    if (g.bin) {
+    if (g.bin || g.map) {
       // Same cycles and the same verdict, and neither run stopped by the VM: two stopped
       // runs both report 0 cycles, which proves nothing (review, 27 Oct).
       const same = g.deployedCycles === g.cycles && g.deployedResult === g.result && !g.error && !g.deployedError;
-      out.push(`  --bin ${termLine(g.bin)}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
+      const flag = g.bin ? `--bin ${termLine(g.bin)}` : `--map ${termLine(g.map!)}`;
+      out.push(`  ${flag}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
       bad ||= !same;
     }
+    if (g.map) out.push(`  ${mapNamesNote(g.map)}`);
+    if (g.mapNote) out.push(`  ${termLine(g.mapNote)}`);
     if (!g.folded.size) {
       out.push("  no profile written (the run stopped before it could be profiled?)", "");
       continue;
     }
     const costs = functionCosts(g.folded);
-    if (costs.length === 1) out.push("  one frame: the binary has no symbols. Pass an unstripped build with --bin <code-hash>=<elf>");
+    if (costs.length === 1) out.push("  one frame: the binary has no symbols. Pass an unstripped build with --bin <code-hash>=<elf>, or its linker map with --map <code-hash>=<map>");
     out.push(`  profiled ${fmt(profiled)} cycles (loading the binary is not profiled)`);
     if (g.spawned) {
       const n = g.spawned;
@@ -381,6 +399,9 @@ async function flameCommand(args: string[]): Promise<number> {
   return bad || groups.some((g) => g.result !== 0) ? 1 : 0;
 }
 
+/** Said wherever a map named the frames: nothing ties a map to the code it claims to describe. */
+const mapNamesNote = (map: string) => `names from ${termLine(map)}: the map is not checked against the code; frames sit where the map says`;
+
 /** One spawned script's profile under its group in `flame`, and its own .folded and .svg (`<selector>.vm<N>`). */
 async function childOutput(selector: string, c: FlameChild, dir: string, top: number, groupOk: boolean): Promise<string[]> {
   const label = termLine(c.name ?? (c.codeHash ? short(c.codeHash) : c.locator));
@@ -389,9 +410,11 @@ async function childOutput(selector: string, c: FlameChild, dir: string, top: nu
   const out = [`${head}  ${c.error ? "error" : c.result === 0 ? "ok" : `exit ${c.result}`}`];
   if (serverExit(c, groupOk)) out.push(`    ${SERVER_EXIT_NOTE}`);
   if (c.symbolsWarning) out.push(`    ${termLine(c.symbolsWarning)}`);
+  if (c.map) out.push(`    ${mapNamesNote(c.map)}`);
+  if (c.mapNote) out.push(`    ${termLine(c.mapNote)}`);
   if (!c.folded.size) return [...out, "    no profile written", ""];
   const costs = functionCosts(c.folded);
-  if (!c.symbols) out.push(`    no symbols build for it: pass --bin ${c.codeHash ?? "<data-hash>"}=<unstripped build> to name its functions`);
+  if (!c.symbols && !c.map) out.push(`    no symbols build for it: pass --bin ${c.codeHash ?? "<data-hash>"}=<unstripped build> (or --map ${c.codeHash ?? "<data-hash>"}=<linker map>) to name its functions`);
   out.push(`    profiled ${fmt(foldedTotal(c.folded))} cycles in its own frames (inside the group's total; loading it and the spawn are not profiled)`);
   out.push("    SELF        TOTAL       FUNCTION");
   for (const f of costs.slice(0, top)) out.push(`    ${fmt(f.self).padStart(10)}  ${fmt(f.total).padStart(10)}  ${termLine(f.name)}`);
