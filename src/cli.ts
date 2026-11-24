@@ -373,6 +373,7 @@ async function flameCommand(args: string[]): Promise<number> {
     }
     if (g.map) out.push(`  ${mapNamesNote(g.map)}`);
     if (g.mapNote) out.push(`  ${termLine(g.mapNote)}`);
+    if (g.ownSymbols) out.push(`  ${OWN_SYMBOLS_NOTE}`);
     if (!g.folded.size) {
       out.push("  no profile written (the run stopped before it could be profiled?)", "");
       continue;
@@ -409,6 +410,9 @@ async function flameCommand(args: string[]): Promise<number> {
 const mapNamesNote = (map: string) =>
   `names from ${termLine(map)} (the deployed binary ran): the map is not checked against the code; frames sit where the map says`;
 
+/** Said where frames were named from the deployed binary's own symbol table (no --bin or --map needed). */
+const OWN_SYMBOLS_NOTE = "names from the deployed binary's own symbol table (it ran; only DWARF is stripped)";
+
 /** One spawned script's profile under its group in `flame`, and its own .folded and .svg (`<selector>.vm<N>`). */
 async function childOutput(selector: string, c: FlameChild, dir: string, top: number, groupOk: boolean): Promise<string[]> {
   const label = termLine(c.name ?? (c.codeHash ? short(c.codeHash) : c.locator));
@@ -419,9 +423,10 @@ async function childOutput(selector: string, c: FlameChild, dir: string, top: nu
   if (c.symbolsWarning) out.push(`    ${termLine(c.symbolsWarning)}`);
   if (c.map) out.push(`    ${mapNamesNote(c.map)}`);
   if (c.mapNote) out.push(`    ${termLine(c.mapNote)}`);
+  if (c.ownSymbols) out.push(`    ${OWN_SYMBOLS_NOTE}`);
   if (!c.folded.size) return [...out, "    no profile written", ""];
   const costs = functionCosts(c.folded);
-  if (!c.symbols && !c.map) out.push(`    no symbols build for it: pass --bin ${c.codeHash ?? "<data-hash>"}=<unstripped build> (or --map ${c.codeHash ?? "<data-hash>"}=<linker map>) to name its functions`);
+  if (!c.symbols && !c.map && !c.ownSymbols) out.push(`    no symbols build for it: pass --bin ${c.codeHash ?? "<data-hash>"}=<unstripped build> (or --map ${c.codeHash ?? "<data-hash>"}=<linker map>) to name its functions`);
   out.push(`    profiled ${fmt(foldedTotal(c.folded))} cycles in its own frames (inside the group's total; loading it and the spawn are not profiled)`);
   out.push("    SELF        TOTAL       FUNCTION");
   for (const f of costs.slice(0, top)) out.push(`    ${fmt(f.self).padStart(10)}  ${fmt(f.total).padStart(10)}  ${termLine(f.name)}`);

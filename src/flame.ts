@@ -8,6 +8,8 @@
  *
  * A deployed binary is usually stripped: its whole run is one frame. Pass an
  * unstripped build of the same code (`ckb-debugger --bin`) to see functions.
+ * One that kept its `.symtab` (DWARF stripped) has its frames opened at its
+ * functions but named `func_0x…`; flameTransaction names them from that table.
  */
 
 /** Stack (frames joined by `;`, outermost first) → cycles. */

@@ -270,7 +270,9 @@ frames by function, prints the costliest ones and writes an SVG flamegraph and
 a folded-stack file per group (open the `.folded` in
 [speedscope](https://www.speedscope.app/) for an interactive view).
 
-Deployed scripts are stripped, so a profile of one is a single frame. Give an
+Deployed scripts are stripped, so a profile of one is a single frame. (A
+binary deployed with its `.symtab`, only DWARF stripped, needs nothing: its
+frames are named from its own symbol table, spawned scripts included.) Give an
 unstripped build of the same code with `--bin <code-hash>=<elf>`; the tool runs
 the group with both binaries and says whether the cycles agree, so you know the
 graph describes the deployed code. Here, a real

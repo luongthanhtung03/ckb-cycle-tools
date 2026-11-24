@@ -31,6 +31,16 @@ This project follows [semantic versioning](https://semver.org/).
   `readLinkerMap` (linkmap.ts: the names, plus `.text` and `_start`);
   `flameTransaction`'s `maps` and `readMap` options and its `notes` result;
   `FlameGroup.map` / `mapNote` and `FlameChild.map` / `mapNote`.
+- `flame` names the frames of a deployed binary that kept its own `.symtab`
+  (a release build with only DWARF stripped), with no `--bin` or `--map`, for
+  the group's script and each spawned one. ckb-debugger's profiler opens a
+  frame at each function its `.symtab` lists but names frames from DWARF only,
+  so they came out as `func_0x<address>`; now they are named from the deployed
+  binary's own symbol table, and the output says so. Checked with ckb-debugger
+  1.1.2 on the spawn fixture's binaries given a `.symtab`: every frame the
+  debugger wrote was an address, every frame flame shows is a name. `--bin`
+  or a used `--map` still wins. `FlameGroup.ownSymbols` and
+  `FlameChild.ownSymbols`. `report` still leaves such a child unnamed.
 
 ### Fixed
 - A spawned script's replay that did not finish (killed, with or without a

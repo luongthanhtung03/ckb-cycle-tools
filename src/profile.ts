@@ -152,6 +152,13 @@ export interface FlameGroup {
   map?: string;
   /** Why a map given for this script was not used (`--bin` given too, an older debugger, the binary not found, the map refused). */
   mapNote?: string;
+  /**
+   * The frames were named from the deployed binary's own `.symtab`: it has one
+   * (only DWARF is stripped), so ckb-debugger already opened a frame at each of
+   * its functions but named them `func_0x…` (it names frames from DWARF only).
+   * Only without `--bin` and without a map that was used.
+   */
+  ownSymbols?: boolean;
   /** With `bin`: the exit code of that run (with the deployed binary), and whether the VM stopped it. */
   deployedResult?: number;
   deployedError?: string;
@@ -329,7 +336,11 @@ export async function flameTransaction(
       ]);
       const spawned = spawnedScripts(runOut.stdout);
       const named = bin ?? mapSymbols;
-      const names = named ? await namesOf(named) : new Map<bigint, string>();
+      // Neither: the deployed binary ran, and if it kept its .symtab its frames are already
+      // opened at its functions, named func_0x… for want of DWARF: name them from that table.
+      const own = named ? undefined : groupBinary(plan.mock, g);
+      const ownNames = own ? elfFunctionNames(own.data) : new Map<bigint, string>();
+      const names = named ? await namesOf(named) : ownNames;
       const folded = nameAddresses(parseFolded(await options.readFile(out).catch(() => "")), names);
       // A flamegraph run's own total is not the group's: up to ckb-debugger 1.1.1 it
       // leaves out loading the binary, 1.1.2 counts loading but is still a few
@@ -371,6 +382,7 @@ export async function flameTransaction(
         ...(childrenNote && { childrenNote }),
         ...(map && { map }),
         ...(mapNote && { mapNote }),
+        ...(ownNames.size && { ownSymbols: true }),
         ...(bin &&
           deployed && {
             bin,

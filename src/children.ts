@@ -5,7 +5,7 @@
  * so the CLI (native debugger, profile.ts) and the web page (WebAssembly
  * build, wasm.ts) split a group the same way and say the same thing about it.
  */
-import { sameCode } from "./elf.js";
+import { elfFunctionNames, sameCode } from "./elf.js";
 import { nameAddresses, parseFolded, profilesChildren, spawnedScripts, spawnTree, CHILD_PROFILE_DEBUGGER, type Folded } from "./flame.js";
 import type { MockTransaction } from "./mock.js";
 import { parseDebuggerRun, type DebuggerOutput } from "./replay.js";
@@ -36,6 +36,12 @@ export interface FlameChild {
   map?: string;
   /** Why a map given for it was not used. */
   mapNote?: string;
+  /**
+   * Its frames were named from the binary's own `.symtab`: the binary the VM
+   * ran has one (only DWARF is stripped), so ckb-debugger already opened a
+   * frame at each of its functions, and no build or map was given.
+   */
+  ownSymbols?: boolean;
   /** The replay's exit code (-1 with `error` when the VM stopped it), and its own cycle count, which counts loading the binary. */
   result: number;
   error?: string;
@@ -180,7 +186,11 @@ export async function profileChildren(rootOutput: string, ctx: ChildContext): Pr
       child.result = parsed.result;
       if (parsed.error) child.error = parsed.error;
       child.cycles = parsed.cycles;
-      const fnNames = symbols && ctx.namesOf ? await ctx.namesOf(symbols) : new Map<bigint, string>();
+      // No build or map: a binary that kept its .symtab (DWARF stripped) already had its frames
+      // opened at its functions by the profiler, which names frames from DWARF only: name them here.
+      const own = !symbols && !symbolsWarning && binary ? elfFunctionNames(binary.data) : undefined;
+      if (own?.size) child.ownSymbols = true;
+      const fnNames = symbols && ctx.namesOf ? await ctx.namesOf(symbols) : (own ?? new Map<bigint, string>());
       child.folded = nameAddresses(parseFolded(await ctx.readFile(out).catch(() => "")), fnNames);
     } catch (e) {
       child.failed = `the replay of VM ${v.vm} failed: ${e instanceof Error ? e.message : String(e)}`;
