@@ -2,7 +2,7 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.6.0 (2026-11-25)
 
 ### Added
 - `ckb-cycles bench`: in a ckb-script-templates project whose tests use
@@ -68,7 +68,7 @@ a linker map (`flame --map`) or from the binary's own `.symtab`.
     maps give the same `.folded` files, byte for byte, as the unstripped
     builds; a real deployed GNU ld binary (the secp256k1-blake160 lock, whose
     ELF header is inside its code segment) is tested with a GNU-format map.
-  - `flame` only; not in `report` yet (see Unreleased).
+  - `flame` only; `report` followed in 1.6.0.
 - Names from a deployed binary's own `.symtab` (a release build with only
   DWARF stripped), with no `--bin` or `--map`. ckb-debugger's profiler opens a
   frame at each function its `.symtab` lists but names frames from DWARF only,
