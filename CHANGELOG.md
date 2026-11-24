@@ -2,7 +2,7 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## 1.6.0 (2026-11-25)
+## 1.6.0 (2026-11-24)
 
 ### Added
 - `ckb-cycles bench`: in a ckb-script-templates project whose tests use
