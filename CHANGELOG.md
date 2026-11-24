@@ -2,49 +2,55 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.5.0 (2026-11-24)
+
+Named frames for deployed binaries that have no unstripped build at hand: from
+a linker map (`flame --map`) or from the binary's own `.symtab`.
 
 ### Added
 - `flame --map <hash>=<linker map>` (repeatable): named frames for a stripped
   deployed binary from the linker map (`-Map`, GNU ld or lld / rust-lld) of a
   byte-identical build, with no unstripped ELF. ckb-debugger's profiler only
   opens a frame at a function its ELF symbol table lists, so a stripped binary
-  is one frame and cannot be named afterwards; instead the map's `.text`
+  is one frame and cannot be named afterwards. Instead, the map's `.text`
   functions are written into a copy of the deployed binary (taken from the
   transaction) as a `.symtab`, appended after the end of the file with only
-  the ELF header's e_shoff and e_shnum changed. The deployed binary runs, for
-  a group's code hash and a spawned binary's data or type hash alike; the copy
-  is only read for where functions start (`--vm-symbols`), so the cycles are
-  the deployed binary's own. Needs ckb-debugger 1.1.2 or later (an older one
-  leaves the frames unnamed, with a note). A map whose `.text` address and
-  size, or `_start`, are not the binary's is refused as the map of another
-  build. On the spawn fixture the stripped binaries plus their rust-lld maps
-  give the same `.folded` files, byte for byte, as the unstripped builds; a
-  real deployed GNU ld binary (the secp256k1-blake160 lock, whose ELF header
-  is inside its code segment) is tested with a GNU-format map. The output says
-  the names come from the map, which is not checked against the code. A `--bin`
-  for the same hash wins (with a note); a `--map` whose hash is no profiled
-  script's is reported. A binary that already has a symbol table needs no map
-  and is refused. Not in `report` yet.
-- Library: `linkerMapFunctionNames` (linkmap.ts), `addSymbolTable`
-  (elfsym.ts), `groupBinary` (spawn.ts), all without Node built-ins;
-  `readLinkerMap` (linkmap.ts: the names, plus `.text` and `_start`);
-  `flameTransaction`'s `maps` and `readMap` options and its `notes` result;
-  `FlameGroup.map` / `mapNote` and `FlameChild.map` / `mapNote`.
-- `flame` names the frames of a deployed binary that kept its own `.symtab`
-  (a release build with only DWARF stripped), with no `--bin` or `--map`, for
-  the group's script and each spawned one. ckb-debugger's profiler opens a
+  the ELF header's e_shoff and e_shnum changed. The deployed binary still
+  runs, for a group's code hash and a spawned binary's data or type hash
+  alike; the copy is only read for where functions start (`--vm-symbols`), so
+  the cycles are the deployed binary's own. Needs ckb-debugger 1.1.2 or later
+  (an older one leaves the frames unnamed, with a note).
+  - A map whose `.text` address and size, or `_start`, are not the binary's is
+    refused as the map of another build. A binary that already has a symbol
+    table needs no map and is refused. A `--bin` for the same hash wins (with
+    a note); a `--map` whose hash is no profiled script's is reported.
+  - The output says the names come from the map, which is not checked against
+    the code.
+  - Checked: on the spawn fixture the stripped binaries plus their rust-lld
+    maps give the same `.folded` files, byte for byte, as the unstripped
+    builds; a real deployed GNU ld binary (the secp256k1-blake160 lock, whose
+    ELF header is inside its code segment) is tested with a GNU-format map.
+  - `flame` only; not in `report` yet.
+- Names from a deployed binary's own `.symtab` (a release build with only
+  DWARF stripped), with no `--bin` or `--map`. ckb-debugger's profiler opens a
   frame at each function its `.symtab` lists but names frames from DWARF only,
-  so they came out as `func_0x<address>`; now they are named from the deployed
-  binary's own symbol table, and the output says so. Checked with ckb-debugger
-  1.1.2 on the spawn fixture's binaries given a `.symtab`: every frame the
-  debugger wrote was an address, every frame flame shows is a name. `--bin`
-  or a used `--map` still wins. `FlameGroup.ownSymbols` and
-  `FlameChild.ownSymbols`. `report` with `functions` does the same for a
-  spawned script with no symbols build: its functions are recorded from its
-  own table (`ChildResult.ownSymbols`) instead of a "no symbols build" warning.
-  A group's own functions in `report` still come only from its `symbols`
-  build, which is run with `--bin` and so wins over the table.
+  so they came out as `func_0x<address>`.
+  - `flame` now names those frames from the binary's own symbol table, for the
+    group's script and each spawned one, and says so. `--bin` or a used
+    `--map` still wins. Checked with ckb-debugger 1.1.2 on the spawn fixture's
+    binaries given a `.symtab`: every frame the debugger wrote was an address,
+    every frame flame shows is a name.
+  - `report` with `functions` does the same for a spawned script with no
+    symbols build: its functions are recorded from its own table instead of a
+    "no symbols build" warning. A group's own functions in `report` still come
+    only from its `symbols` build, which is run with `--bin` and so wins over
+    the table.
+- Library: `linkerMapFunctionNames` and `readLinkerMap` (linkmap.ts; the
+  latter gives the names plus `.text` and `_start`), `addSymbolTable`
+  (elfsym.ts), `groupBinary` (spawn.ts), all without Node built-ins;
+  `flameTransaction`'s `maps` and `readMap` options and its `notes` result;
+  `FlameGroup.map` / `mapNote` / `ownSymbols`, `FlameChild.map` / `mapNote` /
+  `ownSymbols`, and `ChildResult.ownSymbols` in report JSON.
 
 ### Fixed
 - A spawned script's replay that did not finish (killed, with or without a
@@ -57,6 +63,8 @@ This project follows [semantic versioning](https://semver.org/).
   on the two sides as one: the child shows both names (`child-a → child-b`,
   and `baseScript` in the diff JSON), counts as changed, and has no delta. A
   rebuild of the same script (same name, new data hash) compares as before.
+
+### Docs
 - README: a spawned VM's locator does not say whether its binary came from a
   cell or a witness, so for a binary spawned from a witness the data hash and
   name shown can be those of the cell at the same index.
