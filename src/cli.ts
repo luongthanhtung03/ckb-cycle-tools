@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { diffFailed, diffReports, formatMarkdown, formatText, termLine, termLines, type CycleReport } from "./diff.js";
 import { buildMockTransaction, httpRpc, mockFromTransaction } from "./mock.js";
 import { flameTree, foldedTotal, formatFolded, functionCosts, renderFlameSvg } from "./flame.js";
-import { flameTransaction, parseNames, profileTransaction, readTransactionJson, type FlameChild, type Profile } from "./profile.js";
+import { flameTransaction, mapTooLarge, MAX_LINKER_MAP, parseNames, profileTransaction, readTransactionJson, type FlameChild, type Profile } from "./profile.js";
 import { PUBLIC_RPC, sumLines } from "./replay.js";
 import { serverExit, SERVER_EXIT_NOTE } from "./children.js";
 import { formatReport, runReport } from "./report.js";
@@ -105,12 +105,13 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                <dir>/<selector>.vm<N>.svg and .folded; --bin with the spawned
                binary's data hash names its functions (--vm-symbols).
                --map <hash>=<file> instead of --bin: the linker map (-Map, GNU ld
-               or lld) of a byte-identical build of the deployed binary. Its
-               functions are written into a copy of the deployed binary as a
-               symbol table, which runs in its place (the same loaded bytes,
-               and the cycles are checked the same way). The map itself is not
-               checked against the code: frames sit where it says. A --bin for
-               the same hash wins`;
+               or lld) of a byte-identical build of the deployed binary. The
+               deployed binary runs; the map's functions are written into a
+               copy of it as a symbol table, which ckb-debugger only reads for
+               where functions start (--vm-symbols; needs ckb-debugger 1.1.2 or
+               later). A map whose .text or _start is not the binary's is
+               refused; beyond that it is not checked against the code: frames
+               sit where it says. A --bin for the same hash wins`;
 
 const fmt = (n: bigint) => n.toLocaleString("en-US");
 const short = (h: string, n = 6) => (h.length > 2 * n + 2 ? `${h.slice(0, n + 2)}…${h.slice(-n)}` : h);
@@ -331,12 +332,16 @@ async function flameCommand(args: string[]): Promise<number> {
   const top = values.top === undefined ? 8 : Number(values.top);
   if (!(Number.isInteger(top) && top > 0)) throw new Error("--top expects a positive whole number");
   const maps = parseBins(values.map ?? [], "--map", "a linker map");
-  // A map that is not there is a usage error, before anything runs.
+  // A map that is not there, or cannot be one, is a usage error before anything runs.
   for (const m of Object.values(maps)) {
-    if (!(await stat(m).then((s) => s.isFile(), () => false))) throw new Error(`--map ${m}: no such file`);
+    const s = await stat(m).catch(() => undefined);
+    if (!s) throw new Error(`--map ${m}: no such file`);
+    if (s.isDirectory()) throw new Error(`--map ${m}: a directory, not a linker map file`);
+    if (!s.isFile()) throw new Error(`--map ${m}: not a regular file`);
+    if (s.size > MAX_LINKER_MAP) throw new Error(`--map ${m}: ${mapTooLarge(s.size)}`);
   }
   const target = values.file ? readTransactionJson(await readFile(values.file, "utf8")) : hash;
-  const { plan, groups, debugger: version } = await flameTransaction(target, {
+  const { plan, groups, debugger: version, notes } = await flameTransaction(target, {
     ...(values.mainnet && { network: "mainnet" as const }),
     ...(values.rpc && { rpcUrl: values.rpc }),
     ...timeoutOf(values.timeout),
@@ -359,12 +364,11 @@ async function flameCommand(args: string[]): Promise<number> {
     const label = termLine(g.name ?? short(g.codeHash));
     const profiled = foldedTotal(g.folded);
     out.push(`${g.selector}  ${label}  ${g.error ? "error" : g.result === 0 ? "ok" : `exit ${g.result}`}  ${fmt(g.cycles)} cycles`);
-    if (g.bin || g.map) {
+    if (g.bin) {
       // Same cycles and the same verdict, and neither run stopped by the VM: two stopped
       // runs both report 0 cycles, which proves nothing (review, 27 Oct).
       const same = g.deployedCycles === g.cycles && g.deployedResult === g.result && !g.error && !g.deployedError;
-      const flag = g.bin ? `--bin ${termLine(g.bin)}` : `--map ${termLine(g.map!)}`;
-      out.push(`  ${flag}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
+      out.push(`  --bin ${termLine(g.bin)}: ${same ? "same cycles as the deployed binary" : `✗ ${fmt(g.deployedCycles ?? 0n)} cycles, result ${g.deployedError ? "vm error" : g.deployedResult} with the deployed binary: this build is not that code`}`);
       bad ||= !same;
     }
     if (g.map) out.push(`  ${mapNamesNote(g.map)}`);
@@ -394,13 +398,16 @@ async function flameCommand(args: string[]): Promise<number> {
     for (const c of g.children ?? []) out.push(...(await childOutput(g.selector, c, dir, top, g.result === 0 && !g.error)));
     if (g.childrenNote) out.push(`  spawned scripts: ${termLine(g.childrenNote)}`, "");
   }
+  for (const n of notes ?? []) out.push(termLine(n));
+  if (notes?.length) out.push("");
   out.push(`${termLine(version)} · CKB-VM v${plan.scriptVersion} for type scripts · ${plan.network} · ${plan.rpcUrl}`);
   console.log(out.join("\n"));
   return bad || groups.some((g) => g.result !== 0) ? 1 : 0;
 }
 
 /** Said wherever a map named the frames: nothing ties a map to the code it claims to describe. */
-const mapNamesNote = (map: string) => `names from ${termLine(map)}: the map is not checked against the code; frames sit where the map says`;
+const mapNamesNote = (map: string) =>
+  `names from ${termLine(map)} (the deployed binary ran): the map is not checked against the code; frames sit where the map says`;
 
 /** One spawned script's profile under its group in `flame`, and its own .folded and .svg (`<selector>.vm<N>`). */
 async function childOutput(selector: string, c: FlameChild, dir: string, top: number, groupOk: boolean): Promise<string[]> {

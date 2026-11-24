@@ -27,9 +27,11 @@ export interface FlameChild {
   /** Why no symbols build was used although one was given (it is not the same code). */
   symbolsWarning?: string;
   /**
-   * The linker map (`--map`) whose functions named its frames: written into a
-   * copy of the binary it ran as a symbol table, replayed with `--vm-symbols`.
-   * Not checked against the code: frames sit where the map says.
+   * The linker map (`--map`) whose functions named its frames. The binary the
+   * VM ran is replayed as it is; the map's functions are written into a copy
+   * of it as a symbol table, which the replay only reads for where functions
+   * start (`--vm-symbols`). Checked only for the same `.text` and entry point
+   * as the binary, not against the code: frames sit where the map says.
    */
   map?: string;
   /** Why a map given for it was not used. */
@@ -85,7 +87,7 @@ export interface ChildContext {
   namesOf?: (bin: string) => Promise<Map<bigint, string>>;
   /** A linker map for a data or type hash (`--map`); a `symbolsOf` build for the same binary wins. */
   mapOf?: (hash: string) => string | undefined;
-  /** Writes a copy of `binary` with the map's functions as its symbol table and gives its path (profile.ts); throws when it cannot. */
+  /** Writes a copy of `binary` with the map's functions as its symbol table, for `--vm-symbols` only, and gives its path (profile.ts); throws when it cannot. */
   symbolize?: (map: string, binary: Uint8Array) => Promise<string>;
 }
 

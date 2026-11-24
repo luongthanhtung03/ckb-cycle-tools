@@ -348,33 +348,39 @@ same hash (the group's code hash; for a spawned script its data hash or cell
 type hash). Naming frames after the run would not be enough: ckb-debugger's
 profiler opens a frame only where a jump lands on a function the ELF symbol
 table lists, so a stripped binary profiles as one frame. So the tool takes the
-deployed binary from the transaction, appends a symbol table built from the
-map's `.text` functions (after every byte the VM loads; a copy that would
-change the loaded code is refused), and runs that copy as `--bin` or
-`--vm-symbols`. The group's cycles are still checked against the deployed
-binary. On [`test/fixtures/spawn-project`](test/fixtures/spawn-project), the
-stripped `spawn-parent` and `spawn-child` with the maps rust-lld wrote for a
+deployed binary from the transaction and writes a copy of it with a symbol
+table built from the map's `.text` functions (appended after the end of the
+file; only the ELF header's section-table fields change). The deployed binary
+is what runs, as without a map: ckb-debugger only reads the copy for where
+functions start (`--vm-symbols`, which needs ckb-debugger 1.1.2 or later; an
+older one leaves the frames unnamed, with a note). So the cycles are the
+deployed binary's own, and there is no build to check them against. On
+[`test/fixtures/spawn-project`](test/fixtures/spawn-project), the stripped
+`spawn-parent` and `spawn-child` with the maps rust-lld wrote for a
 byte-identical rebuild give the same `.folded` files, byte for byte, as their
-unstripped builds:
+unstripped builds. GNU ld binaries work the same way (tested on the deployed
+secp256k1-blake160 lock, with a GNU-format map written from its own code):
 
 ```
 $ ckb-cycles flame --file heavy-tx.json --map 0xb95123…b4324a=spawn-parent.map \
     --map 0x907733…00774d=spawn-child.map
 input.0.lock  0xb95123…b4324a  ok  761,957 cycles
-  --map spawn-parent.map: same cycles as the deployed binary
-  names from spawn-parent.map: the map is not checked against the code; frames sit where the map says
+  names from spawn-parent.map (the deployed binary ran): the map is not checked against the code; frames sit where the map says
   …
   spawned vm 1  0x907733…00774d  (cell_dep[1][0..11552])  ok
-    names from spawn-child.map: the map is not checked against the code; frames sit where the map says
+    names from spawn-child.map (the deployed binary ran): the map is not checked against the code; frames sit where the map says
        606,720     606,720  spawn_child::child_work
 ```
 
 What to keep in mind:
 
 - A map is a claim, not evidence. An ELF build can be checked against the
-  deployed code; a map cannot. If the map is from another build, frames open at
-  the wrong places and carry the wrong names, though the group's cycles stay
-  right. Use a map only from a build you reproduced byte for byte.
+  deployed code; a map cannot. The tool refuses a map whose `.text` address and
+  size, or whose `_start`, differ from the binary's (the map of another script),
+  but a map of a slightly different build of the same script can pass that. If
+  the map is from another build, frames open at the wrong places and carry the
+  wrong names, though the group's cycles stay right. Use a map only from a
+  build you reproduced byte for byte.
 - lld writes symbol names already demangled, including trait impls
   (`<buddy_alloc::non_threadsafe_alloc::NonThreadsafeAlloc as
   core::alloc::global::GlobalAlloc>::dealloc`), where `--bin` shows some such
@@ -384,7 +390,12 @@ What to keep in mind:
   functions are named from `-ffunction-sections` section names (`.text.<fn>`),
   which Rust uses by default.
 - A `--bin` for the same hash wins, and the map is ignored with a note. A
-  binary that already has a symbol table is refused (pass it with `--bin`).
+  binary that already has a symbol table needs no map: ckb-debugger opens its
+  frames from its own symbols. A `--map` whose hash is no profiled script's
+  is reported, not silently ignored.
+- Names are used as the map prints them. A name with an unbalanced `<` or `(`
+  (lld-demangled C++ such as `operator<`) can merge frames in the `.folded`
+  output, as it already can for a name from an ELF symbol table.
 - `report` and cycles.json have no map option yet: there, functions still need
   a `symbols` build.
 
@@ -427,7 +438,7 @@ built-ins, so the browser can draw the same graph). A spawning group's
 `children` (`FlameChild`: VM id, locator, data hash, result, folded stacks)
 come from `--vm-id` replays; `vmSymbols` gives builds for spawned binaries by
 data hash, and `children: false` turns the replays off. `maps` gives linker
-maps by the same hashes (`linkerMapFunctionNames`, `addSymbolTable`). `spawnTree` and
+maps by the same hashes (`readLinkerMap`, `addSymbolTable`). `spawnTree` and
 `profilesChildren` (in `ckb-cycle-tools/flame`) and `spawnedBinary` are the
 pieces.
 

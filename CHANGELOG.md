@@ -11,20 +11,26 @@ This project follows [semantic versioning](https://semver.org/).
   opens a frame at a function its ELF symbol table lists, so a stripped binary
   is one frame and cannot be named afterwards; instead the map's `.text`
   functions are written into a copy of the deployed binary (taken from the
-  transaction) as a `.symtab`, appended after every byte the VM loads, and that
-  copy runs as `--bin` (a group's code hash) or `--vm-symbols` (a spawned
-  binary's data or type hash). The copy is refused unless its loaded code is
-  the deployed binary's (elf.ts `sameCode`), and the root group's cycles are
-  checked against the deployed binary as with `--bin`. On the spawn fixture the
-  stripped binaries plus their rust-lld maps give the same `.folded` files,
-  byte for byte, as the unstripped builds. The output says the names come from
-  the map, which is not checked against the code. A `--bin` for the same hash
-  wins (with a note). A binary that already has a symbol table is refused
-  (pass it with `--bin`). Not in `report` yet.
+  transaction) as a `.symtab`, appended after the end of the file with only
+  the ELF header's e_shoff and e_shnum changed. The deployed binary runs, for
+  a group's code hash and a spawned binary's data or type hash alike; the copy
+  is only read for where functions start (`--vm-symbols`), so the cycles are
+  the deployed binary's own. Needs ckb-debugger 1.1.2 or later (an older one
+  leaves the frames unnamed, with a note). A map whose `.text` address and
+  size, or `_start`, are not the binary's is refused as the map of another
+  build. On the spawn fixture the stripped binaries plus their rust-lld maps
+  give the same `.folded` files, byte for byte, as the unstripped builds; a
+  real deployed GNU ld binary (the secp256k1-blake160 lock, whose ELF header
+  is inside its code segment) is tested with a GNU-format map. The output says
+  the names come from the map, which is not checked against the code. A `--bin`
+  for the same hash wins (with a note); a `--map` whose hash is no profiled
+  script's is reported. A binary that already has a symbol table needs no map
+  and is refused. Not in `report` yet.
 - Library: `linkerMapFunctionNames` (linkmap.ts), `addSymbolTable`
   (elfsym.ts), `groupBinary` (spawn.ts), all without Node built-ins;
-  `flameTransaction`'s `maps` and `readMap` options; `FlameGroup.map` /
-  `mapNote` and `FlameChild.map` / `mapNote`.
+  `readLinkerMap` (linkmap.ts: the names, plus `.text` and `_start`);
+  `flameTransaction`'s `maps` and `readMap` options and its `notes` result;
+  `FlameGroup.map` / `mapNote` and `FlameChild.map` / `mapNote`.
 
 ### Fixed
 - A spawned script's replay that did not finish (killed, with or without a
