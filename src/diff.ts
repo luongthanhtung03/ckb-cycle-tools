@@ -147,11 +147,26 @@ export interface GroupResult {
   missingBinary?: string;
   /**
    * The costliest functions of the run, heaviest self first (at most
-   * FUNCTION_LIMIT). Only for a group whose binary has a `symbols` build.
+   * FUNCTION_LIMIT). Only for a group whose binary has a `symbols` build or a
+   * linker `map`.
    */
   functions?: FunctionResult[];
-  /** Why `functions` were not recorded although asked for (the symbols build costs other cycles…). */
+  /** Why `functions` were not recorded although asked for (the symbols build costs other cycles, the map is not this binary's…). */
   functionsWarning?: string;
+  /**
+   * `functions` were named from this linker map (the binary's `"map"` in the
+   * config, as given there; added after 1.5.0): the binary itself ran, and
+   * the map's functions were only read for where functions start. The map is
+   * checked for the binary's `.text` and `_start`, not against its code.
+   */
+  map?: string;
+  /** Why a map given for this binary was not used (a symbols build wins, an older ckb-debugger, another build's map; added after 1.5.0). */
+  mapNote?: string;
+  /**
+   * `functions` were named from the binary's own `.symtab` (a map given for it
+   * was not used: the binary already has a symbol table; added after 1.5.0).
+   */
+  ownSymbols?: boolean;
   /**
    * How many scripts this one spawned (CKB2023 `spawn`), seen by the run that
    * recorded `functions`. Their cycles are in `cycles`, but `functions` cover
@@ -197,6 +212,10 @@ export interface ChildResult {
    * DWARF stripped): no symbols build was given for it.
    */
   ownSymbols?: boolean;
+  /** Its functions were named from its binary's linker map (`"map"` in the config; added after 1.5.0). */
+  map?: string;
+  /** Why a map given for its binary was not used (added after 1.5.0). */
+  mapNote?: string;
   /** Why it has no profile: the replay could not be run or read. */
   failed?: string;
 }
@@ -641,6 +660,8 @@ function childrenOf(g: GroupResult | undefined): ChildResult[] | undefined {
       }),
       ...(str(c.functionsWarning) && { functionsWarning: str(c.functionsWarning) }),
       ...(c.ownSymbols === true && { ownSymbols: true }),
+      ...(str(c.map) && { map: str(c.map) }),
+      ...(str(c.mapNote) && { mapNote: str(c.mapNote) }),
       ...(str(c.failed) && { failed: str(c.failed) }),
     }));
 }
