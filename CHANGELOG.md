@@ -2,6 +2,22 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+- `ckb-cycles bench`: in a ckb-script-templates project whose tests use
+  integrations/ckb-testtool, builds (`make build`), runs the tests with
+  `CKB_CYCLES_MOCKS` set (`cargo test -p tests`), scans, reports, and compares
+  with a saved baseline, cargo-bench style: `--save-baseline <name>` (compare
+  if present, then save; the default, as `base`) or `--baseline <name>`
+  (compare only). A baseline keeps the run's binaries and `.debug` builds in
+  `target/ckb-cycles-bench/baselines/<name>`; the comparison replays this
+  run's mocks with them (as `report --binaries-from` does for a pull
+  request's base), since a report from another build has other inputs and
+  would not be compared. diff's gates apply; a run that fails one is not
+  saved. Writes `head.json`, `base.json` and `diff.md`. Exported as
+  `runBench`. `scripts/templates-e2e.sh` runs it on the generated workspace.
+
 ## 1.5.0 (2026-11-24)
 
 Named frames for deployed binaries that have no unstripped build at hand: from

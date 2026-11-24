@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End to end on a real ckb-script-templates project: generate a workspace with
 # two contracts, wire in integrations/ckb-testtool, add the README's
-# `cycles-config` target, then scan, report, change one contract and diff.
+# `cycles-config` target, then scan, report, change one contract and diff;
+# the same with `ckb-cycles bench --save-baseline` / `--baseline`.
 #
 # Needs: cargo with the riscv64imac-unknown-none-elf target, clang 18+ and
 # llvm-objcopy (the template's find_clang), make, git, perl, cargo-generate,
@@ -80,6 +81,12 @@ $CKB_CYCLES report cycles.json --json "$WORK/base.json"
 rm -rf "$WORK/base-checkout" && mkdir -p "$WORK/base-checkout/build"
 cp -r build/release "$WORK/base-checkout/build/"
 
+step "ckb-cycles bench --save-baseline before (builds, tests, saves build/release)"
+$CKB_CYCLES bench --save-baseline before 2>&1 | tee "$WORK/bench-save.log"
+test -f target/ckb-cycles-bench/baselines/before/build/release/alpha || fail "bench did not save alpha"
+test -f target/ckb-cycles-bench/baselines/before/build/release/alpha.debug || fail "bench did not save alpha.debug"
+cp target/ckb-cycles-bench/head.json "$WORK/bench-before.json"
+
 step "a deliberate change: alpha runs a 1000-step loop"
 perl -0pi -e 's/(debug!\("This is a sample contract!"\);\n)/$1    let mut acc: u64 = 0;\n    for i in 0..1000u64 {\n        acc = core::hint::black_box(acc.wrapping_mul(31).wrapping_add(i));\n    }\n    if acc == 1 {\n        return 1;\n    }\n/' contracts/alpha/src/main.rs
 grep -q black_box contracts/alpha/src/main.rs || fail "the change did not apply"
@@ -95,6 +102,16 @@ $CKB_CYCLES diff "$WORK/base-swapped.json" "$WORK/head.json" --fail-above 5 >/de
 code=$?
 set -e
 test "$code" = 1 || fail "diff --fail-above 5 exited $code, expected 1"
+
+step "ckb-cycles bench --baseline before --fail-above 5 (the change against the saved build)"
+set +e
+$CKB_CYCLES bench --baseline before --fail-above 5 2>&1 | tee "$WORK/bench-compare.log"
+code=${PIPESTATUS[0]}
+set -e
+test "$code" = 1 || fail "bench --fail-above 5 exited $code, expected 1"
+cp target/ckb-cycles-bench/base.json "$WORK/bench-base.json"
+cp target/ckb-cycles-bench/head.json "$WORK/bench-head.json"
+cp target/ckb-cycles-bench/diff.md "$WORK/bench-diff.md"
 
 step "checks"
 node - "$WORK" <<'JS'
@@ -116,6 +133,13 @@ if (h["tests.test_beta"] !== b["tests.test_beta"]) fail("beta changed");
 const names = head.scenarios.flatMap((x) => x.groups.flatMap((g) => (g.functions ?? []).map((f) => f.name)));
 if (!names.length) fail("no functions recorded");
 if (names.some((n) => n.startsWith("func_0x"))) fail(`unnamed functions: ${names.filter((n) => n.startsWith("func_0x"))}`);
-console.log(`ok: base ${JSON.stringify(b)}, head ${JSON.stringify(h)}; the reports match ckb-testtool's own counts`);
+// bench: its own runs give the same numbers as the steps above, and its
+// comparison is the base build replaying the head's tests.
+const bb = cyclesOf(read("bench-before.json")), bs = cyclesOf(read("bench-base.json")), bh = cyclesOf(read("bench-head.json"));
+if (JSON.stringify(bb) !== JSON.stringify(b)) fail(`bench before ${JSON.stringify(bb)} != base ${JSON.stringify(b)}`);
+if (JSON.stringify(bs) !== JSON.stringify(b)) fail(`bench baseline replay ${JSON.stringify(bs)} != base ${JSON.stringify(b)}`);
+if (JSON.stringify(bh) !== JSON.stringify(h)) fail(`bench head ${JSON.stringify(bh)} != head ${JSON.stringify(h)}`);
+if (!fs.readFileSync(`${dir}/bench-diff.md`, "utf8").includes("baseline before")) fail("bench diff.md does not name the baseline");
+console.log(`ok: base ${JSON.stringify(b)}, head ${JSON.stringify(h)}; the reports match ckb-testtool's own counts; bench agrees`);
 JS
 echo "work dir: $WORK"

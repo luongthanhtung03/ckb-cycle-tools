@@ -98,3 +98,5 @@ export { childResult, formatReport, groupResults, parseCyclesConfig, runReport }
 export type { BinaryConfig, CyclesConfig, ReportOptions, ScenarioConfig } from "./report.js";
 export { configFromMocks, formatScan, scanTestMocks } from "./scan.js";
 export type { ScanOptions, ScanResult, ScannedBinary, ScannedMock } from "./scan.js";
+export { BENCH_DEFAULTS, checkBaselineName, runBench } from "./bench.js";
+export type { BenchOptions, BenchResult, RunCommand } from "./bench.js";

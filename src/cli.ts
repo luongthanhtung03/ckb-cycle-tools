@@ -10,6 +10,7 @@ import { PUBLIC_RPC, sumLines } from "./replay.js";
 import { serverExit, SERVER_EXIT_NOTE } from "./children.js";
 import { formatReport, runReport } from "./report.js";
 import { formatScan, scanTestMocks } from "./scan.js";
+import { runBench } from "./bench.js";
 
 const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout <s>] [--debugger <path>]
                   [--json] [--name <code-hash>[:<hash-type>]=<label> ...]
@@ -23,6 +24,10 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
        ckb-cycles mock <tx-hash> | --file <tx.json>  [-o <mock.json>] [--mainnet] [--rpc <url>]
                   [--timeout <s>]
        ckb-cycles scan <mocks-dir> [--binaries <dir>] [-o <cycles.json>] [--functions]
+       ckb-cycles bench [--save-baseline <name> | --baseline <name>] [--build <cmd> | --no-build]
+                  [--test <cmd>] [--mocks <dir>] [--binaries <dir>] [-o <cycles.json>] [--dir <dir>]
+                  [--functions | --no-functions] [--fail-above <percent>] [--fail-on-result-change]
+                  [--allow-removed] [--allow-changed-inputs] [--debugger <path>] [--toolchain <text>]
        ckb-cycles flame <tx-hash> | --file <tx.json>  [-o <dir>] [--script <selector> ...]
                   [--bin <code-hash>=<elf> ...] [--map <code-hash>=<linker map> ...] [--top <n>]
                   [--mainnet] [--rpc <url>] [--debugger <path>]
@@ -93,6 +98,22 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                build/release) that a test deployed, matched by its data hash, with
                <name>.debug as its symbols build. --functions records each group's
                costliest functions. -o defaults to cycles.json
+  bench        cargo-bench style, in a ckb-script-templates project whose tests
+               call integrations/ckb-testtool: --build (default make build), the
+               --test command (default cargo test -p tests) with CKB_CYCLES_MOCKS
+               set to --mocks (default target/ckb-cycles; its *.json are deleted
+               first), scan into -o (default cycles.json), report. Then, when the
+               baseline was saved before, the same tests' transactions run again
+               with the baseline's binaries, and the two reports are diffed, as a
+               pull request's base and head are. --save-baseline <name> compares
+               with <name> if it is there, then saves this run as <name>;
+               --baseline <name> compares and saves nothing; neither means
+               --save-baseline base. A baseline is the binaries (and .debug
+               builds) the run used, in <dir>/baselines/<name> (default dir
+               target/ckb-cycles-bench, so cargo clean removes it); the reports
+               go to <dir>/head.json, base.json, diff.md. The gates are diff's;
+               a run that fails one is not saved. Exit 0, 1 a gate failed, 2 the
+               build, the tests or a report did not complete
   flame        where inside each script the cycles go: ckb-debugger's flamegraph
                mode per script group. Prints the costliest functions and writes
                <dir>/<selector>.svg and .folded (for speedscope or inferno), in
@@ -271,6 +292,64 @@ async function mockCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+async function benchCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      baseline: { type: "string" },
+      "save-baseline": { type: "string" },
+      build: { type: "string" },
+      "no-build": { type: "boolean" },
+      test: { type: "string" },
+      mocks: { type: "string" },
+      binaries: { type: "string" },
+      out: { type: "string", short: "o" },
+      dir: { type: "string" },
+      functions: { type: "boolean" },
+      "no-functions": { type: "boolean" },
+      "fail-above": { type: "string" },
+      "fail-on-result-change": { type: "boolean" },
+      "allow-removed": { type: "boolean" },
+      "allow-changed-inputs": { type: "boolean" },
+      debugger: { type: "string" },
+      toolchain: { type: "string" },
+    },
+  });
+  if (positionals.length || (values.build !== undefined && values["no-build"]) || (values.functions && values["no-functions"])) {
+    console.log(USAGE);
+    return 2;
+  }
+  const failAbove = values["fail-above"] === undefined ? undefined : Number(values["fail-above"]);
+  if (failAbove !== undefined && !(failAbove >= 0)) {
+    console.error("error: --fail-above expects a percentage, e.g. 5");
+    return 2;
+  }
+  const r = await runBench({
+    ...(values.baseline !== undefined && { baseline: values.baseline }),
+    ...(values["save-baseline"] !== undefined && { saveBaseline: values["save-baseline"] }),
+    ...(values["no-build"] ? { build: false as const } : values.build !== undefined && { build: values.build }),
+    ...(values.test !== undefined && { test: values.test }),
+    ...(values.mocks && { mocksDir: values.mocks }),
+    ...(values.binaries && { binariesDir: values.binaries }),
+    ...(values.out && { out: values.out }),
+    ...(values.dir && { benchDir: values.dir }),
+    ...(values.functions ? { functions: true } : values["no-functions"] && { functions: false }),
+    diff: {
+      ...(failAbove !== undefined && { failAbove }),
+      failOnResultChange: values["fail-on-result-change"],
+      allowRemoved: values["allow-removed"],
+      allowChangedInputs: values["allow-changed-inputs"],
+    },
+    report: {
+      ...(values.debugger && { debuggerPath: values.debugger }),
+      ...(values.toolchain && { toolchain: values.toolchain }),
+    },
+    log: (text, stream) => (stream === "out" ? console.log(text) : console.error(termLines(text))),
+  });
+  return r.code;
+}
+
 async function scanCommand(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
@@ -444,6 +523,7 @@ async function main(): Promise<number> {
   if (command === "mock") return mockCommand(rest);
   if (command === "flame") return flameCommand(rest);
   if (command === "scan") return scanCommand(rest);
+  if (command === "bench") return benchCommand(rest);
 
   const { values, positionals } = parseArgs({
     allowPositionals: true,

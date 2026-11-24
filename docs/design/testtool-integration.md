@@ -148,8 +148,11 @@ workflow step before the Action, and the Action's `build` is only `make build`:
   zero-config (see open questions).
 - No `cargo bench` target. A bench target cannot call `#[cfg(test)]` code,
   which is where the template's tests are, and the tests are what holds the
-  scenarios. `make cycles` runs the tests instead; a `cargo bench` wrapper
-  around the same steps is possible if wanted.
+  scenarios. `make cycles` runs the tests instead. `ckb-cycles bench` (24 Nov)
+  is the cargo-bench workflow over the same steps: it runs the tests, and
+  compares with a saved baseline (`--save-baseline` / `--baseline`, as
+  criterion names them), the baseline being the binaries the earlier run used,
+  replayed with this run's mocks.
 - Native-simulator tests (`native-simulator` feature) run x86 code, not
   CKB-VM. Their dumps are still mock transactions the debugger can run with the
   RISC-V binary; `scan` treats them the same.

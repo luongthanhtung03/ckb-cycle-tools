@@ -712,6 +712,60 @@ The base column is the base's binaries swapped into the head's mocks
 (The Action measures the base with the base commit's own cycles.json and mocks,
 so a scenario a pull request deletes still shows up, as removed.)
 
+#### Against a saved baseline: `ckb-cycles bench`
+
+The same steps as one command, compared with an earlier build, the way
+`cargo bench` (criterion) compares with a saved baseline. Run it at the
+workspace root once step 1 is done; it needs no Makefile target:
+
+```
+ckb-cycles bench --save-baseline before     # on the code you start from
+# ... change a contract ...
+ckb-cycles bench --baseline before          # this run against it; saves nothing
+```
+
+Each run does `make build`, runs `cargo test -p tests` with `CKB_CYCLES_MOCKS`
+set (to `target/ckb-cycles`, whose `*.json` it clears first), scans into
+`cycles.json` and reports. With a baseline of that name it then replays this
+run's mocks with the baseline's binaries and diffs the two, so the scenarios are
+this run's tests and only the code differs, as for a pull request.
+`--save-baseline <name>` compares with `<name>` when it exists and then saves
+this run as `<name>`; `--baseline <name>` compares only; with neither, it is
+`--save-baseline base`.
+
+A baseline is the binaries the run used (and their `.debug` builds), kept in
+`target/ckb-cycles-bench/baselines/<name>`, so `cargo clean` removes it. A
+report from an earlier run cannot be the baseline by itself: every build
+changes the mocks (the binary is cell data in them), so `diff` would mark each
+scenario NOT COMPARED. Each run also writes `head.json`, `base.json` and
+`diff.md` (for a pull request comment or a job summary) to
+`target/ckb-cycles-bench`.
+
+The gates are `diff`'s (`--fail-above <percent>`, `--fail-on-result-change`, ...);
+without one, a change is shown and the exit code stays 0. A run that fails
+its gate is not saved, so the next run is not compared with the regression.
+`--build <cmd>` / `--no-build`, `--test <cmd>`, `--mocks`, `--binaries`, `-o`
+and `--dir` change the defaults. The exit code is 2 when the build, the tests or
+a report did not complete.
+
+In [`scripts/templates-e2e.sh`](scripts/templates-e2e.sh), on the generated
+workspace, after the change to `alpha`:
+
+```
+$ ckb-cycles bench --baseline before --fail-above 5
+...
+change against baseline "before":
+1 over the 5% threshold, 1 of 2 script groups changed
+
+SCENARIO          GROUP         SCRIPT   BASE    HEAD        Δ        Δ%
+tests.test_alpha  input.0.lock  alpha   7,156  19,174  +12,018  +167.94%  over 5%
+tests.test_beta   input.0.lock  beta    7,154   7,154        0        0%
+
+functions in tests.test_alpha input.0.lock: __ckb_std_main +12,008
+$ echo $?
+1
+```
+
 ## ckb-js-vm vs Rust: one lock, two implementations
 
 `benchmarks/session-lock` holds a TypeScript port of the
