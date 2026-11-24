@@ -40,7 +40,11 @@ This project follows [semantic versioning](https://semver.org/).
   1.1.2 on the spawn fixture's binaries given a `.symtab`: every frame the
   debugger wrote was an address, every frame flame shows is a name. `--bin`
   or a used `--map` still wins. `FlameGroup.ownSymbols` and
-  `FlameChild.ownSymbols`. `report` still leaves such a child unnamed.
+  `FlameChild.ownSymbols`. `report` with `functions` does the same for a
+  spawned script with no symbols build: its functions are recorded from its
+  own table (`ChildResult.ownSymbols`) instead of a "no symbols build" warning.
+  A group's own functions in `report` still come only from its `symbols`
+  build, which is run with `--bin` and so wins over the table.
 
 ### Fixed
 - A spawned script's replay that did not finish (killed, with or without a

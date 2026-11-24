@@ -525,8 +525,10 @@ export function childResult(c: FlameChild): ChildResult {
   const base = { vm: c.vm, parent: c.parent, script, ...(c.codeHash && { codeHash: c.codeHash }) };
   if (c.failed) return { ...base, failed: c.failed };
   const out: ChildResult = { ...base, result: c.result, ...(c.error && { error: c.error }), profiled: Number(foldedTotal(c.folded)) };
+  // Named from the binary's own .symtab when no build was given for it (flame does the same).
+  if (c.ownSymbols) out.ownSymbols = true;
   if (c.symbolsWarning) out.functionsWarning = c.symbolsWarning;
-  else if (!c.symbols) out.functionsWarning = "no symbols build for the binary it ran: its frames have no names";
+  else if (!c.symbols && !c.ownSymbols) out.functionsWarning = "no symbols build for the binary it ran: its frames have no names";
   else if (!c.folded.size) out.functionsWarning = "the profiler recorded no stacks";
   else {
     out.functions = functionCosts(c.folded)

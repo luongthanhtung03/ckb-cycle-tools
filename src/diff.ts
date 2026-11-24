@@ -186,9 +186,17 @@ export interface ChildResult {
   error?: string;
   /** The cycles in its profiled frames. Absent with `failed`. */
   profiled?: number;
-  /** Its costliest functions, heaviest self first (at most FUNCTION_LIMIT), when its binary has a symbols build. */
+  /**
+   * Its costliest functions, heaviest self first (at most FUNCTION_LIMIT), when
+   * its binary has a symbols build or kept its own `.symtab`.
+   */
   functions?: FunctionResult[];
   functionsWarning?: string;
+  /**
+   * Its functions were named from the deployed binary's own `.symtab` (only
+   * DWARF stripped): no symbols build was given for it.
+   */
+  ownSymbols?: boolean;
   /** Why it has no profile: the replay could not be run or read. */
   failed?: string;
 }
@@ -632,6 +640,7 @@ function childrenOf(g: GroupResult | undefined): ChildResult[] | undefined {
         ),
       }),
       ...(str(c.functionsWarning) && { functionsWarning: str(c.functionsWarning) }),
+      ...(c.ownSymbols === true && { ownSymbols: true }),
       ...(str(c.failed) && { failed: str(c.failed) }),
     }));
 }

@@ -13,7 +13,8 @@
  * when it is on PATH or in the cache.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ccc } from "@ckb-ccc/core";
 import { describe, expect, it } from "vitest";
@@ -24,6 +25,7 @@ import { functionCosts, profilesChildren } from "../src/flame.js";
 import { linkerMapFunctionNames, readLinkerMap } from "../src/linkmap.js";
 import type { MockTransaction } from "../src/mock.js";
 import { flameTransaction, type DebuggerOutput } from "../src/profile.js";
+import { childResult, formatReport, runReport } from "../src/report.js";
 
 const PROJECT = resolve("test/fixtures/spawn-project");
 const RELEASE = join(PROJECT, "build/release");
@@ -113,6 +115,68 @@ describe("a deployed binary with its own .symtab", () => {
   });
 });
 
+/**
+ * A report scenario on the heavy mock: spawn-parent given a symbols build (what
+ * `report` needs to record functions), spawn-child the deployed binary with its
+ * own .symtab and no build.
+ */
+function reportConfig(): string {
+  const dir = mkdtempSync(join(tmpdir(), "ckb-own-symtab-"));
+  writeFileSync(join(dir, "spawn-parent"), PARENT);
+  writeFileSync(join(dir, "heavy.json"), JSON.stringify(heavy));
+  const config = join(dir, "cycles.json");
+  writeFileSync(
+    config,
+    JSON.stringify({
+      functions: true,
+      binaries: { "spawn-parent": { path: "spawn-parent", symbols: join(RELEASE, "spawn-parent.debug"), codeHash: ccc.hashCkb(PARENT) } },
+      scenarios: [{ name: "heavy", mock: "heavy.json" }],
+    }),
+  );
+  return config;
+}
+
+describe("report: a spawned binary with its own .symtab", () => {
+  const base = { vm: 1, parent: 0, locator: "cell_dep[1][0..11552]", codeHash: CHILD_HASH, result: 0, cycles: 638_327n };
+  const folded = new Map([["_start;spawn_child::child_work", 606_720n], ["_start", 509n]]);
+
+  it("records its functions, with no symbols-build warning", () => {
+    const r = childResult({ ...base, ownSymbols: true, folded });
+    expect(r).toMatchObject({ ownSymbols: true, profiled: 607_229 });
+    expect(r.functions![0]).toEqual({ name: "spawn_child::child_work", self: 606_720, total: 606_720 });
+    expect(r.functionsWarning).toBeUndefined();
+  });
+
+  it("still warns for a binary with neither a build nor a .symtab", () => {
+    const r = childResult({ ...base, folded: new Map([["func_0x1218a", 5n]]) });
+    expect(r.ownSymbols).toBeUndefined();
+    expect(r.functions).toBeUndefined();
+    expect(r.functionsWarning).toMatch(/no symbols build/);
+  });
+
+  it("names the child in a report run (fake debugger)", async () => {
+    const d = fakeDebugger();
+    // The flamegraph runs write their .folded files where they are told.
+    const runDebugger = async (args: string[]) => {
+      const i = args.indexOf("--flamegraph-output");
+      if (i >= 0) writeFileSync(args[i + 1], /\.vm1\.folded$/.test(args[i + 1]) ? CHILD_FOLDED : "_start;spawn_parent::parent_work 7180\n_start 7794");
+      return d.run(args);
+    };
+    const r = await runReport(reportConfig(), { runDebugger });
+    expect(r.errors).toEqual([]);
+    const [g] = r.scenarios[0].groups;
+    expect(g.functionsWarning).toBeUndefined();
+    expect(g.functions![0].name).toBe("_start");
+    const [c] = g.children!;
+    expect(c).toMatchObject({ vm: 1, codeHash: CHILD_HASH, ownSymbols: true, result: 0 });
+    expect(c.functionsWarning).toBeUndefined();
+    expect(c.functions!.map((f) => f.name)).toEqual(["spawn_child::child_work", "_start", "__ckb_std_main"]);
+    expect(formatReport(r)).toContain("costliest (self): spawn_child::child_work 606,720");
+    // The child ran as deployed: no build for it was passed.
+    expect(d.calls.some((a) => a.includes("--vm-symbols"))).toBe(false);
+  });
+});
+
 /** A native ckb-debugger 1.1.2 or later: the resolved one, or the one `npm run compat -- fetch` caches. */
 const debugger112 = (() => {
   const version = (path: string) => {
@@ -154,5 +218,20 @@ describe.skipIf(!debugger112)("own .symtab with ckb-debugger 1.1.2", { timeout: 
     // Every frame is named: the table has a function at every address the profiler opened one.
     const names = [...g.folded.keys(), ...c.folded.keys()].flatMap((s) => s.split(";"));
     expect(names.some((n) => n.startsWith("func_0x"))).toBe(false);
+  });
+});
+
+describe.skipIf(!debugger112)("report: own .symtab with ckb-debugger 1.1.2", { timeout: 180_000 }, () => {
+  it("names the spawned binary's functions from its own table", async () => {
+    const r = await runReport(reportConfig(), { debuggerPath: debugger112! });
+    expect(r.errors).toEqual([]);
+    const [g] = r.scenarios[0].groups;
+    expect(g).toMatchObject({ cycles: 761_957, spawned: 1 });
+    expect(g.functionsWarning).toBeUndefined();
+    const [c] = g.children!;
+    expect(c).toMatchObject({ vm: 1, codeHash: CHILD_HASH, ownSymbols: true, result: 0 });
+    expect(c.functionsWarning).toBeUndefined();
+    expect(c.functions![0]).toEqual({ name: "spawn_child::child_work", self: 606_720, total: 606_720 });
+    expect(c.functions!.some((f) => f.name.startsWith("func_0x"))).toBe(false);
   });
 });

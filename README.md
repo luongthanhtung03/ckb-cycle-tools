@@ -309,7 +309,9 @@ profile of its own: the tool reads the spawn tree the debugger prints (VM ids,
 and the cell each binary came from), finds that binary in the transaction by its
 data hash, and replays that VM alone (`--vm-id N`), naming its functions with
 the unstripped build whose data hash (or cell type hash) matches
-(`--vm-symbols`, after checking the build has the same code as what the VM ran).
+(`--vm-symbols`, after checking the build has the same code as what the VM ran),
+or, with no build for it, from the binary's own `.symtab` if it kept one
+(`ownSymbols` on the child in a report).
 `flame` prints each spawned script's costliest functions under its group and
 writes `<selector>.vm<N>.svg` and `.folded`; `report` with `functions` records
 them as `children` of the group, and `diff` says which spawned script changed:
