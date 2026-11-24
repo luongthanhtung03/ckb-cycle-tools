@@ -11,8 +11,9 @@
  *
  * `"binaries"` swaps a deployed script for the one built from the commit under
  * test (see substitute.ts for the rules). A binary with `"symbols"` (an
- * unstripped build of the same code) can also say which functions its cycles
- * went to, in scenarios with `"functions": true`.
+ * unstripped build of the same code), or with `"map"` (the linker map its own
+ * stripped build wrote), can also say which functions its cycles went to, in
+ * scenarios with `"functions": true`.
  */
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -40,6 +41,16 @@ export interface BinaryConfig {
    * functions, in scenarios that ask for `functions`.
    */
   symbols?: string;
+  /**
+   * The linker map (`-Map`, GNU ld or lld) written by the build of `path`
+   * itself, relative to the config file like `path`: names the functions of
+   * that stripped binary, as `flame --map` does. The binary runs as it is; the
+   * map's functions are written into a copy of it as a symbol table, which
+   * ckb-debugger only reads for where functions start (`--vm-symbols`,
+   * 1.1.2 and later). A map whose `.text` or `_start` is not the binary's is
+   * refused. `symbols`, when given too, wins.
+   */
+  map?: string;
 }
 
 export interface ScenarioConfig {
@@ -96,6 +107,7 @@ export function parseCyclesConfig(json: string): CyclesConfig {
       fail(`binary "${name}": "outPoint" must be { "tx_hash": "0x…", "index": "0x0" }`);
     }
     if (b.symbols !== undefined && (typeof b.symbols !== "string" || !b.symbols)) fail(`binary "${name}": "symbols" must be a path`);
+    if (b.map !== undefined && (typeof b.map !== "string" || !b.map)) fail(`binary "${name}": "map" must be a path`);
   }
   if (c.functions !== undefined && typeof c.functions !== "boolean") fail(`"functions" must be true or false`);
   const seen = new Set<string>();
@@ -115,9 +127,9 @@ export function parseCyclesConfig(json: string): CyclesConfig {
     }
     if (s.functions !== undefined && typeof s.functions !== "boolean") fail(`scenario "${s.name}": "functions" must be true or false`);
   }
-  // Functions come only from a symbols build: asking without one would record nothing, silently.
-  if (c.scenarios.some((s) => s.functions ?? c.functions) && !Object.values(c.binaries ?? {}).some((b) => b.symbols)) {
-    fail(`"functions" needs a binary with "symbols" (an unstripped build of the same code)`);
+  // Functions come only from a symbols build or a linker map: asking without either would record nothing, silently.
+  if (c.scenarios.some((s) => s.functions ?? c.functions) && !Object.values(c.binaries ?? {}).some((b) => b.symbols || b.map)) {
+    fail(`"functions" needs a binary with "symbols" (an unstripped build of the same code) or "map" (the linker map of its build)`);
   }
   return c;
 }
@@ -346,24 +358,32 @@ export async function runReport(
           ...(txCycleLimit !== undefined && { txCycleLimit }),
           scriptNames,
         });
-        // The scripts whose code is a binary with symbols, when the scenario asks for functions.
-        const symbols = new Map<string, string>();
-        // The same builds by data hash: a spawned script is found by the binary it ran, not by a group.
-        const vmSymbols = new Map<string, string>();
+        // The scripts whose code is a binary with symbols or a map, when the scenario asks for functions.
+        const builds = new Map<string, FunctionSource>();
+        // The same builds and maps by data hash: a spawned script is found by the binary it ran, not by a group.
+        const vmSources: ChildSources = { symbols: new Map(), maps: new Map() };
         if (s.functions ?? config.functions) {
           for (const a of applied) {
-            const sym = config.binaries![a.name!].symbols;
-            if (sym) for (const k of a.scriptKeys) symbols.set(k.toLowerCase(), sym);
-            if (sym) vmSymbols.set(a.newDataHash.toLowerCase(), sym);
+            const { symbols: sym, map } = config.binaries![a.name!];
+            // A symbols build wins over a map, as --bin does over --map in flame.
+            const source: FunctionSource | undefined = sym
+              ? { symbols: sym, ...(map && { mapNote: `map ${map} ignored: the symbols build ${sym} is given for the same binary` }) }
+              : map
+                ? { map }
+                : undefined;
+            if (!source) continue;
+            for (const k of a.scriptKeys) builds.set(k.toLowerCase(), source);
+            if (sym) vmSources.symbols.set(a.newDataHash.toLowerCase(), sym);
+            else vmSources.maps.set(a.newDataHash.toLowerCase(), map!);
           }
         }
-        if (symbols.size) {
+        if (builds.size) {
           groups = groupResults(profile);
-          await recordFunctions(groups, swapped, symbols, binDir, inside, {
+          await recordFunctions(groups, swapped, builds, binDir, inside, {
             ...profileOptions,
             ...(scriptVersion !== undefined && { scriptVersion }),
             scriptNames,
-          }, vmSymbols);
+          }, vmSources);
         }
       }
       debuggerVersion ??= profile.env.debugger;
@@ -440,48 +460,81 @@ export async function runReport(
   };
 }
 
+/** Where a group's function names come from: its symbols build, or else its linker map. */
+interface FunctionSource {
+  symbols?: string;
+  map?: string;
+  /** Why a map given with it was not used (a symbols build wins). */
+  mapNote?: string;
+}
+
+/** Builds and linker maps of spawned binaries, by data hash, as the config names them. */
+interface ChildSources {
+  symbols: Map<string, string>;
+  maps: Map<string, string>;
+}
+
 /**
  * Adds `functions` to each group whose script (`codeHash:hashType`) is in
- * `symbols` (to the symbols build's path in the config), from a flamegraph run
- * of that group with that build. A build that does not cost the same cycles as
- * the binary it stands for is not the same code: the group gets a warning instead.
+ * `builds`, from a flamegraph run of that group: with its symbols build as
+ * `--bin`, or, with only a linker map, the binary itself with the map's
+ * functions as `--vm-symbols` (flame's `--map`, same checks). A symbols build
+ * that does not cost the same cycles as the binary it stands for is not the
+ * same code: the group gets a warning instead. A map that cannot be used (not
+ * this binary's, an older debugger) is a warning, or a `mapNote` when the
+ * frames were named anyway (from the binary's own `.symtab`).
  */
 async function recordFunctions(
   groups: GroupResult[],
   mock: MockTransaction,
-  symbols: Map<string, string>,
+  builds: Map<string, FunctionSource>,
   binDir: string,
   inside: (file: string) => Promise<string>,
   options: ProfileOptions,
-  vmSymbolPaths: Map<string, string> = new Map(),
+  childSources: ChildSources = { symbols: new Map(), maps: new Map() },
 ): Promise<void> {
   const fmt = (n: bigint | number) => n.toLocaleString("en-US");
-  const symbolsOf = (g: GroupResult) => symbols.get(`${g.codeHash}:${g.hashType}`.toLowerCase());
-  const wanted = groups.filter((g) => symbolsOf(g));
+  const sourceOf = (g: GroupResult) => builds.get(`${g.codeHash}:${g.hashType}`.toLowerCase());
+  const wanted = groups.filter((g) => sourceOf(g));
+  const isFile = (file: string) => stat(file).then((st) => st.isFile(), () => false);
   const bins: Record<string, string> = {};
+  const maps: Record<string, string> = {};
+  /** A map's resolved path → its path as the config gives it: what the report says. */
+  const mapPaths = new Map<string, string>();
   for (const g of wanted) {
+    const src = sourceOf(g)!;
+    if (src.mapNote) g.mapNote = src.mapNote;
+    const given = (src.symbols ?? src.map)!;
+    const what = src.symbols ? "the symbols build" : "the linker map";
     let file: string;
     try {
-      file = await inside(resolve(binDir, symbolsOf(g)!));
+      file = await inside(resolve(binDir, given));
     } catch (e) {
       g.functionsWarning = e instanceof Error ? e.message : String(e);
       continue;
     }
-    // A missing build is said on its group; the cycles are measured all the same.
-    const found = await stat(file).then(
-      (st) => st.isFile(),
-      () => false,
-    );
-    if (found) bins[g.codeHash] = file;
-    else g.functionsWarning = `cannot read the symbols build ${symbolsOf(g)}: build it first`;
+    // A missing build or map is said on its group; the cycles are measured all the same.
+    if (!(await isFile(file))) g.functionsWarning = `cannot read ${what} ${given}: build it first`;
+    else if (src.symbols) bins[g.codeHash] = file;
+    else {
+      maps[g.codeHash] = file;
+      mapPaths.set(file, given);
+    }
   }
-  const run = wanted.filter((g) => bins[g.codeHash]);
+  const run = wanted.filter((g) => bins[g.codeHash] || maps[g.codeHash]);
   if (!run.length) return;
-  // Builds for spawned scripts: one that cannot be read leaves that child's frames unnamed (said on the child).
+  // Builds and maps for spawned scripts: one that cannot be read leaves that child's frames unnamed (said on the child).
   const vmSymbols: Record<string, string> = {};
-  for (const [hash, sym] of vmSymbolPaths) {
+  for (const [hash, sym] of childSources.symbols) {
     const file = await inside(resolve(binDir, sym)).catch(() => undefined);
-    if (file && (await stat(file).then((st) => st.isFile(), () => false))) vmSymbols[hash] = file;
+    if (file && (await isFile(file))) vmSymbols[hash] = file;
+  }
+  for (const [hash, map] of childSources.maps) {
+    const file = await inside(resolve(binDir, map)).catch(() => undefined);
+    if (file && (await isFile(file))) {
+      maps[hash] ??= file;
+      mapPaths.set(file, map);
+    }
   }
   let flame: Awaited<ReturnType<typeof flameTransaction>>;
   try {
@@ -489,6 +542,7 @@ async function recordFunctions(
       ...options,
       bins,
       vmSymbols,
+      ...(Object.keys(maps).length && { maps }),
       scripts: run.map((g) => g.selector),
       readFile: (path) => readFile(path, "utf8"),
     });
@@ -498,37 +552,69 @@ async function recordFunctions(
   }
   for (const g of run) {
     const f = flame.groups.find((f) => f.selector === g.selector);
+    const src = sourceOf(g)!;
     if (f?.spawned) {
       g.spawned = f.spawned;
       g.profiled = Number(foldedTotal(f.folded));
     }
+    const mapNote = f?.mapNote && reportMapNote(f.mapNote, mapPaths);
+    if (mapNote) g.mapNote = mapNote;
+    // Named: by the symbols build (--bin), the map, or (a map refused) the binary's own .symtab.
+    const named = !!bins[g.codeHash] || !!f?.map || !!f?.ownSymbols;
     if (!f) g.functionsWarning = "the flamegraph run did not profile this group";
     else if (f.cycles !== BigInt(g.cycles) || resultLabel(f) !== resultLabel(g)) {
-      g.functionsWarning =
-        `the symbols build ${symbolsOf(g)} runs ${fmt(f.cycles)} cycles (${resultLabel(f)}), the binary ${fmt(g.cycles)} (${resultLabel(g)}): ` +
-        "not the same code, so its functions would not describe this binary";
-    } else if (!f.folded.size) g.functionsWarning = "the profiler recorded no stacks";
-    else {
-      g.functions = functionCosts(f.folded)
-        .slice(0, FUNCTION_LIMIT)
-        .map((c) => ({ name: c.name, self: Number(c.self), total: Number(c.total) }));
-      // Only beside a profile that checked out: the children were replayed with the same build.
-      if (f.children?.length) g.children = f.children.map(childResult);
-      if (f.childrenNote) g.childrenNote = f.childrenNote;
+      g.functionsWarning = src.symbols
+        ? `the symbols build ${src.symbols} runs ${fmt(f.cycles)} cycles (${resultLabel(f)}), the binary ${fmt(g.cycles)} (${resultLabel(g)}): ` +
+          "not the same code, so its functions would not describe this binary"
+        : `the flamegraph run of the binary took ${fmt(f.cycles)} cycles (${resultLabel(f)}), its plain run ${fmt(g.cycles)} (${resultLabel(g)}): ` +
+          "not the same run, so its functions would not describe it";
+    } else {
+      if (!named) g.functionsWarning = mapNote ?? "the linker map named no frame";
+      else if (!f.folded.size) g.functionsWarning = "the profiler recorded no stacks";
+      else {
+        g.functions = functionCosts(f.folded)
+          .slice(0, FUNCTION_LIMIT)
+          .map((c) => ({ name: c.name, self: Number(c.self), total: Number(c.total) }));
+        if (f.map) g.map = mapPaths.get(f.map) ?? f.map;
+        if (f.ownSymbols) g.ownSymbols = true;
+      }
+      // Only beside a profile that checked out (its cycles are the group's): the children were
+      // replayed with the same build. A root left unnamed (its map refused) still keeps them.
+      if (!named || f.folded.size) {
+        if (f.children?.length) g.children = f.children.map((c) => childResult(c, mapPaths));
+        if (f.childrenNote) g.childrenNote = f.childrenNote;
+      }
     }
   }
 }
 
-/** A spawned script's profile as a report records it: profiled frames, never a share of the group's total. */
-export function childResult(c: FlameChild): ChildResult {
+/**
+ * flame's note about a `--map` (`--map <resolved path> not used: …`) as a
+ * report says it: `map <path in the config> not used: …`, so a report does not
+ * carry the runner's paths.
+ */
+function reportMapNote(note: string, mapPaths: Map<string, string>): string {
+  for (const [file, given] of mapPaths) note = note.split(`--map ${file}`).join(`map ${given}`);
+  return note;
+}
+
+/**
+ * A spawned script's profile as a report records it: profiled frames, never a
+ * share of the group's total. `mapPaths` (a map's resolved path → its path in
+ * the config) rewrites the map's path where the child names it.
+ */
+export function childResult(c: FlameChild, mapPaths: Map<string, string> = new Map()): ChildResult {
   const script = c.name ?? (c.codeHash ? short(c.codeHash) : c.locator);
   const base = { vm: c.vm, parent: c.parent, script, ...(c.codeHash && { codeHash: c.codeHash }) };
   if (c.failed) return { ...base, failed: c.failed };
   const out: ChildResult = { ...base, result: c.result, ...(c.error && { error: c.error }), profiled: Number(foldedTotal(c.folded)) };
   // Named from the binary's own .symtab when no build was given for it (flame does the same).
   if (c.ownSymbols) out.ownSymbols = true;
+  // Named from its binary's linker map: the binary itself ran (flame --map).
+  if (c.map) out.map = mapPaths.get(c.map) ?? c.map;
+  if (c.mapNote) out.mapNote = reportMapNote(c.mapNote, mapPaths);
   if (c.symbolsWarning) out.functionsWarning = c.symbolsWarning;
-  else if (!c.symbols && !c.ownSymbols) out.functionsWarning = "no symbols build for the binary it ran: its frames have no names";
+  else if (!c.symbols && !c.ownSymbols && !c.map) out.functionsWarning = out.mapNote ?? "no symbols build for the binary it ran: its frames have no names";
   else if (!c.folded.size) out.functionsWarning = "the profiler recorded no stacks";
   else {
     out.functions = functionCosts(c.folded)
@@ -576,6 +662,13 @@ async function realParent(p: string): Promise<string> {
   }
 }
 
+/** Said wherever a linker map named a report's frames: nothing ties a map to the code it claims to describe. */
+export const reportMapNamesNote = (map: string): string =>
+  `names from the linker map ${termLine(map)} (the binary itself ran): the map is not checked against the code; frames sit where the map says`;
+
+/** Said where a group's frames were named from its binary's own `.symtab` (a map for it was not used). */
+const REPORT_OWN_SYMBOLS_NOTE = "names from the binary's own symbol table (it ran; only DWARF is stripped)";
+
 /** One spawned script under its group in the terminal report. */
 function childReportLine(c: ChildResult, groupOk = false): string {
   const fmt = (n: number) => n.toLocaleString("en-US");
@@ -587,6 +680,8 @@ function childReportLine(c: ChildResult, groupOk = false): string {
   return (
     `${head}: ${t(result)}, ${fmt(c.profiled ?? 0)} cycles in its profiled frames` +
     (top.length ? `; costliest (self): ${top.join(", ")}` : c.functionsWarning ? `; functions not recorded: ${t(c.functionsWarning)}` : "") +
+    (top.length && c.map ? `; ${reportMapNamesNote(c.map)}` : "") +
+    (c.mapNote && c.mapNote !== c.functionsWarning ? `; ${t(c.mapNote)}` : "") +
     (groupOk && (c.error || c.result !== 0) ? ` (${SERVER_EXIT_NOTE})` : "")
   );
 }
@@ -651,7 +746,13 @@ export function formatReport(report: CycleReport): string {
       else if (g.functions?.length) {
         const top = g.functions.slice(0, 3).map((f) => `${t(f.name)} ${fmt(f.self)}`);
         out.push("", `${t(s.name)} ${t(g.selector)}: costliest functions (self cycles): ${top.join(", ")}`);
+        if (g.map) out.push(`  ${reportMapNamesNote(g.map)}`);
+        if (g.ownSymbols) out.push(`  ${REPORT_OWN_SYMBOLS_NOTE}`);
         if (g.spawned) out.push(`  ${spawnNote({ ...g, head: g })}`);
+      }
+      if (g.mapNote && g.mapNote !== g.functionsWarning) {
+        if (!g.functionsWarning && !g.functions?.length) out.push("");
+        out.push(`  ${t(g.mapNote)}`);
       }
       for (const c of g.children ?? []) out.push(`  ${childReportLine(c, g.result === 0 && !g.error)}`);
       if (g.childrenNote) out.push(`  spawned scripts: ${t(g.childrenNote)}`);

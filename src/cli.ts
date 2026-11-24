@@ -51,7 +51,9 @@ Exit codes: 0 every script accepts (and the sum matches the node's)
                script group's result and cycles; --json writes them for diff.
                --binaries-from <dir> reads the binaries from another checkout
                (the PR's base). A binary with "symbols" in a scenario with
-               "functions" also records the group's costliest functions.
+               "functions" also records the group's costliest functions; with
+               "map" (its build's linker map) instead, they are named from the
+               map as flame --map does (the binary itself runs).
                --root <dir> (repeatable) refuses any file the config names
                outside those directories, symlinks resolved: for CI, where
                the cycles.json comes from a pull request;

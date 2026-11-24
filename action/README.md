@@ -307,7 +307,9 @@ must match.
 To see which functions changed, not only by how much a group did:
 
 - `"symbols"` on a binary: an unstripped build of the same code, relative to the
-  config like `path` (so `build` must produce it on both checkouts).
+  config like `path` (so `build` must produce it on both checkouts). Or
+  `"map"`: the linker map the stripped build itself wrote, which names the
+  functions without a second build (see the main README).
 - `"functions": true` at the top level (every scenario) or on a scenario (which
   overrides the top level).
 

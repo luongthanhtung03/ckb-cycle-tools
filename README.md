@@ -401,8 +401,9 @@ What to keep in mind:
 - Names are used as the map prints them. A name with an unbalanced `<` or `(`
   (lld-demangled C++ such as `operator<`) can merge frames in the `.folded`
   output, as it already can for a name from an ELF symbol table.
-- `report` and cycles.json have no map option yet: there, functions still need
-  a `symbols` build.
+- In `report`, a binary's `"map"` in cycles.json does the same for the binary
+  swapped in and for the spawned scripts that run it (see
+  [Which functions changed](#which-functions-changed)).
 
 **Flamegraph fidelity: what is exact and what is attributed.** The group's cycle
 total is exact: it is ckb-debugger's run of the deployed binary, the same number
@@ -583,6 +584,28 @@ function names.
 
 A Rust build keeps its symbols with `CARGO_PROFILE_RELEASE_STRIP=false`; build
 it next to the stripped one, from the same commit.
+
+**A linker map instead of a symbols build.** If the stripped build writes a
+linker map (`-C link-arg=-Map=build/release/my-lock.map`), give it as `"map"`
+instead of `"symbols"`:
+
+```json
+"my-lock": { "path": "build/release/my-lock", "map": "build/release/my-lock.map", "codeHash": "0x…" }
+```
+
+The functions are then named as [`flame --map`](#inside-a-script-flamegraphs) names them: the
+binary itself runs (so there is no second build to check against, and the
+cycles are its own), and a copy of it with the map's functions as a symbol
+table is only read for where functions start (ckb-debugger 1.1.2 or later). A
+spawned script that ran the binary is named from the map too. The same
+checks apply: a map whose `.text` or `_start` is not the binary's is refused
+(the group gets a warning instead of functions), a binary that already has a
+symbol table is named from it (`ownSymbols`) and told no map is needed, and a
+`symbols` build on the same binary wins, with a note (`mapNote`). The report
+records `map` on each group and spawned script it named, as the config gives
+the path, and the terminal report says the map is not checked against the
+code. lld writes some names demangled that a symbols build keeps mangled, so
+compare functions in `diff` between reports named the same way.
 
 ### From ckb-testtool tests (ckb-script-templates projects)
 
@@ -863,8 +886,8 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
   the version it used.
 - **Flamegraphs need symbols.** On-chain binaries are stripped; `flame` names
   functions only with an unstripped build passed by `--bin` (or `symbols` in a
-  cycles.json), or the linker map of a byte-identical build (`--map`, `flame`
-  only; the map is not checked against the code). The CLI draws the graphs, the PR comment lists the changed
+  cycles.json), or the linker map of a byte-identical build (`--map`, or `map`
+  in a cycles.json; the map is not checked against the code). The CLI draws the graphs, the PR comment lists the changed
   functions, and the web page draws a `.folded` file the CLI made.
 - **Groups run on their own.** Every group is a separate ckb-debugger run with
   its own 3,500,000,000-cycle limit; the node runs them in its own order under

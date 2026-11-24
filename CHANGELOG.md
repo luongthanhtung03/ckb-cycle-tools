@@ -2,6 +2,32 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+- `report` names functions from a linker map: `"map"` on a binary in
+  cycles.json (relative to the config like `path` and `symbols`) is the linker
+  map its own stripped build wrote. With `functions`, each group whose script
+  is that binary, and each spawned script that ran it, is named from the map
+  as `flame --map` does: the binary itself runs, and a copy with the map's
+  functions as its symbol table is only read for where functions start
+  (`--vm-symbols`, ckb-debugger 1.1.2 or later). The same checks as `flame`:
+  a map whose `.text` or `_start` is not the binary's is refused, a binary
+  that already has a symbol table is named from it (`ownSymbols`) and told no
+  map is needed, an older debugger leaves the frames unnamed; each says why.
+  A `symbols` build on the same binary wins, with a note.
+  - Report JSON (still version 1, fields added): `GroupResult.map`, `mapNote`
+    and `ownSymbols`; `ChildResult.map` and `mapNote`. Maps are named as the
+    config gives them, never by the runner's paths. The terminal report says
+    where names came from a map, which is not checked against the code.
+  - `"functions"` now needs a binary with `"symbols"` or `"map"`.
+  - `diff` compares such reports as any other (and keeps a child's `map`).
+    lld writes some names demangled that a symbols build keeps mangled, so
+    compare functions between reports named the same way.
+  - Checked with ckb-debugger 1.1.2 on the spawn fixture: the stripped
+    binaries with their rust-lld maps record the same cycles, profiled
+    totals and costliest functions as their unstripped builds.
+
 ## 1.5.0 (2026-11-24)
 
 Named frames for deployed binaries that have no unstripped build at hand: from
@@ -30,7 +56,7 @@ a linker map (`flame --map`) or from the binary's own `.symtab`.
     maps give the same `.folded` files, byte for byte, as the unstripped
     builds; a real deployed GNU ld binary (the secp256k1-blake160 lock, whose
     ELF header is inside its code segment) is tested with a GNU-format map.
-  - `flame` only; not in `report` yet.
+  - `flame` only; not in `report` yet (see Unreleased).
 - Names from a deployed binary's own `.symtab` (a release build with only
   DWARF stripped), with no `--bin` or `--map`. ckb-debugger's profiler opens a
   frame at each function its `.symtab` lists but names frames from DWARF only,
