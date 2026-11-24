@@ -27,13 +27,26 @@ function sectionFunction(section: string): string | undefined {
   return notFunction(name) ? undefined : name;
 }
 
-/** Address → raw names found there: symbols first (in map order), then section names. */
+/** Address → raw names found there: symbols first (in map order), then section names; and where `.text` and `_start` are. */
 interface Found {
   symbols: Map<bigint, string[]>;
   sections: Map<bigint, string>;
+  text?: { addr: bigint; size: bigint };
+  start?: bigint;
+}
+
+/** What a linker map says about a build's code (readLinkerMap). */
+export interface LinkerMap {
+  /** Start address → name of each function in a `.text` output section (linkerMapFunctionNames). */
+  names: Map<bigint, string>;
+  /** The `.text` output section's address and size, when the map gives them. */
+  text?: { addr: bigint; size: bigint };
+  /** Where `_start` is, when the map lists it in `.text`: the entry point of a CKB script. */
+  start?: bigint;
 }
 
 const addSymbol = (f: Found, at: bigint, name: string) => {
+  if (name === "_start" && f.start === undefined) f.start = at;
   if (notFunction(name)) return;
   const list = f.symbols.get(at) ?? f.symbols.set(at, []).get(at)!;
   if (!list.includes(name)) list.push(name);
@@ -64,6 +77,15 @@ const addSection = (f: Found, at: bigint, section: string, size: bigint) => {
  * against any code here: see flameTransaction's `maps`.
  */
 export function linkerMapFunctionNames(text: string): Map<bigint, string> {
+  return readLinkerMap(text).names;
+}
+
+/**
+ * The functions a linker map names (linkerMapFunctionNames), with what can
+ * tell a map of another build apart: the `.text` output section's address and
+ * size, and `_start`'s address (elfsym.ts compares them with the binary).
+ */
+export function readLinkerMap(text: string): LinkerMap {
   const lines = text.split(/\r?\n/);
   const found: Found = { symbols: new Map(), sections: new Map() };
   const header = lines.findIndex((l) => /^\s*(VMA|Address)\s+(LMA\s+)?Size\s+Align\s+Out\s+In\s+Symbol\s*$/.test(l));
@@ -75,7 +97,7 @@ export function linkerMapFunctionNames(text: string): Map<bigint, string> {
     names.set(at, tidy(list.find((n) => n === section) ?? list[0]));
   }
   for (const [at, name] of found.sections) if (!names.has(at)) names.set(at, tidy(name));
-  return names;
+  return { names, ...(found.text && { text: found.text }), ...(found.start !== undefined && { start: found.start }) };
 }
 
 /**
@@ -91,13 +113,16 @@ function tidy(name: string): string {
 
 function readLld(lines: string[], withLma: boolean, found: Found): void {
   // `%16llx %16llx %8llx %5u ` then the Out / In / Symbol column, each indented 8 more.
+  // Matched on the line without its trailing blanks, so no part of the pattern
+  // has to find where they start: `(\S.*?)\s*$` did, and backtracked
+  // quadratically over a long run of spaces (review, 24 Nov).
   const row = withLma
-    ? /^\s*([0-9a-fA-F]+)\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)\s+\d+ ( *)(\S.*?)\s*$/
-    : /^\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+\d+ ( *)(\S.*?)\s*$/;
+    ? /^\s*([0-9a-fA-F]+)\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)\s+\d+ ( *)(\S.*)$/
+    : /^\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+\d+ ( *)(\S.*)$/;
   let inText = false;
   let section = "";
   for (const line of lines) {
-    const m = row.exec(line);
+    const m = row.exec(line.trimEnd());
     if (!m) continue;
     const at = BigInt(`0x${m[1]}`);
     const size = BigInt(`0x${m[2]}`);
@@ -105,7 +130,11 @@ function readLld(lines: string[], withLma: boolean, found: Found): void {
     const what = m[4];
     if (indent < 4) {
       // An output section, or an assignment at the top level (`. = …`).
-      if (!/[=(]/.test(what)) inText = isText(what.split(/\s/)[0]);
+      if (!/[=(]/.test(what)) {
+        const out = what.split(/\s/)[0];
+        inText = isText(out);
+        if (out === ".text" && !found.text) found.text = { addr: at, size };
+      }
       section = "";
     } else if (!inText) {
       continue;
@@ -134,6 +163,8 @@ function readGnu(lines: string[], found: Found): void {
     const out = /^(\.[^\s]+|[A-Za-z_][^\s]*)(\s+0x[0-9a-fA-F]+\s+0x[0-9a-fA-F]+.*)?$/.exec(line);
     if (out && !/^\s/.test(line)) {
       inText = isText(out[1]);
+      const at = out[2] && /^\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)/.exec(out[2]);
+      if (out[1] === ".text" && at && !found.text) found.text = { addr: BigInt(`0x${at[1]}`), size: BigInt(`0x${at[2]}`) };
       pending = undefined;
       continue;
     }

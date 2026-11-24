@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { elfFunctionNames } from "../src/elf.js";
-import { linkerMapFunctionNames } from "../src/linkmap.js";
+import { linkerMapFunctionNames, readLinkerMap } from "../src/linkmap.js";
 
 const fixture = (name: string) => readFileSync(`test/fixtures/linkmap/${name}`, "utf8");
 const hex = (m: Map<bigint, string>) => Object.fromEntries([...m].map(([a, n]) => [`0x${a.toString(16)}`, n]));
@@ -96,5 +96,43 @@ describe("linkerMapFunctionNames: not a map", () => {
     expect(linkerMapFunctionNames("").size).toBe(0);
     expect(linkerMapFunctionNames("hello\n0x10 world\n  12 34 5 .text\n").size).toBe(0);
     expect(linkerMapFunctionNames(readFileSync("README.md", "utf8")).size).toBe(0);
+  });
+});
+
+describe("readLinkerMap: what tells another build's map apart", () => {
+  it("gives .text's address and size and _start's address, in both formats", () => {
+    expect(readLinkerMap(fixture("lld.map"))).toMatchObject({ text: { addr: 0x111c8n, size: 0x3a4n }, start: 0x111c8n });
+    expect(readLinkerMap(fixture("gnu-ld.map"))).toMatchObject({ text: { addr: 0x10108n, size: 0x1a2n }, start: 0x10108n });
+    expect(readLinkerMap(fixture("spawn-child-text.lld.map"))).toMatchObject({ text: { addr: 0x12174n, size: 0x183cn }, start: 0x12174n });
+    expect(readLinkerMap(fixture("spawn-parent-text.lld.map"))).toMatchObject({ text: { addr: 0x12514n, size: 0x25een }, start: 0x12514n });
+  });
+
+  it("leaves out what the map does not say", () => {
+    const map = readLinkerMap("Linker script and memory map\n.text 0x10000 0x20\n .text 0x10000 0x20 a.o\n                0x10000                main\n");
+    expect(map.text).toEqual({ addr: 0x10000n, size: 0x20n });
+    expect(map.start).toBeUndefined();
+    expect(readLinkerMap("").text).toBeUndefined();
+  });
+});
+
+describe("linkerMapFunctionNames: time", () => {
+  // `(\S.*?)\s*$` backtracked quadratically: 6.3 s for this row (review, 24 Nov).
+  const H = "             VMA              LMA     Size Align Out     In      Symbol\n";
+  const timed = (text: string) => {
+    const t = performance.now();
+    linkerMapFunctionNames(text);
+    return performance.now() - t;
+  };
+
+  it("reads a row with a long run of spaces in linear time", () => {
+    expect(timed(`${H}0 0 0 1 x${" ".repeat(40_000)}y\n`)).toBeLessThan(200);
+    expect(timed(`${H}0 0 0 1 ${" \t".repeat(40_000)}\n`)).toBeLessThan(200);
+    expect(timed(`${H}${"0 ".repeat(40_000)}\n`)).toBeLessThan(200);
+    expect(timed(`Linker script and memory map\n.text 0x0 0x10\n ${"0x1 ".repeat(40_000)}\n${" ".repeat(40_000)}0x1${" ".repeat(40_000)}\n`)).toBeLessThan(200);
+  });
+
+  it("still reads a name with spaces, without its trailing blanks", () => {
+    const map = `${H}           10000            10000      100     4 .text\n           10000            10000       20     2         a.o:(.text)\n           10000            10000        0     1                 <T as core::fmt::Debug>::fmt   \t\n`;
+    expect(hex(linkerMapFunctionNames(map))).toEqual({ "0x10000": "<T as core::fmt::Debug>::fmt" });
   });
 });
