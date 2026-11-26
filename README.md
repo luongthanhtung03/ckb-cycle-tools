@@ -47,7 +47,10 @@ ckb-cycles <tx hash>             # or without installing: npx -p ckb-cycle-tools
 ```
 
 [ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.6.0, ESM, Node 20 or
-later). It drives `ckb-debugger`, which must be on PATH or passed with `--debugger`.
+later). It drives `ckb-debugger`, found in this order: `--debugger <path>`, the
+`CKB_DEBUGGER_PATH` environment variable, PATH (a real executable, never a `.cmd`
+shim), then offckb's tools directory on Windows. `ckb-cycles --help` (or
+`ckb-cycles <command> --help`) lists every command and option.
 
 ## Try it
 
@@ -87,6 +90,7 @@ that the groups add up to exactly what the node reported.
 
 ```
 $ npm run cycles -- 0x64f695a23416d9a7b2d34bb7025140c90991b82e9f1dea98e103bc13a72b77ac
+tx 0x64f695a23416d9a7b2d34bb7025140c90991b82e9f1dea98e103bc13a72b77ac  (committed)
 
 GROUP  SCRIPT             RUN AT        RESULT      CYCLES  SHARE
 lock   Secp256k1Blake160  input.0.lock  ok       1,652,198  10.5%
@@ -94,7 +98,7 @@ type   0x3e9b6b…18bed7    input.0.type  ok      14,022,840  89.5%
 
 measured (sum of groups)  15,675,038
 reported by node          15,675,038  ✓ match
-ckb-debugger 1.1.1 · testnet · https://testnet.ckb.dev/
+ckb-debugger 1.1.2 · CKB-VM v2 for type scripts · testnet · https://testnet.ckb.dev/
 
 input.0.type logged:
   [DEBUG] counter: 1 input(s) -> 1 output(s)
@@ -172,8 +176,8 @@ and the spawn itself are in no frame. On a Crowns race
 finished, which the page says).
 From code: `wasmRunner(module, tx)` from `ckb-cycle-tools/wasm` plugs into
 `replayGroups` from `ckb-cycle-tools/replay`, and `profileSpawns` from
-`ckb-cycle-tools/children` with `wasmFiles(run)` splits a group; none of them
-uses Node built-ins.
+`ckb-cycle-tools/children` with `wasmFiles(run)` (from `ckb-cycle-tools/wasm`)
+splits a group; none of them uses Node built-ins.
 
 ### Before you send: the failure path
 
@@ -199,9 +203,11 @@ sum of groups, each run on its own  1,655,087
   and reports no cycles for a rejected tx (it runs lock groups, then type groups,
   each in script-hash order)
   the node never runs: input.0.lock
+ckb-debugger 1.1.2 · CKB-VM v2 for type scripts · testnet · https://testnet.ckb.dev/
 ```
 
-The session lock refuses with its code 12 (outflow over `max_per_tx`) after
+(Run from a checkout, the file is `test/fixtures/session-lock-overspend.json`;
+its input cells are read from testnet.) The session lock refuses with its code 12 (outflow over `max_per_tx`) after
 12,893 cycles; the secp256k1 lock fails too, because the edit invalidated the
 signature. CI replays this file and requires exactly that refusal.
 
@@ -270,6 +276,12 @@ script group in ckb-debugger's flamegraph mode, merges the stacks, names the
 frames by function, prints the costliest ones and writes an SVG flamegraph and
 a folded-stack file per group (open the `.folded` in
 [speedscope](https://www.speedscope.app/) for an interactive view).
+`-o <dir>` chooses the directory (default `./flame`), `--top <n>` how many
+functions it prints per group (default 8), `--script <selector>` (repeatable)
+limits it to some groups; `--file`, `--mainnet`, `--rpc`, `--timeout`,
+`--debugger` and `--name` work as for a transaction. It exits 1 when a group
+rejects or a `--bin` build does not cost what the deployed binary costs, 2 on a
+usage or environment error.
 
 Deployed scripts are stripped, so a profile of one is a single frame. (A
 binary deployed with its `.symtab`, only DWARF stripped, needs nothing: its
@@ -318,7 +330,9 @@ writes `<selector>.vm<N>.svg` and `.folded`; `report` with `functions` records
 them as `children` of the group, and `diff` says which spawned script changed:
 
 ```
-$ ckb-cycles report cycles.json        # test/fixtures/spawn-project, heavy scenario
+$ cd test/fixtures/spawn-project
+$ ckb-cycles scan mocks --binaries build/release --functions -o cycles.json
+$ ckb-cycles report cycles.json        # the heavy scenario's part
 heavy input.0.lock: costliest functions (self cycles): spawn_parent::parent_work 7,180, __ckb_std_main 2,965, ckb_std::syscalls::native::syscall_load 1,066
   This script spawned 1 other script: its cycles are in the group's total, but not in these functions, which are the spawning script's own (the profile covers 14,974 of its 761,957 cycles). Its own profile is listed separately.
   spawned vm 1 (spawn-child): ok, 635,605 cycles in its profiled frames; costliest (self): spawn_child::child_work 606,720, __ckb_std_main 26,869, _start 509
@@ -375,6 +389,24 @@ input.0.lock  0xb95123…b4324a  ok  761,957 cycles
   spawned vm 1  0x907733…00774d  (cell_dep[1][0..11552])  ok
     names from spawn-child.map (the deployed binary ran): the map is not checked against the code; frames sit where the map says
        606,720     606,720  spawn_child::child_work
+```
+
+`heavy-tx.json` there stands for the fixture's heavy transaction in RPC form,
+and the maps for the full maps rust-lld wrote. `--file` fetches a
+transaction's cells from a node and does not read a ckb-debugger mock, so this
+command needs a chain that has those cells. Offline, the same names come from
+`report` with `"map"` on each binary (see
+[Which functions changed](#which-functions-changed)): in a copy of
+`test/fixtures/spawn-project` after the `scan` above, with
+`test/fixtures/linkmap/spawn-parent-text.lld.map` and `spawn-child-text.lld.map`
+(the `.text` part of each map) in place of `"symbols"`, the heavy scenario
+reports the same 761,957 cycles and functions as with the symbols builds:
+
+```
+tests.test_spawn_heavy input.0.lock: costliest functions (self cycles): spawn_parent::parent_work 7,180, __ckb_std_main 2,965, ckb_std::syscalls::native::syscall_load 1,066
+  names from the linker map spawn-parent-text.lld.map (the binary itself ran): the map is not checked against the code; frames sit where the map says
+  ...
+  spawned vm 1 (spawn-child): ok, 635,605 cycles in its profiled frames; costliest (self): spawn_child::child_work 606,720, __ckb_std_main 26,869, _start 509; names from the linker map spawn-child-text.lld.map (the binary itself ran): ...
 ```
 
 What to keep in mind:
@@ -466,7 +498,9 @@ For a cycles.json from a pull request, `--root <dir>` (repeatable) refuses any
 file it names outside those directories, and ignores its `"rpc"` (with a
 warning; `--rpc` still applies). Mocks with ckb-debugger template directives
 (`{{ data <path> }}`, `{{ hash <path> }}`, …), or a field that should be hex and is not, are
-refused, with or without `--root`.
+refused, with or without `--root`. `--debugger`, `--rpc` and `--timeout` work
+as for a single transaction (the node is asked only for `tx` and `file`
+scenarios).
 
 With `--fail-above` or `--fail-on-result-change` set, `diff` fails on anything
 it could not check, not only on what it measured: a scenario either side could
@@ -513,8 +547,11 @@ such reports diff as they always did. Every manifest string (a toolchain, a
 path) is cleaned like any other report text before it reaches a terminal or a
 comment.
 
-Here the ckb-js-vm session lock was changed to allow one shannon more than its
-limit and to do extra work per recipient check:
+Here the ckb-js-vm session lock (`benchmarks/session-lock/js/index.ts`) was
+changed to allow one shannon more than its limit (`outflow > maxPerTx + 1n`)
+and to do extra work per recipient check (six more `equal(l,
+recipientLockHash)` calls), and built with `npm run bench:build` in a second
+checkout at `../pr` (the base is built the same way in this one):
 
 ```
 $ npx -p ckb-cycle-tools ckb-cycles report cycles.json --json base.json
@@ -525,9 +562,14 @@ $ npx -p ckb-cycle-tools ckb-cycles diff base.json head.json --fail-above 1
 
 | Scenario | Group | Script | Base | Head | Δ | Δ% | |
 |---|---|---|---:|---:|---:|---:|---|
-| one shannon over max\_per\_tx | `input.0.lock` | session-lock (ckb-js-vm) | 14,544,014 (exit 12) | 14,557,318 | +13,304 | +0.09% | **RESULT CHANGED: exit 12 → ok** |
-| pays the allowed recipient | `input.0.lock` | session-lock (ckb-js-vm) | 14,768,645 | 15,465,881 | +697,236 | +4.72% | **over 1%** |
-| spend exactly max\_per\_tx | `input.0.lock` | session-lock (ckb-js-vm) | 14,544,018 | 14,557,320 | +13,302 | +0.09% | |
+| session lock (js): one shannon over max\_per\_tx | `input.0.lock` | session-lock (ckb-js-vm) | 15,042,435 (exit 12) | 15,046,855 | +4,420 | +0.03% | **RESULT CHANGED: exit 12 → ok** |
+| session lock (js): pays the allowed recipient | `input.0.lock` | session-lock (ckb-js-vm) | 15,344,295 | 15,984,291 | +639,996 | +4.17% | **over 1%** |
+| session lock (js): spend exactly max\_per\_tx | `input.0.lock` | session-lock (ckb-js-vm) | 15,042,647 | 15,046,857 | +4,210 | +0.03% | |
+| session lock (js): aged input passes the rate limit | `input.0.lock` | session-lock (ckb-js-vm) | 15,124,852 | 15,129,122 | +4,270 | +0.03% | |
+| session lock (js): args too short | `input.0.lock` | session-lock (ckb-js-vm) | 14,271,272 (exit 10) | 14,272,536 (exit 10) | +1,264 | +<0.01% | |
+
+The diff exits 1 (the result change and the threshold). Measured with
+ckb-debugger 1.1.2.
 
 That table (with `--markdown`) is what the PR comment shows; unchanged groups
 fold away below it. This repo runs the Action on its own pull requests
@@ -768,8 +810,10 @@ The gates are `diff`'s (`--fail-above <percent>`, `--fail-on-result-change`, ...
 without one, a change is shown and the exit code stays 0. A run that fails
 its gate is not saved, so the next run is not compared with the regression.
 `--build <cmd>` / `--no-build`, `--test <cmd>`, `--mocks`, `--binaries`, `-o`
-and `--dir` change the defaults. The exit code is 2 when the build, the tests or
-a report did not complete.
+and `--dir` change the defaults. Functions are recorded when a `<name>.debug`
+is beside a binary; `--functions` requires it, `--no-functions` skips it.
+`--debugger` and `--toolchain` are passed to the reports. The exit code is 2
+when the build, the tests or a report did not complete.
 
 In [`scripts/templates-e2e.sh`](scripts/templates-e2e.sh), on the generated
 workspace, after the change to `alpha`:
@@ -933,7 +977,10 @@ the Linux builds weekly and on demand; its first run on GitHub (2 Nov 2026) pass
 - **Type ID is charged, not run.** The node verifies Type ID natively; the tools
   charge its fixed 1,000,000 cycles and check its rules the way the node does.
 - **Two debugger builds.** The CLI uses the native ckb-debugger you install
-  (CI pins 1.1.2; the examples here ran 1.1.1); the web page uses the WebAssembly build of
+  (CI pins 1.1.2; the CLI examples here that run from this repository were
+  re-run with 1.1.2 on 26 Nov 2026 and give the numbers shown; the
+  `scripts/templates-e2e.sh` outputs and the atlas come from earlier runs);
+  the web page uses the WebAssembly build of
   the 1.1.2 release. They agree on every transaction checked, and so do
   the releases in between ([Across ckb-debugger versions](#across-ckb-debugger-versions)),
   but a future CKB-VM change could reach one before the other; each result names
