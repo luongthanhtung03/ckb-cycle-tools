@@ -57,12 +57,14 @@ export const MAX_CHILD_PROFILES = 16;
 
 /**
  * Shown when a spawned script's own replay ends non-zero but its group
- * verified: typically a ckb-script-ipc server (`run_server`) that waits for
- * another request after the spawning script has finished, and fails on the
- * closed pipe. Its cycles up to there are the ones the group paid for.
+ * verified: typically a ckb-script-ipc server (`run_server`) that stops once
+ * the spawning script has finished and closed the pipe, either with -1
+ * (waiting on the closed pipe) or, since ckb-script-ipc 1.1.1, by returning
+ * and exiting with an error code of its own. Not a failure: its cycles up to
+ * there are the ones the group paid for.
  */
 export const SERVER_EXIT_NOTE =
-  "the group verified: a spawned script whose own replay ends non-zero is usually a server (ckb-script-ipc run_server) still waiting after the spawning script finished; its profile up to there is complete";
+  "the group verified, so this is the spawned script's own exit code, not a failure: usually a server (ckb-script-ipc run_server) stopping once the spawning script has finished and closed the pipe, with -1 or an error code of its own; its profile up to there is complete";
 
 /** Whether a child gets SERVER_EXIT_NOTE: its own replay ended non-zero (or the VM stopped it) while its group verified. */
 export const serverExit = (c: Pick<FlameChild, "result" | "error" | "failed">, groupOk: boolean): boolean =>

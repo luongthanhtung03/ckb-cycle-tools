@@ -403,7 +403,7 @@ describe("the terminal report", () => {
       children: [server],
     };
     const ok = formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "race", groups: [g] }] });
-    expect(ok).toContain("spawned vm 1 (game): exit -1, 115,556,444 cycles in its profiled frames (the group verified: ");
+    expect(ok).toContain("spawned vm 1 (game): exit -1, 115,556,444 cycles in its profiled frames (the group verified, so this is the spawned script's own exit code, not a failure: ");
     expect(ok).toContain("ckb-script-ipc run_server");
     // The group rejects too: the child's exit is a real failure, no note.
     const bad = formatReport({ tool: "ckb-cycles", version: 1, scenarios: [{ name: "race", groups: [{ ...g, result: 7 }] }] });

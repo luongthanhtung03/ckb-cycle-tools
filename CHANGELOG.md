@@ -13,6 +13,13 @@ This project follows [semantic versioning](https://semver.org/).
 - Docs: README, the Action's README and the ckb-testtool design note checked
   against 1.6.0's behaviour; examples re-run with ckb-debugger 1.1.2.
 
+### Changed
+- The note on a spawned script whose own replay ends non-zero while its group
+  verified now says it is that script's own exit code, not a failure, and
+  covers a ckb-script-ipc 1.1.1 server that returns on the closed pipe and
+  exits with an error code of its own (Crowns: exit 4), not only one left
+  waiting (-1).
+
 ## 1.6.0 (2026-11-24)
 
 ### Added
