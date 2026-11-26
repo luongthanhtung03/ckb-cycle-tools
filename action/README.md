@@ -294,6 +294,13 @@ A scenario is one of:
 - `file`: a transaction in RPC (or CCC) shape; its cells come from a node.
 - `tx`: a committed transaction hash.
 
+A scenario can also set `"scriptVersion"` (0, 1 or 2: the CKB-VM version for
+`hash_type: "type"` scripts; default the block's, or 2 with no block: a mock,
+or a transaction not on chain). At the top level, `"network"` (`testnet` or
+`mainnet`) and `"rpc"` (a node for `tx` and `file` scenarios; ignored under
+`--root`, as in the Action) choose the node, and `"names"` labels scripts as
+`--name` does.
+
 `binaries` swaps a deployed script for the one just built. Each entry matches
 code cell deps by `codeHash` (the cell's data hash, or its type script hash) or
 by `outPoint`. Paths are relative to the config file. The base report uses the
@@ -313,8 +320,9 @@ To see which functions changed, not only by how much a group did:
 - `"functions": true` at the top level (every scenario) or on a scenario (which
   overrides the top level).
 
-Each group whose script is a binary with `symbols` is then profiled once more
-with that build, and the report keeps its 15 costliest functions. The comment
+Each group whose script is a binary with `symbols` (or `map`) is then profiled
+once more with that build (or with the binary itself, named from the map), and
+the report keeps its 15 costliest functions. The comment
 gets a folded block per changed group with the functions whose self cycles
 changed (the ten largest changes). If the symbols build does not cost exactly
 what the binary costs, it is not the same code: the group gets a warning in the
