@@ -84,7 +84,7 @@ test("a group whose script spawns another is split by script, inside the group's
   await expect(spawn.nth(1).locator("td").nth(2)).toHaveText("exit -1");
   await expect(spawn.nth(1).locator("td").nth(3)).toHaveText("115,556,444");
   await expect(profile.getByText("spawned 1 other script: its cycles are in the 123,718,667")).toBeVisible();
-  await expect(profile.getByText(/# vm 1: the group verified: a spawned script whose own replay ends non-zero is usually a server/)).toBeVisible();
+  await expect(profile.getByText(/# vm 1: the group verified, so this is the spawned script.s own exit code, not a failure/)).toBeVisible();
 });
 
 test("with a ckb-debugger older than 1.1.2, the page says so and replays no spawned script", async ({ page }) => {
