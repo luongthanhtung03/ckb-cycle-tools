@@ -2,6 +2,17 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+- `ckb-cycles <command> --help` (and `-h`) prints the usage and exits 0; it
+  failed with "Unknown option '--help'" (exit 2) for every command but the
+  transaction form.
+- The usage line of `flame` lists `--timeout` and `--name`, which it already
+  accepted.
+- Docs: README, the Action's README and the ckb-testtool design note checked
+  against 1.6.0's behaviour; examples re-run with ckb-debugger 1.1.2.
+
 ## 1.6.0 (2026-11-24)
 
 ### Added
