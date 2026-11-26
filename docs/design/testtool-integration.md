@@ -1,6 +1,9 @@
 # Cycle reports from ckb-testtool tests
 
-Status: design, 28 Oct 2026. Asked for on
+Status: design, 28 Oct 2026; built as `scan` and the `ckb-cycles-testtool`
+crate in 1.1.0, and `ckb-cycles bench` in 1.6.0 (usage in the
+[README](../../README.md#from-ckb-testtool-tests-ckb-script-templates-projects)).
+The notes below are as written then. Asked for on
 [CKBuilder-projects#46](https://github.com/Nervos-Community-Catalyst/CKBuilder-projects/issues/46):
 reuse the Rust ckb-testtool scenarios a
 [ckb-script-templates](https://github.com/nervosnetwork/ckb-script-templates)
@@ -65,7 +68,7 @@ clang 19, ckb-debugger 1.1.1, in a Docker container: rust:1.99.0-slim, Debian 13
 
 ```
 make build                                  # build/release/<contract>, <contract>.debug
-CKB_CYCLES_MOCKS=$PWD/target/ckb-cycles cargo test
+CKB_CYCLES_MOCKS=$PWD/target/ckb-cycles cargo test -p tests
 ckb-cycles scan target/ckb-cycles --binaries build/release -o cycles.json
 ckb-cycles report cycles.json
 ```
