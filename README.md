@@ -14,7 +14,7 @@ Cycle measurement for CKB on-chain scripts.
 | w/c 26 Oct | ✅ ckb-js-vm vs Rust comparison harness; ✅ v1.0.0 on npm (27 Oct, planned for w/c 2 Nov); ✅ v1.1.0 (30 Oct): `ckb-cycles scan`, the ckb-testtool integration, the check across ckb-debugger releases |
 | w/c 2 Nov | ✅ v1.2.0 (5 Nov): scripts that spawn other scripts; ✅ v1.3.0 (7 Nov): result-change gates, reproducibility manifest |
 | w/c 16 Nov | ✅ v1.4.0 (19 Nov): each spawned script profiled on its own (`--vm-id`, ckb-debugger 1.1.2), in the CLI, the PR diff and the web page |
-| w/c 23 Nov | ✅ v1.5.0 (24 Nov): named frames for stripped deployed binaries, from a linker map (`flame --map`) or the binary's own `.symtab`; ✅ v1.6.0 (24 Nov): `ckb-cycles bench`, cargo-bench style baselines for ckb-script-templates projects; linker maps in `report` |
+| w/c 23 Nov | ✅ v1.5.0 (24 Nov): named frames for stripped deployed binaries, from a linker map (`flame --map`) or the binary's own `.symtab`; ✅ v1.6.0 (24 Nov): `ckb-cycles bench`, cargo-bench style baselines for ckb-script-templates projects; linker maps in `report`; v1.6.1: `<command> --help` for every command, docs checked against 1.6.0, clearer note on a spawned server's own exit code |
 
 ## The problem
 
@@ -46,7 +46,7 @@ npm install -g ckb-cycle-tools   # the ckb-cycles command
 ckb-cycles <tx hash>             # or without installing: npx -p ckb-cycle-tools ckb-cycles <tx hash>
 ```
 
-[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.6.0, ESM, Node 20 or
+[ckb-cycle-tools on npm](https://www.npmjs.com/package/ckb-cycle-tools) (v1.6.1, ESM, Node 20 or
 later). It drives `ckb-debugger`, found in this order: `--debugger <path>`, the
 `CKB_DEBUGGER_PATH` environment variable, PATH (a real executable, never a `.cmd`
 shim), then offckb's tools directory on Windows. `ckb-cycles --help` (or

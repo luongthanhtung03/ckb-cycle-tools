@@ -2,7 +2,7 @@
 
 This project follows [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.6.1 (2026-11-26)
 
 ### Fixed
 - `ckb-cycles <command> --help` (and `-h`) prints the usage and exits 0; it
