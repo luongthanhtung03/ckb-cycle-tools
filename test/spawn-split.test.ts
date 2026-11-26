@@ -223,6 +223,10 @@ describe("serverExit", () => {
   it("is the same note the report prints", () => {
     expect(SERVER_EXIT_NOTE).toBe(REPORT_SERVER_EXIT_NOTE);
     expect(SERVER_EXIT_NOTE).toMatch(/ckb-script-ipc run_server/);
+    // ckb-script-ipc 1.1.1: run_server returns on the closed pipe and the script exits with its own code (Crowns: 4)
+    expect(SERVER_EXIT_NOTE).toMatch(/own exit code, not a failure/);
+    expect(SERVER_EXIT_NOTE).not.toMatch(/still waiting/);
+    expect(serverExit(child({ result: 4 }), true)).toBe(true);
   });
 });
 
