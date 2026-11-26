@@ -30,7 +30,8 @@ const USAGE = `usage: ckb-cycles <tx-hash> [--mainnet] [--rpc <url>] [--timeout 
                   [--allow-removed] [--allow-changed-inputs] [--debugger <path>] [--toolchain <text>]
        ckb-cycles flame <tx-hash> | --file <tx.json>  [-o <dir>] [--script <selector> ...]
                   [--bin <code-hash>=<elf> ...] [--map <code-hash>=<linker map> ...] [--top <n>]
-                  [--mainnet] [--rpc <url>] [--debugger <path>]
+                  [--mainnet] [--rpc <url>] [--timeout <s>] [--debugger <path>]
+                  [--name <code-hash>[:<hash-type>]=<label> ...]
 
 Replays a CKB transaction in ckb-debugger, one run per script group, and prints
 the cycles each group cost.
@@ -518,8 +519,17 @@ async function childOutput(selector: string, c: FlameChild, dir: string, top: nu
   return out;
 }
 
+const COMMANDS = ["report", "diff", "mock", "flame", "scan", "bench"];
+
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
+  // `ckb-cycles <command> --help` (or -h) prints the usage, as `ckb-cycles --help` does,
+  // instead of failing on an unknown option. Arguments after `--` are positionals.
+  const own = rest.indexOf("--") === -1 ? rest : rest.slice(0, rest.indexOf("--"));
+  if (COMMANDS.includes(command) && own.some((a) => a === "--help" || a === "-h")) {
+    console.log(USAGE);
+    return 0;
+  }
   if (command === "report") return reportCommand(rest);
   if (command === "diff") return diffCommand(rest);
   if (command === "mock") return mockCommand(rest);
